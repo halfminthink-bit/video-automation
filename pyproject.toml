@@ -1,0 +1,10 @@
+﻿[project]
+name = "video-automation"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+[tool.poetry]
+name = "video-automation"
+version = "0.1.0"
+description = "Automated video pipeline"
+authors = ["you <you@example.com>"]

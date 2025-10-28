@@ -1,0 +1,17 @@
+﻿# Python
+__pycache__/
+*.pyc
+.venv/
+.env
+.env.*
+!.env.example
+
+# data & cache
+data/cache/
+data/working/
+logs/
+*.db
+
+# OS
+.DS_Store
+Thumbs.db
