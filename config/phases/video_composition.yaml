@@ -1,1 +1,20 @@
 ﻿# phase: video composition
+# Phase 8: 動画統合設定
+resolution: [1920, 1080]
+fps: 30
+codec: "libx264"
+audio_codec: "aac"
+preset: "medium"
+bitrate: "5000k"
+
+transitions:
+  default: "fade"
+  fade_duration: 1.0
+
+thumbnail:
+  use_ai_generation: false
+  fallback: "first_frame"
+
+metadata:
+  include_generation_stats: true
+  include_cost_breakdown: true

@@ -1,1 +1,35 @@
 ﻿# phase: audio generation
+# ========================================
+# Phase 2: 音声生成設定
+# ========================================
+
+# ElevenLabs API設定
+service: "elevenlabs"
+voice_id: "21m00Tcm4TlvDq8ikWAM"  # Rachel（要調整）
+model: "eleven_multilingual_v2"
+
+# 音声品質設定
+settings:
+  stability: 0.5          # 0-1（低いほどバリエーション豊か）
+  similarity_boost: 0.75  # 0-1（高いほど元の声に近い）
+  style: 0                # 0-1（スタイルの強さ）
+  use_speaker_boost: true # スピーカーブースト有効化
+
+# 出力フォーマット
+format:
+  codec: "mp3_44100_128"  # mp3_44100_128 or mp3_44100_192
+  sample_rate: 44100
+  channels: 1  # モノラル
+
+# セクション間の無音時間（秒）
+inter_section_silence: 0.5
+
+# リトライ設定
+retry:
+  max_attempts: 5
+  delay_seconds: 10  # レート制限を考慮
+
+# キャッシュ設定
+cache:
+  enabled: true
+  use_cached_audio: true  # 同じナレーションならキャッシュを使用

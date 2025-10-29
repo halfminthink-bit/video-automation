@@ -1,0 +1,51 @@
+# ========================================
+# Phase 3: 画像収集設定
+# ========================================
+
+# 画像ソース設定（優先度順）
+sources:
+  - name: "pexels"
+    api_key_env: "PEXELS_API_KEY"
+    per_keyword_limit: 5
+    priority: 1
+    base_url: "https://api.pexels.com/v1"
+    
+  - name: "wikimedia"
+    api_key_env: null
+    per_keyword_limit: 3
+    priority: 2
+    base_url: "https://commons.wikimedia.org/w/api.php"
+    
+  - name: "unsplash"
+    api_key_env: "UNSPLASH_API_KEY"
+    per_keyword_limit: 3
+    priority: 3
+    base_url: "https://api.unsplash.com"
+
+# 収集目標
+target_count_per_section: 3
+
+# 品質フィルター
+quality_filters:
+  min_width: 1920
+  min_height: 1080
+  aspect_ratio_range: [1.5, 1.9]
+  min_file_size_kb: 100
+  max_file_size_mb: 10
+
+# 画像分類設定
+classification:
+  use_claude_api: true
+  model: "claude-sonnet-4-20250514"
+  classification_prompt: |
+    以下の画像を分類してください。
+    選択肢: portrait, landscape, architecture, document, battle, daily_life
+    
+    回答は分類名のみを出力してください。
+
+# ダウンロード設定
+download:
+  parallel: true
+  max_workers: 5
+  timeout_seconds: 30
+  retry_attempts: 3

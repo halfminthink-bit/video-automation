@@ -1,1 +1,21 @@
 ﻿# phase: bgm selection
+# Phase 6: BGM選択設定
+bgm_library_path: "assets/bgm/"
+
+atmosphere_mapping:
+  "壮大": "epic"
+  "静か": "calm"
+  "希望": "hopeful"
+  "劇的": "dramatic"
+  "悲劇的": "tragic"
+
+default_settings:
+  volume: 0.3
+  fade_in_duration: 2.0
+  fade_out_duration: 2.0
+
+transition_between_sections:
+  type: "crossfade"
+  duration: 3.0
+
+avoid_consecutive_same_track: true

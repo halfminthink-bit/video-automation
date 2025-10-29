@@ -1,1 +1,71 @@
 ﻿# phase: script generation
+# ========================================
+# Phase 1: 台本生成設定
+# ========================================
+
+# Claude API設定
+model: "claude-sonnet-4-20250514"
+max_tokens: 8000
+temperature: 0.7
+
+# 台本構造
+sections:
+  count_min: 5
+  count_max: 7
+  target_duration_per_section: 120  # 秒（約2分）
+
+# AI動画生成のトリガーキーワード
+# これらのキーワードを含むセクションではAI動画を生成
+ai_video_trigger_keywords:
+  - "戦闘"
+  - "決戦"
+  - "襲撃"
+  - "建設"
+  - "革命"
+  - "即位"
+  - "凱旋"
+
+# プロンプトテンプレート
+prompt_template: |
+  あなたは歴史解説動画の台本作家です。
+  {subject}について、15分（約900秒）の動画台本を作成してください。
+  
+  ## 要件
+  1. 全体を5-7個のセクションに分割
+  2. 各セクションは約2分程度（120秒）
+  3. 高齢者にも分かりやすい言葉遣い
+  4. ナレーションは自然な話し言葉
+  5. 重要なシーンでは「AI動画が必要」と判定
+  
+  ## 出力形式（JSON）
+  {{
+    "title": "動画タイトル",
+    "description": "YouTube説明文",
+    "sections": [
+      {{
+        "section_id": 1,
+        "title": "セクションタイトル",
+        "narration": "ナレーション原稿（自然な話し言葉）",
+        "estimated_duration": 120,
+        "image_keywords": ["キーワード1", "キーワード2"],
+        "atmosphere": "壮大/静か/希望/劇的/悲劇的",
+        "requires_ai_video": false,
+        "ai_video_prompt": null
+      }}
+    ]
+  }}
+  
+  ## 注意事項
+  - 必ずJSON形式で出力
+  - ナレーションは読みやすく、句読点を適切に配置
+  - 画像キーワードは英語でも可（検索精度向上のため）
+  - AI動画が必要な場合、ai_video_promptに具体的な描写を記載
+
+# バリデーション設定
+validation:
+  min_sections: 4
+  max_sections: 8
+  min_section_duration: 60
+  max_section_duration: 240
+  min_total_duration: 600
+  max_total_duration: 1200

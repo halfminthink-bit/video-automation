@@ -1,1 +1,28 @@
 ﻿# phase: AI video generation
+# Phase 5: AI動画生成設定
+service: "kling_ai"
+api_provider: "replicate"
+model: "kwai-kolors/kling-1.6:latest"
+quality: "standard"  # standard or pro
+
+opening_video:
+  enabled: true
+  duration: 30
+  prompt_template: |
+    {subject}の生涯をドラマチックに描く冒頭シーン。
+    1080p、シネマティック、ドキュメンタリースタイル。
+
+key_moments:
+  max_count: 5
+  duration_per_clip: 10
+  prompt_template: |
+    {scene_description}
+    1080p、歴史ドキュメンタリー風、リアルな描写。
+
+cost_limit:
+  per_video_usd: 1.5
+  abort_if_exceeded: true
+
+polling:
+  check_interval_seconds: 30
+  max_wait_minutes: 15

@@ -1,1 +1,17 @@
-﻿[]
+[
+  {
+    "subject": "織田信長",
+    "enabled": true,
+    "priority": 1
+  },
+  {
+    "subject": "坂本龍馬",
+    "enabled": true,
+    "priority": 2
+  },
+  {
+    "subject": "徳川家康",
+    "enabled": false,
+    "priority": 3
+  }
+]

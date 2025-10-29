@@ -1,1 +1,105 @@
 ﻿# phase: image animation
+# ========================================
+# Phase 4: 静止画アニメーション設定
+# ========================================
+
+# デフォルトクリップ時間
+default_clip_duration: 8  # 秒
+
+# アニメーションパターン定義
+animation_patterns:
+  zoom_in:
+    zoom_factor: 1.1  # 10%拡大
+    duration: 8
+    easing: "ease_in_out"
+    
+  zoom_out:
+    zoom_factor: 0.9  # 10%縮小
+    duration: 8
+    easing: "ease_in_out"
+    
+  pan_right:
+    distance_percent: 10  # 画面幅の10%移動
+    duration: 8
+    easing: "linear"
+    
+  pan_left:
+    distance_percent: 10
+    duration: 8
+    easing: "linear"
+    
+  static:
+    duration: 6
+    # 完全静止
+
+# 画像分類ごとのデフォルトアニメーション
+classification_defaults:
+  portrait: "zoom_in"
+  landscape: "pan_right"
+  architecture: "zoom_in"
+  document: "static"
+  battle: "zoom_out"
+  daily_life: "pan_left"
+
+# アニメーションバリエーション
+variation_enabled: true  # 同じタイプが連続しないようランダム化
+
+# MoviePy設定
+moviepy:
+  fps: 30
+  preset: "medium"  # ultrafast, fast, medium, slow
+  threads: 4
+EOF
+cat /home/claude/video-automation/config/phases/image_animation.yaml
+出力
+
+# ========================================
+# Phase 4: 静止画アニメーション設定
+# ========================================
+
+# デフォルトクリップ時間
+default_clip_duration: 8  # 秒
+
+# アニメーションパターン定義
+animation_patterns:
+  zoom_in:
+    zoom_factor: 1.1  # 10%拡大
+    duration: 8
+    easing: "ease_in_out"
+    
+  zoom_out:
+    zoom_factor: 0.9  # 10%縮小
+    duration: 8
+    easing: "ease_in_out"
+    
+  pan_right:
+    distance_percent: 10  # 画面幅の10%移動
+    duration: 8
+    easing: "linear"
+    
+  pan_left:
+    distance_percent: 10
+    duration: 8
+    easing: "linear"
+    
+  static:
+    duration: 6
+    # 完全静止
+
+# 画像分類ごとのデフォルトアニメーション
+classification_defaults:
+  portrait: "zoom_in"
+  landscape: "pan_right"
+  architecture: "zoom_in"
+  document: "static"
+  battle: "zoom_out"
+  daily_life: "pan_left"
+
+# アニメーションバリエーション
+variation_enabled: true  # 同じタイプが連続しないようランダム化
+
+# MoviePy設定
+moviepy:
+  fps: 30
+  preset: "medium"  # ultrafast, fast, medium, slow
+  threads: 4

@@ -1,1 +1,71 @@
 ﻿# global settings
+# ========================================
+# 偉人動画自動生成システム - メイン設定
+# ========================================
+
+project:
+  name: "historical-figure-video-automation"
+  version: "1.0.0"
+  description: "AI-powered historical figure video generator"
+
+# ========================================
+# パス設定
+# ========================================
+paths:
+  working_dir: "data/working"
+  output_dir: "data/output"
+  cache_dir: "data/cache"
+  assets_dir: "assets"
+  logs_dir: "logs"
+
+# ========================================
+# 実行設定
+# ========================================
+execution:
+  skip_existing_outputs: true
+  parallel_processing: false
+  max_retries: 3
+  retry_delay_seconds: 5
+
+# ========================================
+# ログ設定
+# ========================================
+logging:
+  level: "INFO"
+  format: "[{levelname}] {asctime} - {name} - {message}"
+  to_file: true
+  to_console: true
+  rich_traceback: true
+
+# ========================================
+# コスト管理
+# ========================================
+cost_tracking:
+  enabled: true
+  alert_threshold_jpy: 2000
+  exchange_rate_usd_to_jpy: 150
+
+# ========================================
+# 各フェーズの設定ファイルパス
+# ========================================
+phases:
+  "01_script": "config/phases/script_generation.yaml"
+  "02_audio": "config/phases/audio_generation.yaml"
+  "03_images": "config/phases/image_collection.yaml"
+  "04_animation": "config/phases/image_animation.yaml"
+  "05_ai_video": "config/phases/ai_video_generation.yaml"
+  "06_bgm": "config/phases/bgm_selection.yaml"
+  "07_subtitles": "config/phases/subtitle_generation.yaml"
+  "08_composition": "config/phases/video_composition.yaml"
+
+# ========================================
+# デフォルト動画設定
+# ========================================
+video:
+  target_duration_seconds: 900
+  resolution:
+    width: 1920
+    height: 1080
+  fps: 30
+  codec: "libx264"
+  audio_codec: "aac"
