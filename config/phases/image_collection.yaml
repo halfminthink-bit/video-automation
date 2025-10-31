@@ -2,46 +2,185 @@
 # Phase 3: 画像収集設定
 # ========================================
 
-# 画像ソース設定（優先度順）
+# ========================================
+# 画像ソース使い分け戦略
+# ========================================
+# 
+# 【戦略】
+# 1. 人物・史跡 → Wikimedia優先（歴史的画像が豊富）
+# 2. 自然風景・雰囲気 → Pexels/Unsplash（高品質な現代写真）
+# 3. 戦闘・非現存 → AI生成（実写では不可能）
+#
+# 【自動判定ルール】
+# キーワードに基づいて最適なソースを自動選択
+#
+
+# キーワード別のソース優先順位
+keyword_strategy:
+  # 人物・肖像画 → Wikimedia優先
+  person_keywords:
+    - "portrait"
+    - "warlord"
+    - "samurai"
+    - "shogun"
+    - "person"
+    - "人物"
+    - "肖像"
+    source_priority: ["wikimedia", "ai_generation"]
+  
+  # 特定の場所・史跡 → Wikimedia優先
+  location_keywords:
+    - "castle"
+    - "temple"
+    - "shrine"
+    - "palace"
+    - "monument"
+    - "城"
+    - "寺"
+    - "神社"
+    source_priority: ["wikimedia", "ai_generation"]
+  
+  # 自然風景 → Pexels/Unsplash優先
+  nature_keywords:
+    - "landscape"
+    - "mountain"
+    - "river"
+    - "sky"
+    - "forest"
+    - "ocean"
+    - "風景"
+    - "山"
+    - "川"
+    source_priority: ["pexels", "unsplash", "wikimedia"]
+  
+  # 雰囲気・抽象 → Pexels/Unsplash優先
+  atmosphere_keywords:
+    - "sunset"
+    - "dawn"
+    - "fog"
+    - "light"
+    - "atmosphere"
+    - "夕日"
+    - "霧"
+    - "光"
+    source_priority: ["pexels", "unsplash"]
+  
+  # 戦闘シーン → AI生成必須
+  battle_keywords:
+    - "battle"
+    - "war"
+    - "fight"
+    - "combat"
+    - "siege"
+    - "戦い"
+    - "合戦"
+    - "決戦"
+    source_priority: ["ai_generation"]
+  
+  # デフォルト → Wikimedia → Pexels → AI
+  default_priority: ["wikimedia", "pexels", "unsplash", "ai_generation"]
+
+# ========================================
+# 画像ソース設定
+# ========================================
+
 sources:
-  - name: "pexels"
-    api_key_env: "PEXELS_API_KEY"
-    per_keyword_limit: 5
-    priority: 1
-    base_url: "https://api.pexels.com/v1"
-    
+  # Wikimedia Commons: 歴史的画像（人物・史跡）
   - name: "wikimedia"
     api_key_env: null
+    per_keyword_limit: 5
+    priority: 1
+    user_agent: "VideoAutomation/1.0 (https://github.com/yourproject; contact@example.com)"
+    use_category_search: true
+    enabled: true
+    
+  # Pexels: 現代の高品質写真（風景・雰囲気）
+  - name: "pexels"
+    api_key_env: "PEXELS_API_KEY"
     per_keyword_limit: 3
     priority: 2
-    base_url: "https://commons.wikimedia.org/w/api.php"
+    base_url: "https://api.pexels.com/v1"
+    enabled: true
     
+  # Unsplash: アーティスティック写真（雰囲気）
   - name: "unsplash"
     api_key_env: "UNSPLASH_API_KEY"
-    per_keyword_limit: 3
+    per_keyword_limit: 2
     priority: 3
     base_url: "https://api.unsplash.com"
+    enabled: true
+
+# ========================================
+# AI画像生成設定（DALL-E 3）
+# ========================================
+
+ai_generation:
+  enabled: true  # AI生成を有効化
+  service: "dall-e-3"
+  api_key_env: "OPENAI_API_KEY"
+  
+  # 生成条件
+  trigger_conditions:
+    - no_results_found: true     # 検索で見つからない場合
+    - battle_keywords: true      # 戦闘キーワードがある場合
+    - required_by_script: true   # 台本でrequires_ai_video=trueの場合
+  
+  # 生成設定
+  settings:
+    size: "1792x1024"            # 16:9比率
+    quality: "standard"          # standard ($0.04) or hd ($0.08)
+    style: "photorealistic"      # 写実的
+  
+  # コスト管理
+  cost_limit:
+    per_image_usd: 0.04
+    max_total_usd: 2.0           # 1動画あたり最大$2（¥300）
+    warn_threshold_usd: 1.5      # 警告閾値
+  
+  # プロンプトテンプレート
+  prompt_template: |
+    A photorealistic historical documentary-style image: {keyword}
+    
+    Style: Cinematic, 16:9 composition, professional documentary quality
+    Atmosphere: {atmosphere}
+    Context: {context}
+    
+    Requirements:
+    - No text, watermarks, or modern elements
+    - Rich in historical detail
+    - Suitable for educational content
+    - Natural lighting and colors
+
+# ========================================
+# 収集・品質設定
+# ========================================
 
 # 収集目標
 target_count_per_section: 3
 
 # 品質フィルター
 quality_filters:
-  min_width: 1920
-  min_height: 1080
-  aspect_ratio_range: [1.5, 1.9]
+  min_width: 1280
+  min_height: 720
+  aspect_ratio_range: [1.3, 2.0]
   min_file_size_kb: 100
   max_file_size_mb: 10
 
 # 画像分類設定
 classification:
-  use_claude_api: true
+  use_claude_api: false  # パターンマッチングで高速化
   model: "claude-sonnet-4-20250514"
+  max_workers: 3
   classification_prompt: |
-    以下の画像を分類してください。
-    選択肢: portrait, landscape, architecture, document, battle, daily_life
+    Classify this image into one of the following categories:
+    - portrait: Human portraits, character focus
+    - landscape: Natural scenery, outdoor views
+    - architecture: Buildings, castles, temples
+    - document: Historical documents, texts
+    - battle: War scenes, military action
+    - daily_life: Everyday activities, cultural scenes
     
-    回答は分類名のみを出力してください。
+    Respond with only the category name.
 
 # ダウンロード設定
 download:
@@ -49,3 +188,9 @@ download:
   max_workers: 5
   timeout_seconds: 30
   retry_attempts: 3
+
+# バリデーション
+validation:
+  min_images: 10  # 最低限必要な画像数（警告のみ）
+  warn_if_all_ai: true  # 全てAI生成の場合に警告
+  warn_if_no_wikimedia: true  # Wikimedia画像がない場合に警告
