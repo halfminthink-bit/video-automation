@@ -1,51 +1,47 @@
-﻿# phase: image animation
-# ========================================
-# Phase 4: 静止画アニメーション設定
-# ========================================
+﻿# Phase 4: Image Animation & AI Video Generation
+# 静止画アニメーション・AI動画化の設定
 
-# デフォルトクリップ時間
+# AI動画生成を有効化するか（Replicate経由のKling AI）
+ai_video_enabled: true  # false にすると簡易アニメーションのみ
+
+# 簡易アニメーション設定
 default_clip_duration: 8  # 秒
 
-# アニメーションパターン定義
+# MoviePyアニメーション設定
 animation_patterns:
-  zoom_in:
-    zoom_factor: 1.1  # 10%拡大
-    duration: 8
-    easing: "ease_in_out"
-    
-  zoom_out:
-    zoom_factor: 0.9  # 10%縮小
-    duration: 8
-    easing: "ease_in_out"
-    
   pan_right:
     distance_percent: 10  # 画面幅の10%移動
-    duration: 8
     easing: "linear"
     
   pan_left:
     distance_percent: 10
-    duration: 8
     easing: "linear"
-    
-  static:
-    duration: 6
-    # 完全静止
 
-# 画像分類ごとのデフォルトアニメーション
-classification_defaults:
-  portrait: "zoom_in"
-  landscape: "pan_right"
-  architecture: "zoom_in"
-  document: "static"
-  battle: "zoom_out"
-  daily_life: "pan_left"
+# AI動画生成設定（Replicate経由のKling AI）
+ai_video_duration: 5  # 秒（5秒または10秒が推奨）
 
-# アニメーションバリエーション
-variation_enabled: true  # 同じタイプが連続しないようランダム化
+# ポーリング設定
+max_polling_attempts: 60  # 最大試行回数
+poll_interval_seconds: 10  # ポーリング間隔（秒）
 
-# MoviePy設定
-moviepy:
+# AI動画を使用する条件:
+# 1. battle分類の画像
+# 2. 劇的・悲劇的な雰囲気のセクション
+# 3. その他ランダムで20%
+
+# コスト管理（参考情報）
+# Replicate料金:
+#   - Kling 1.6 Pro: 約$0.10-0.20/動画（5秒）
+#   - 処理時間: 1-3分/動画
+# 予想コスト: AI動画5本で約$0.50-1.00
+
+cost_limit:
+  per_video_usd: 0.5     # 1本あたり上限（参考）
+  max_total_usd: 10.0    # 1動画全体の上限（参考）
+  warn_threshold_usd: 8.0
+
+# 出力設定
+output:
+  resolution: [1920, 1080]
   fps: 30
-  preset: "medium"  # ultrafast, fast, medium, slow
-  threads: 4
+  codec: "libx264"

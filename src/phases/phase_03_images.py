@@ -1,53 +1,96 @@
 ﻿"""
-Phase 3: 画像収集・生成
+Phase 3: AI画像生成（Stable Diffusion専用）- 修正版
 
-台本のキーワードに基づいて、最適な画像を収集または生成する。
-ハイブリッド戦略: 無料素材検索 + AI生成
+台本のキーワードに基づいて、Stable Diffusionで画像を生成する。
+各セクションごとに適切な枚数の画像を生成。
+
+修正点:
+- get_phase_directory()を実装
+- config.get_phase_dir()の代わりにworking_dirを直接使用
 """
 
-import os
 import json
 import logging
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict
 from datetime import datetime
 
-from ..core.phase_base import PhaseBase
-from ..core.models import (
+from src.core.models import (
     ImageCollection,
     CollectedImage,
     ImageClassification,
     VideoScript
 )
-from ..core.config_manager import ConfigManager
-from ..core.exceptions import PhaseExecutionError, MissingAPIKeyError
-from ..generators.image_collector import ImageCollector
-from ..utils.logger import log_progress
+from src.core.config_manager import ConfigManager
+from src.generators.image_generator import ImageGenerator
 
 
-class Phase03Images(PhaseBase):
+class Phase03Images:
     """
-    Phase 3: 画像収集・生成
+    Phase 3: AI画像生成（Stable Diffusion）
     
     処理フロー:
-    1. 台本から画像キーワードを抽出
-    2. 各キーワードに対して最適な戦略を決定
-       - 無料素材で検索 (Wikimedia, Pexels, Unsplash)
-       - AI生成 (DALL-E 3) ※将来実装
-    3. 画像をダウンロード/生成
-    4. 品質フィルタリング
-    5. 分類（Claude APIまたはパターンマッチ）
+    1. 台本を読み込み
+    2. セクションごとにキーワードを抽出
+    3. キーワードごとにSD画像を生成
+       - Claudeでプロンプト最適化
+       - スタイル自動選択
+    4. 生成結果を保存
     """
+    
+    def __init__(
+        self,
+        subject: str,
+        working_dir: Path,
+        config: ConfigManager,
+        logger: logging.Logger
+    ):
+        self.subject = subject
+        self.working_dir = working_dir
+        self.config = config
+        self.logger = logger
+        
+        # Phase 3固有のディレクトリ
+        self.phase_dir = self.get_phase_directory()
+        self.phase_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Phase設定を読み込み
+        self.phase_config = self._load_phase_config()
     
     def get_phase_number(self) -> int:
         return 3
     
     def get_phase_name(self) -> str:
-        return "Image Collection"
+        return "AI Image Generation"
+    
+    def get_phase_directory(self) -> Path:
+        """フェーズのワーキングディレクトリを返す"""
+        return self.working_dir / f"{self.get_phase_number():02d}_images"
+    
+    def _load_phase_config(self) -> dict:
+        """Phase 3の設定を読み込み"""
+        try:
+            return self.config.get_phase_config(self.get_phase_number())
+        except Exception as e:
+            self.logger.warning(f"Failed to load phase config: {e}")
+            # デフォルト設定
+            return {
+                "images_per_section": 3,
+                "ai_generation": {
+                    "enabled": True,
+                    "service": "stable-diffusion",
+                    "stability_api_key_env": "STABILITY_API_KEY",
+                    "claude_api_key_env": "CLAUDE_API_KEY",
+                    "optimize_prompts": True
+                },
+                "validation": {
+                    "min_images": 10
+                }
+            }
     
     def check_inputs_exist(self) -> bool:
         """Phase 1の台本が必要"""
-        script_path = self.config.get_phase_dir(self.subject, 1) / "script.json"
+        script_path = self.working_dir / "01_script" / "script.json"
         return script_path.exists()
     
     def check_outputs_exist(self) -> bool:
@@ -79,65 +122,73 @@ class Phase03Images(PhaseBase):
     def get_input_paths(self) -> List[Path]:
         """入力ファイルパスのリスト"""
         return [
-            self.config.get_phase_dir(self.subject, 1) / "script.json"
+            self.working_dir / "01_script" / "script.json"
         ]
     
     def get_output_paths(self) -> List[Path]:
         """出力ファイルパスのリスト"""
         return [
             self.phase_dir / "classified.json",
-            self.phase_dir / "download_log.json"
+            self.phase_dir / "generation_log.json"
         ]
     
     def execute_phase(self) -> ImageCollection:
         """Phase 3の実行"""
-        self.logger.info(f"Starting image collection for {self.subject}")
+        self.logger.info(f"Starting AI image generation for {self.subject}")
         
         # 1. 台本を読み込み
         script = self._load_script()
         self.logger.info(f"Loaded script with {len(script.sections)} sections")
         
-        # 2. キーワードを抽出
-        all_keywords = self._extract_keywords(script)
-        self.logger.info(f"Extracted {len(all_keywords)} unique keywords")
+        # 2. 画像生成の準備
+        generated_dir = self.phase_dir / "generated"
+        generated_dir.mkdir(parents=True, exist_ok=True)
         
-        # 3. 画像収集の準備
-        collected_dir = self.phase_dir / "collected"
-        collected_dir.mkdir(parents=True, exist_ok=True)
+        # 3. AI画像生成器を初期化
+        generator = self._create_generator(generated_dir)
         
-        # 4. 画像コレクターを初期化
-        collector = self._create_collector(collected_dir)
+        # 4. セクションごとに画像を生成
+        all_images = []
+        total_cost = 0.0
         
-        # 5. 画像を収集
-        target_count = self.phase_config.get("target_count_per_section", 3) * len(script.sections)
-        min_width = self.phase_config.get("quality_filters", {}).get("min_width", 1280)
-        min_height = self.phase_config.get("quality_filters", {}).get("min_height", 720)
+        images_per_section = self.phase_config.get("images_per_section", 3)
         
-        self.logger.info(f"Collecting {target_count} images...")
+        for section_idx, section in enumerate(script.sections):
+            self.logger.info(f"Generating images for Section {section_idx + 1}: {section.title}")
+            
+            # セクションの画像を生成
+            section_images = self._generate_section_images(
+                generator=generator,
+                section=section,
+                section_id=section_idx,
+                target_count=images_per_section
+            )
+            
+            all_images.extend(section_images)
+            total_cost = generator.get_total_cost()
+            
+            self.logger.info(
+                f"Section {section_idx + 1} complete: "
+                f"{len(section_images)} images, "
+                f"total cost: ${total_cost:.2f}"
+            )
         
-        collected_images = collector.collect_images(
-            keywords=all_keywords,
-            target_count=target_count,
-            min_width=min_width,
-            min_height=min_height
+        self.logger.info(
+            f"Total: {len(all_images)} images generated, "
+            f"cost: ${total_cost:.2f}"
         )
         
-        self.logger.info(f"Collected {len(collected_images)} images")
-        
-        # 6. 画像を分類
-        classified_images = self._classify_images(collected_images)
-        
-        # 7. 結果を保存
+        # 5. 結果を保存
         result = ImageCollection(
             subject=self.subject,
-            images=classified_images,
+            images=all_images,
             collected_at=datetime.now()
         )
         
-        self._save_results(result)
+        self._save_results(result, total_cost)
         
-        # 8. 統計情報をログ出力
-        self._log_statistics(result)
+        # 6. 統計情報をログ出力
+        self._log_statistics(result, total_cost)
         
         return result
     
@@ -147,14 +198,14 @@ class Phase03Images(PhaseBase):
             return False
         
         if len(output.images) == 0:
-            self.logger.warning("No images collected!")
+            self.logger.warning("No images generated!")
             return False
         
         # 最低限の画像数チェック
         min_images = self.phase_config.get("validation", {}).get("min_images", 10)
         if len(output.images) < min_images:
             self.logger.warning(
-                f"Only {len(output.images)} images collected "
+                f"Only {len(output.images)} images generated "
                 f"(minimum: {min_images})"
             )
         
@@ -172,121 +223,165 @@ class Phase03Images(PhaseBase):
     
     def _load_script(self) -> VideoScript:
         """台本を読み込み"""
-        script_path = self.config.get_phase_dir(self.subject, 1) / "script.json"
+        script_path = self.working_dir / "01_script" / "script.json"
         
         with open(script_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
         return VideoScript(**data)
     
-    def _extract_keywords(self, script: VideoScript) -> List[str]:
-        """台本からキーワードを抽出"""
-        all_keywords = []
+    def _create_generator(self, output_dir: Path) -> ImageGenerator:
+        """AI画像生成器を作成"""
+        ai_config = self.phase_config.get("ai_generation", {})
         
-        for section in script.sections:
-            all_keywords.extend(section.image_keywords)
+        if not ai_config.get("enabled", True):
+            raise Exception("AI generation is disabled in config")
         
-        # 重複を削除してユニーク化
-        unique_keywords = list(set(all_keywords))
+        service = ai_config.get("service", "stable-diffusion")
         
-        # 空のキーワードを除外
-        unique_keywords = [kw for kw in unique_keywords if kw.strip()]
+        # APIキーを取得
+        if service == "stable-diffusion":
+            api_key_env = ai_config.get("stability_api_key_env", "STABILITY_API_KEY")
+        else:
+            api_key_env = ai_config.get("openai_api_key_env", "OPENAI_API_KEY")
         
-        return unique_keywords
-    
-    def _create_collector(self, output_dir: Path) -> ImageCollector:
-        """画像コレクターを作成"""
-        # ソース設定を読み込み
-        sources_config = self.phase_config.get("sources", [])
+        try:
+            api_key = self.config.get_api_key(api_key_env)
+        except Exception as e:
+            raise Exception(f"API key not found: {api_key_env}") from e
         
-        # APIキーを環境変数から取得
-        for source in sources_config:
-            api_key_env = source.get("api_key_env")
-            if api_key_env:
-                api_key = os.getenv(api_key_env)
-                if api_key:
-                    source["api_key"] = api_key
-                else:
-                    self.logger.warning(
-                        f"API key not found: {api_key_env} "
-                        f"(source: {source['name']})"
-                    )
+        # Claudeキー（プロンプト最適化用、オプション）
+        claude_key = None
+        if ai_config.get("optimize_prompts", True):
+            claude_key_env = ai_config.get("claude_api_key_env", "CLAUDE_API_KEY")
+            try:
+                claude_key = self.config.get_api_key(claude_key_env)
+                self.logger.info("Prompt optimization enabled")
+            except Exception:
+                self.logger.warning("Claude API key not found, using simple prompts")
         
-        return ImageCollector(
-            sources_config=sources_config,
+        # キャッシュディレクトリ
+        cache_dir = Path(self.config.get("paths.cache_dir", "data/cache")) / "generated_images"
+        
+        return ImageGenerator(
+            api_key=api_key,
+            service=service,
+            claude_api_key=claude_key,
             output_dir=output_dir,
+            cache_dir=cache_dir,
             logger=self.logger
         )
     
-    def _classify_images(self, images: List[CollectedImage]) -> List[CollectedImage]:
-        """
-        画像を分類
-        
-        Args:
-            images: 収集した画像のリスト
-            
-        Returns:
-            分類済み画像のリスト
-        """
-        classification_config = self.phase_config.get("classification", {})
-        use_claude = classification_config.get("use_claude_api", False)
-        
-        if use_claude:
-            # Claude APIで分類（高精度だが遅い）
-            self.logger.info("Classifying images with Claude API...")
-            return self._classify_with_claude(images)
-        else:
-            # パターンマッチングで分類（高速）
-            self.logger.info("Classifying images with pattern matching...")
-            return self._classify_with_pattern(images)
-    
-    def _classify_with_pattern(
+    def _generate_section_images(
         self,
-        images: List[CollectedImage]
+        generator: ImageGenerator,
+        section,
+        section_id: int,
+        target_count: int
     ) -> List[CollectedImage]:
         """
-        パターンマッチングで分類（高速）
+        セクションの画像を生成
         
-        キーワードから推測して分類する。
-        """
-        for img in images:
-            # キーワードを小文字に変換
-            keywords_lower = [kw.lower() for kw in img.keywords]
-            keywords_str = " ".join(keywords_lower)
+        Args:
+            generator: ImageGenerator
+            section: ScriptSection
+            section_id: セクションID
+            target_count: 生成する画像数
             
-            # パターンマッチング
-            if any(word in keywords_str for word in ["portrait", "warlord", "samurai", "person", "man", "woman"]):
-                img.classification = ImageClassification.PORTRAIT
-            elif any(word in keywords_str for word in ["castle", "architecture", "building", "temple", "shrine"]):
-                img.classification = ImageClassification.ARCHITECTURE
-            elif any(word in keywords_str for word in ["battle", "war", "fight", "combat"]):
-                img.classification = ImageClassification.BATTLE
-            elif any(word in keywords_str for word in ["landscape", "mountain", "river", "nature", "scenery"]):
-                img.classification = ImageClassification.LANDSCAPE
-            elif any(word in keywords_str for word in ["document", "manuscript", "scroll", "text"]):
-                img.classification = ImageClassification.DOCUMENT
-            else:
-                img.classification = ImageClassification.DAILY_LIFE
+        Returns:
+            生成された画像のリスト
+        """
+        images = []
+        
+        # キーワードを取得
+        keywords = section.image_keywords[:target_count]
+        
+        if len(keywords) < target_count:
+            # キーワードが足りない場合は繰り返す
+            while len(keywords) < target_count:
+                keywords.extend(section.image_keywords)
+            keywords = keywords[:target_count]
+        
+        # 各キーワードで画像生成
+        for idx, keyword in enumerate(keywords):
+            try:
+                # 画像タイプを推測
+                image_type = self._infer_image_type(keyword)
+                
+                # スタイルを決定
+                style = self._select_style(image_type, section.atmosphere)
+                
+                self.logger.info(
+                    f"  [{idx+1}/{len(keywords)}] Generating: {keyword} "
+                    f"(type={image_type}, style={style})"
+                )
+                
+                # 画像生成
+                image = generator.generate_image(
+                    keyword=keyword,
+                    atmosphere=section.atmosphere,
+                    section_context=section.title,
+                    image_type=image_type,
+                    style=style,
+                    section_id=section_id
+                )
+                
+                images.append(image)
+                
+            except Exception as e:
+                self.logger.error(f"Failed to generate image for '{keyword}': {e}")
+                # エラーが起きても続行
+                continue
         
         return images
     
-    def _classify_with_claude(
-        self,
-        images: List[CollectedImage]
-    ) -> List[CollectedImage]:
-        """
-        Claude APIで分類（高精度）
+    def _infer_image_type(self, keyword: str) -> str:
+        """キーワードから画像タイプを推測"""
+        keyword_lower = keyword.lower()
         
-        注: 実装は将来的に追加
-        現在はパターンマッチングにフォールバック
-        """
-        self.logger.warning(
-            "Claude API classification not implemented yet. "
-            "Falling back to pattern matching."
-        )
-        return self._classify_with_pattern(images)
+        if any(word in keyword_lower for word in [
+            "portrait", "warlord", "samurai", "shogun", 
+            "人物", "肖像", "武将", "person"
+        ]):
+            return "portrait"
+        
+        if any(word in keyword_lower for word in [
+            "battle", "war", "fight", "combat", "siege",
+            "戦い", "合戦", "決戦", "戦闘"
+        ]):
+            return "battle"
+        
+        if any(word in keyword_lower for word in [
+            "castle", "temple", "shrine", "palace", "architecture",
+            "城", "寺", "神社", "建築"
+        ]):
+            return "architecture"
+        
+        if any(word in keyword_lower for word in [
+            "landscape", "mountain", "river", "nature", "scenery",
+            "風景", "山", "川", "自然"
+        ]):
+            return "landscape"
+        
+        if any(word in keyword_lower for word in [
+            "document", "manuscript", "scroll", "text",
+            "古文書", "文書", "巻物"
+        ]):
+            return "document"
+        
+        return "general"
     
-    def _save_results(self, result: ImageCollection):
+    def _select_style(self, image_type: str, atmosphere: str) -> str:
+        """画像タイプと雰囲気からスタイルを選択"""
+        sd_config = self.phase_config.get("ai_generation", {}).get("stable_diffusion", {})
+        style_mapping = sd_config.get("style_mapping", {})
+        
+        if image_type in style_mapping:
+            return style_mapping[image_type]
+        
+        return sd_config.get("default_style", "photorealistic")
+    
+    def _save_results(self, result: ImageCollection, total_cost: float):
         """結果を保存"""
         # classified.json
         classified_path = self.phase_dir / "classified.json"
@@ -301,33 +396,31 @@ class Phase03Images(PhaseBase):
         
         self.logger.info(f"Results saved: {classified_path}")
         
-        # download_log.json（詳細ログ）
+        # generation_log.json
         log_data = {
             "subject": self.subject,
-            "collected_at": result.collected_at.isoformat(),
+            "generated_at": result.collected_at.isoformat(),
             "total_images": len(result.images),
-            "sources": self._count_by_source(result.images),
+            "total_cost_usd": round(total_cost, 2),
+            "service": "stable-diffusion",
             "classifications": self._count_by_classification(result.images)
         }
         
-        log_path = self.phase_dir / "download_log.json"
+        log_path = self.phase_dir / "generation_log.json"
         with open(log_path, 'w', encoding='utf-8') as f:
             json.dump(log_data, f, indent=2, ensure_ascii=False)
     
-    def _log_statistics(self, result: ImageCollection):
+    def _log_statistics(self, result: ImageCollection, total_cost: float):
         """統計情報をログ出力"""
         total = len(result.images)
         
-        # ソース別
-        by_source = self._count_by_source(result.images)
         self.logger.info("=" * 60)
-        self.logger.info("Image Collection Statistics")
+        self.logger.info("AI Image Generation Statistics")
         self.logger.info("=" * 60)
         self.logger.info(f"Total images: {total}")
-        self.logger.info(f"\nBy source:")
-        for source, count in by_source.items():
-            percentage = (count / total * 100) if total > 0 else 0
-            self.logger.info(f"  {source}: {count} ({percentage:.1f}%)")
+        self.logger.info(f"Total cost: ${total_cost:.2f} USD")
+        if total > 0:
+            self.logger.info(f"Average cost: ${total_cost/total:.4f} per image")
         
         # 分類別
         by_classification = self._count_by_classification(result.images)
@@ -337,14 +430,6 @@ class Phase03Images(PhaseBase):
             self.logger.info(f"  {classification}: {count} ({percentage:.1f}%)")
         
         self.logger.info("=" * 60)
-    
-    def _count_by_source(self, images: List[CollectedImage]) -> Dict[str, int]:
-        """ソース別にカウント"""
-        counts = {}
-        for img in images:
-            source = img.source
-            counts[source] = counts.get(source, 0) + 1
-        return counts
     
     def _count_by_classification(
         self,

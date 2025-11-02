@@ -28,6 +28,7 @@ except ImportError:
 
 from ..core.models import CollectedImage, ImageClassification
 from ..core.exceptions import ImageAPIError, APIRateLimitError
+from ..core.config_manager import ConfigManager
 
 
 class WikimediaCollector:
@@ -512,7 +513,9 @@ class ImageCollector:
         self,
         sources_config: List[Dict],
         output_dir: Path,
-        logger: Optional[logging.Logger] = None
+        logger: Optional[logging.Logger] = None,
+        ai_generation_config: Optional[Dict] = None,
+        config_manager: Optional[ConfigManager] = None
     ):
         """
         初期化
@@ -521,6 +524,8 @@ class ImageCollector:
             sources_config: ソース設定のリスト
             output_dir: 画像保存先
             logger: ロガー
+            ai_generation_config: AI生成設定（オプション）
+            config_manager: ConfigManagerインスタンス（オプション）
         """
         self.output_dir = output_dir
         self.logger = logger or logging.getLogger(__name__)
@@ -551,6 +556,54 @@ class ImageCollector:
                     )
         
         self.sources_config = sources_config
+        
+        # AI画像生成器の初期化
+        self.ai_generator = None
+        if ai_generation_config and ai_generation_config.get("enabled", False):
+            if config_manager is None:
+                self.logger.warning("ConfigManager not provided, AI generation disabled")
+            else:
+                try:
+                    from .image_generator import ImageGenerator
+                    
+                    service = ai_generation_config.get("service", "stable-diffusion")
+                    
+                    # サービスに応じたAPIキーを取得
+                    if service == "stable-diffusion":
+                        api_key_env = ai_generation_config.get("stability_api_key_env", "STABILITY_API_KEY")
+                    else:
+                        api_key_env = ai_generation_config.get("openai_api_key_env", "OPENAI_API_KEY")
+                    
+                    # ConfigManagerからAPIキーを取得
+                    api_key = config_manager.get_api_key(api_key_env, default=None)
+                    
+                    if not api_key:
+                        self.logger.warning(f"API key not found: {api_key_env}, AI generation disabled")
+                    else:
+                        # Claudeキー（プロンプト最適化用、オプション）
+                        claude_key = None
+                        if ai_generation_config.get("optimize_prompts", False):
+                            claude_key_env = ai_generation_config.get("claude_api_key_env", "CLAUDE_API_KEY")
+                            try:
+                                claude_key = config_manager.get_api_key(claude_key_env, default=None)
+                            except:
+                                self.logger.info("Claude API key not found, prompt optimization disabled")
+                        
+                        # ImageGeneratorを初期化
+                        self.ai_generator = ImageGenerator(
+                            api_key=api_key,
+                            service=service,
+                            claude_api_key=claude_key,
+                            output_dir=output_dir,
+                            cache_dir=output_dir.parent.parent / "cache" / "generated_images",
+                            logger=self.logger
+                        )
+                        
+                        self.logger.info(f"AI image generator initialized: {service}")
+                        
+                except Exception as e:
+                    self.logger.error(f"Failed to initialize AI generator: {e}")
+                    self.ai_generator = None
     
     def collect_images(
         self,
@@ -645,6 +698,25 @@ class ImageCollector:
                 except Exception as e:
                     self.logger.error(f"Error collecting from {name}: {e}")
                     continue
+        
+        # AI生成が有効で、目標数に達していない場合
+        if self.ai_generator and len(all_images) < target_count:
+            remaining = target_count - len(all_images)
+            self.logger.info(f"Generating {remaining} images with AI...")
+            
+            for keyword in keywords[:remaining]:  # 必要な分だけ生成
+                if len(all_images) >= target_count:
+                    break
+                try:
+                    ai_image = self.ai_generator.generate_image(
+                        keyword=keyword,
+                        atmosphere="壮大",  # デフォルト、必要なら設定から取得
+                        style="photorealistic"
+                    )
+                    all_images.append(ai_image)
+                    self.logger.info(f"AI generated: {keyword}")
+                except Exception as e:
+                    self.logger.warning(f"AI generation failed for '{keyword}': {e}")
         
         self.logger.info(f"Collected {len(all_images)} images total")
         return all_images

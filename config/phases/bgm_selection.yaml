@@ -1,21 +1,46 @@
-﻿# phase: bgm selection
-# Phase 6: BGM選択設定
-bgm_library_path: "assets/bgm/"
+﻿# config/phases/bgm_selection.yaml
+# Phase 6: BGM選択の設定（3曲固定版）
 
-atmosphere_mapping:
-  "壮大": "epic"
-  "静か": "calm"
-  "希望": "hopeful"
-  "劇的": "dramatic"
-  "悲劇的": "tragic"
+# BGMライブラリのパス
+bgm_library_path: "assets/bgm"
 
+# 固定BGM構成（3曲のみ使用）
+fixed_bgm_structure:
+  enabled: true  # 固定BGM使用
+  
+  # 各BGMの配置ルール
+  tracks:
+    opening:
+      file: "opening/古の街道.mp3"
+      title: "古の街道"
+      description: "ぼんやりはじまる曲"
+      usage: "オープニング～序盤"
+      
+    main:
+      file: "main/SPQR-メメントモリ-.mp3"
+      title: "SPQR-メメントモリ-"
+      description: "基本メインの曲"
+      usage: "中盤（メインパート）"
+      
+    ending:
+      file: "ending/朝の訪れ.mp3"
+      title: "朝の訪れ"
+      description: "しっとりとした曲"
+      usage: "終盤～エンディング"
+
+# タイミング設定（動画全体の長さに基づいて自動計算）
+timing:
+  opening_ratio: 0.15    # 最初の15%で使用
+  main_ratio: 0.70       # 中盤70%で使用
+  ending_ratio: 0.15     # 最後15%で使用
+
+# デフォルト設定
 default_settings:
-  volume: 0.3
-  fade_in_duration: 2.0
-  fade_out_duration: 2.0
+  volume: 0.3  # ナレーションの30%の音量
+  fade_in_duration: 2.0  # フェードイン時間（秒）
+  fade_out_duration: 2.0  # フェードアウト時間（秒）
 
-transition_between_sections:
-  type: "crossfade"
-  duration: 3.0
-
-avoid_consecutive_same_track: true
+# BGM間のトランジション
+transition_between_tracks:
+  type: "crossfade"  # crossfade or fade
+  duration: 3.0  # トランジション時間（秒）
