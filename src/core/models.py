@@ -61,6 +61,13 @@ class ImageClassification(str, Enum):
     DAILY_LIFE = "daily_life"         # 日常風景
 
 
+class BGMType(str, Enum):
+    """BGMタイプ（起承転結対応）"""
+    OPENING = "opening"  # 起: 導入
+    MAIN = "main"        # 承転: 展開～クライマックス
+    ENDING = "ending"    # 結: 余韻、締め
+
+
 # ========================================
 # Phase 1: 台本生成
 # ========================================
@@ -75,6 +82,10 @@ class ScriptSection(BaseModel):
     atmosphere: str                   # セクションの雰囲気（BGM選択用）
     requires_ai_video: bool = False   # AI動画が必要か
     ai_video_prompt: Optional[str] = None  # AI動画用プロンプト
+    bgm_suggestion: BGMType = Field(
+        default=BGMType.MAIN,
+        description="このセクションで使用するBGM（opening/main/ending）"
+    )
 
     @field_validator('estimated_duration')
     @classmethod

@@ -285,7 +285,8 @@ class DummyScriptGenerator:
                     "image_keywords": [subject, "幼少期", "出生地"],
                     "atmosphere": "静か",
                     "requires_ai_video": False,
-                    "ai_video_prompt": None
+                    "ai_video_prompt": None,
+                    "bgm_suggestion": "opening"
                 },
                 {
                     "section_id": 2,
@@ -295,7 +296,8 @@ class DummyScriptGenerator:
                     "image_keywords": [subject, "青年期", "試練"],
                     "atmosphere": "劇的",
                     "requires_ai_video": False,
-                    "ai_video_prompt": None
+                    "ai_video_prompt": None,
+                    "bgm_suggestion": "main"
                 },
                 {
                     "section_id": 3,
@@ -305,7 +307,8 @@ class DummyScriptGenerator:
                     "image_keywords": [subject, "最盛期", "功績"],
                     "atmosphere": "壮大",
                     "requires_ai_video": True,
-                    "ai_video_prompt": f"{subject}の最も輝かしい瞬間を描く"
+                    "ai_video_prompt": f"{subject}の最も輝かしい瞬間を描く",
+                    "bgm_suggestion": "main"
                 },
                 {
                     "section_id": 4,
@@ -315,7 +318,8 @@ class DummyScriptGenerator:
                     "image_keywords": [subject, "晩年", "隠居"],
                     "atmosphere": "静か",
                     "requires_ai_video": False,
-                    "ai_video_prompt": None
+                    "ai_video_prompt": None,
+                    "bgm_suggestion": "main"
                 },
                 {
                     "section_id": 5,
@@ -325,7 +329,8 @@ class DummyScriptGenerator:
                     "image_keywords": [subject, "遺産", "影響"],
                     "atmosphere": "希望",
                     "requires_ai_video": False,
-                    "ai_video_prompt": None
+                    "ai_video_prompt": None,
+                    "bgm_suggestion": "ending"
                 }
             ],
             "total_estimated_duration": 720,

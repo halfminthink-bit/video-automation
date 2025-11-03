@@ -1,20 +1,62 @@
-﻿# phase: video composition
-# Phase 8: 動画統合設定
-resolution: [1920, 1080]
-fps: 30
-codec: "libx264"
-audio_codec: "aac"
-preset: "medium"
-bitrate: "5000k"
+﻿# Phase 7: 動画統合設定
 
+# 出力動画設定
+output:
+  resolution: [1920, 1080]  # 解像度
+  fps: 30                   # フレームレート
+  codec: "libx264"          # ビデオコーデック
+  audio_codec: "aac"        # オーディオコーデック
+  preset: "medium"          # エンコード速度 (ultrafast/fast/medium/slow)
+  bitrate: "5000k"          # ビットレート
+
+# クリップループ設定
+clip_loop:
+  enabled: true             # クリップをループして音声の長さに合わせる
+  crossfade_duration: 0.5   # クロスフェード時間（秒）
+  min_clip_duration: 4.0    # 最小クリップ長（秒）
+  max_clip_duration: 30.0   # 最大クリップ長（秒）
+
+# トランジション設定
 transitions:
-  default: "fade"
-  fade_duration: 1.0
+  default: "crossfade"      # デフォルトのトランジション
+  fade_duration: 1.0        # フェード時間（秒）
+  crossfade_duration: 1.0   # クロスフェード時間（秒）
 
+# BGM設定
+bgm:
+  volume: 0.3               # BGM音量（0.0-1.0）
+  fade_in: 2.0              # フェードイン時間（秒）
+  fade_out: 2.0             # フェードアウト時間（秒）
+  crossfade: 3.0            # BGM切り替え時のクロスフェード（秒）
+  loop_enabled: true        # BGMループを有効化
+
+# 字幕設定
+subtitle:
+  font_family: "Noto-Sans-JP-Bold"  # フォント名
+  font_size: 60                     # フォントサイズ（ピクセル）
+  color: "white"                    # テキスト色
+  background_color: "#000000"       # 背景色
+  background_opacity: 0.7           # 背景の透明度
+  stroke_color: "#000000"           # 縁取り色
+  stroke_width: 2                   # 縁取り幅
+  position: "bottom"                # 位置（top/center/bottom）
+  margin_bottom: 80                 # 下からのマージン（ピクセル）
+  align: "center"                   # 揃え（left/center/right）
+  method: "caption"                 # レンダリング方法
+
+# サムネイル設定
 thumbnail:
-  use_ai_generation: false
-  fallback: "first_frame"
+  timestamp: 5.0            # 抽出する時間（秒）
+  resolution: [1280, 720]   # サムネイル解像度
+  format: "jpeg"            # フォーマット
+  quality: 90               # JPEG品質（0-100）
 
-metadata:
-  include_generation_stats: true
-  include_cost_breakdown: true
+# メモリ管理
+memory:
+  max_clips_in_memory: 10   # 同時にメモリに保持する最大クリップ数
+  release_clips: true       # 使用済みクリップを解放
+
+# プログレスバー
+progress:
+  enabled: true             # プログレスバーを表示
+  show_eta: true            # 推定残り時間を表示

@@ -1,22 +1,50 @@
-﻿# phase: subtitle generation
-# Phase 7: 字幕生成設定
+﻿# Phase 7: 字幕生成設定
+
+# 字幕の最大行数
 max_lines: 2
+
+# 1行あたりの最大文字数
 max_chars_per_line: 20
 
+# タイミング設定
 timing:
+  # 最低表示時間（秒）
   min_display_duration: 4.0
+  
+  # 最大表示時間（秒）
   max_display_duration: 6.0
+  
+  # リードタイム（音声より少し早く表示する時間、秒）
   lead_time: 0.2
 
+# 形態素解析設定
 morphological_analysis:
-  use_mecab: true
-  break_on: ["。", "、", "！", "？"]
+  # MeCabを使用するか（より自然な分割）
+  use_mecab: false
+  
+  # 文の区切り文字
+  break_on:
+    - "。"
+    - "、"
+    - "！"
+    - "？"
 
+# フォント設定（Phase 8で使用）
 font:
   family: "Noto Sans JP Bold"
-  size: 60
-  color: "#FFFFFF"
-  background_color: "#000000"
+  size: 60  # ピクセル
+  color: "#FFFFFF"  # 白
+  background_color: "#000000"  # 黒
   background_opacity: 0.7
-  position: "bottom"
-  margin_bottom: 80
+  position: "bottom"  # 画面下部
+  margin_bottom: 80  # 下からのマージン（px）
+  
+  # 縁取り設定
+  stroke_color: "#000000"
+  stroke_width: 2
+  
+  # シャドウ設定
+  shadow_enabled: true
+  shadow_offset: [2, 2]
+  shadow_color: "#000000"
+  shadow_opacity: 0.8

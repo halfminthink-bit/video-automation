@@ -53,10 +53,9 @@ phases:
   "02_audio": "config/phases/audio_generation.yaml"
   "03_images": "config/phases/image_collection.yaml"
   "04_animation": "config/phases/image_animation.yaml"
-  "05_ai_video": "config/phases/ai_video_generation.yaml"
-  "06_bgm": "config/phases/bgm_selection.yaml"
-  "07_subtitles": "config/phases/subtitle_generation.yaml"
-  "08_composition": "config/phases/video_composition.yaml"
+  "05_bgm": "config/phases/bgm_selection.yaml"
+  "06_subtitles": "config/phases/subtitle_generation.yaml"
+  "07_composition": "config/phases/video_composition.yaml"
 
 # ========================================
 # デフォルト動画設定

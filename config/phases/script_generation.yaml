@@ -36,6 +36,24 @@ prompt_template: |
   3. 高齢者にも分かりやすい言葉遣い
   4. ナレーションは自然な話し言葉
   5. 重要なシーンでは「AI動画が必要」と判定
+  6. **起承転結を意識した構成**
+  
+  ## 起承転結とBGMの配置（重要）
+  動画全体を起承転結で構成し、以下のようにBGMを配置してください：
+  
+  **BGMの切り替えは2回のみ:**
+  1. Opening（起）→ Main（承転）への切り替え
+  2. Main（承転）→ Ending（結）への切り替え
+  
+  **各BGMの使い方:**
+  - opening: 最初のセクション（起）のみ - 導入、世界観の提示
+  - main: 中盤のセクション（承転）- 物語の展開からクライマックス
+  - ending: 最後のセクション（結）- 余韻、しんみりとした締め
+  
+  **注意:**
+  - 同じBGMが連続して使われることが前提
+  - mainは複数セクションにまたがってOK
+  - 読後感を大切に、endingでしんみりと締める
   
   ## 出力形式（JSON）
   {{
@@ -50,7 +68,8 @@ prompt_template: |
         "image_keywords": ["キーワード1", "キーワード2"],
         "atmosphere": "壮大/静か/希望/劇的/悲劇的",
         "requires_ai_video": false,
-        "ai_video_prompt": null
+        "ai_video_prompt": null,
+        "bgm_suggestion": "opening"
       }}
     ]
   }}
@@ -60,6 +79,7 @@ prompt_template: |
   - ナレーションは読みやすく、句読点を適切に配置
   - 画像キーワードは英語でも可（検索精度向上のため）
   - AI動画が必要な場合、ai_video_promptに具体的な描写を記載
+  - **bgm_suggestion は必ず "opening", "main", "ending" のいずれかを指定**
 
 # バリデーション設定
 validation:
@@ -69,3 +89,8 @@ validation:
   max_section_duration: 240
   min_total_duration: 600
   max_total_duration: 1200
+  
+  # BGM切り替え検証
+  max_bgm_switches: 2  # 最大2回の切り替え（opening→main→ending）
+  require_opening_at_start: true  # 最初のセクションはopeningを推奨
+  require_ending_at_end: true  # 最後のセクションはendingを推奨

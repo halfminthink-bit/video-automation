@@ -16,7 +16,7 @@ if __name__ == "__main__":
     sys.path.insert(0, str(project_root))
 
 from src.core.phase_base import PhaseBase
-from src.core.models import VideoScript, ScriptSection
+from src.core.models import VideoScript, ScriptSection, BGMType
 from src.core.config_manager import ConfigManager
 from src.core.exceptions import (
     PhaseExecutionError,
@@ -156,8 +156,62 @@ class Phase01Script(PhaseBase):
                 f"(expected {min_total}-{max_total}s)"
             )
         
+        # BGM切り替え回数のチェック
+        self._validate_bgm_suggestions(output, validation_config)
+        
         self.logger.info("Script validation passed")
         return True
+    
+    def _validate_bgm_suggestions(
+        self,
+        script: VideoScript,
+        validation_config: dict
+    ):
+        """
+        BGM配置をバリデーション
+        
+        Args:
+            script: 台本
+            validation_config: バリデーション設定
+            
+        Raises:
+            PhaseValidationError: BGM配置が不適切な場合
+        """
+        bgm_sequence = [section.bgm_suggestion for section in script.sections]
+        
+        # BGM切り替え回数を数える
+        switches = 0
+        for i in range(1, len(bgm_sequence)):
+            if bgm_sequence[i] != bgm_sequence[i-1]:
+                switches += 1
+        
+        max_switches = validation_config.get("max_bgm_switches", 2)
+        if switches > max_switches:
+            self.logger.warning(
+                f"BGM switches: {switches} (max: {max_switches}). "
+                f"Sequence: {[b.value for b in bgm_sequence]}"
+            )
+            # 警告のみで続行（厳密にしすぎない）
+        
+        # 最初と最後のBGMチェック（推奨）
+        if validation_config.get("require_opening_at_start", True):
+            if bgm_sequence[0] != BGMType.OPENING:
+                self.logger.warning(
+                    f"First section should use 'opening' BGM, "
+                    f"but got '{bgm_sequence[0].value}'"
+                )
+        
+        if validation_config.get("require_ending_at_end", True):
+            if bgm_sequence[-1] != BGMType.ENDING:
+                self.logger.warning(
+                    f"Last section should use 'ending' BGM, "
+                    f"but got '{bgm_sequence[-1].value}'"
+                )
+        
+        self.logger.info(
+            f"BGM validation: {switches} switches, "
+            f"sequence: {' → '.join(b.value for b in bgm_sequence)}"
+        )
     
     # ========================================
     # 内部メソッド

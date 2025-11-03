@@ -1,0 +1,524 @@
+﻿"""
+Phase 7: 動画統合（Video Composition）
+Phase 1-6で生成した全ての素材を統合し、完成動画を生成する
+"""
+
+import json
+import time
+from pathlib import Path
+from typing import List, Dict, Any, Optional, TYPE_CHECKING
+from datetime import datetime
+
+try:
+    from moviepy import (
+        VideoFileClip,
+        AudioFileClip,
+        CompositeVideoClip,
+        concatenate_videoclips,
+        TextClip,
+    )
+    MOVIEPY_AVAILABLE = True
+    MOVIEPY_IMPORT_ERROR = None
+except ImportError as e:
+    MOVIEPY_AVAILABLE = False
+    MOVIEPY_IMPORT_ERROR = str(e)
+    # 型ヒント用のダミー（実行時には使用されない）
+    if TYPE_CHECKING:
+        from moviepy.editor import VideoFileClip, AudioFileClip
+
+from ..core.phase_base import PhaseBase
+from ..core.config_manager import ConfigManager
+from ..core.models import VideoComposition, VideoTimeline, TimelineClip, SubtitleEntry
+
+
+class Phase07Composition(PhaseBase):
+    """Phase 7: 動画統合"""
+    
+    def __init__(
+        self,
+        subject: str,
+        config: ConfigManager,
+        logger
+    ):
+        super().__init__(subject, config, logger)
+        
+        if not MOVIEPY_AVAILABLE:
+            error_msg = "MoviePy is required. Install with: pip install moviepy"
+            if MOVIEPY_IMPORT_ERROR:
+                error_msg += f"\n\nImport error details: {MOVIEPY_IMPORT_ERROR}"
+            raise ImportError(error_msg)
+        
+        self.phase_config = config.get_phase_config(7)
+        
+        # 出力設定
+        output_config = self.phase_config.get("output", {})
+        self.resolution = tuple(output_config.get("resolution", [1920, 1080]))
+        self.fps = output_config.get("fps", 30)
+        self.codec = output_config.get("codec", "libx264")
+        self.bitrate = output_config.get("bitrate", "5000k")
+        
+        # クリップループ設定
+        clip_config = self.phase_config.get("clip_loop", {})
+        self.clip_loop_enabled = clip_config.get("enabled", True)
+        self.crossfade_duration = clip_config.get("crossfade_duration", 0.5)
+        self.min_clip_duration = clip_config.get("min_clip_duration", 4.0)
+        
+        # BGM設定
+        bgm_config = self.phase_config.get("bgm", {})
+        self.bgm_volume = bgm_config.get("volume", 0.3)
+        self.bgm_fade_in = bgm_config.get("fade_in", 2.0)
+        self.bgm_fade_out = bgm_config.get("fade_out", 2.0)
+        
+        # 字幕設定
+        subtitle_config = self.phase_config.get("subtitle", {})
+        self.subtitle_font = subtitle_config.get("font_family", "Arial")
+        self.subtitle_size = subtitle_config.get("font_size", 60)
+        self.subtitle_color = subtitle_config.get("color", "white")
+        self.subtitle_position = subtitle_config.get("position", "bottom")
+        self.subtitle_margin = subtitle_config.get("margin_bottom", 80)
+        
+        # TextClipが使えるか確認
+        self.text_clip_available = True
+        try:
+            # TextClipのテスト
+            test_clip = TextClip("test", font_size=10, color='white')
+            test_clip.close()
+        except Exception as e:
+            self.logger.warning(f"TextClip not available: {e}")
+            self.logger.warning("Subtitles will be skipped (ImageMagick may be required)")
+            self.text_clip_available = False
+    
+    def get_phase_number(self) -> int:
+        return 7
+    
+    def get_phase_name(self) -> str:
+        return "Video Composition"
+    
+    def get_phase_directory(self) -> Path:
+        return self.working_dir / "07_composition"
+    
+    def check_inputs_exist(self) -> bool:
+        """必要な入力ファイルの存在確認"""
+        required_files = []
+        
+        # Phase 1: 台本
+        script_path = self.working_dir / "01_script" / "script.json"
+        required_files.append(("Script", script_path))
+        
+        # Phase 2: 音声
+        audio_path = self.working_dir / "02_audio" / "narration_full.mp3"
+        required_files.append(("Audio", audio_path))
+        
+        # Phase 4: アニメ化動画
+        animated_dir = self.working_dir / "04_animated"
+        if not animated_dir.exists() or not list(animated_dir.glob("*.mp4")):
+            self.logger.error(f"No animated clips found in: {animated_dir}")
+            return False
+        
+        # Phase 6: 字幕
+        subtitle_path = self.working_dir / "06_subtitles" / "subtitle_timing.json"
+        required_files.append(("Subtitles", subtitle_path))
+        
+        # 各ファイルの存在確認
+        all_exist = True
+        for name, path in required_files:
+            if not path.exists():
+                self.logger.error(f"{name} not found: {path}")
+                all_exist = False
+        
+        return all_exist
+    
+    def check_outputs_exist(self) -> bool:
+        """出力ファイルの存在確認"""
+        output_dir = self.config.get("paths", {}).get("output_dir", "data/output")
+        video_path = Path(output_dir) / "videos" / f"{self.subject}.mp4"
+        return video_path.exists()
+    
+    def execute_phase(self) -> VideoComposition:
+        """動画統合の実行"""
+        self.logger.info(f"Starting video composition for: {self.subject}")
+        render_start = time.time()
+        
+        try:
+            # 1. データ読み込み
+            self.logger.info("Loading data...")
+            script = self._load_script()
+            audio_path = self._get_audio_path()
+            animated_clips = self._load_animated_clips()
+            subtitles = self._load_subtitles()
+            bgm_data = self._load_bgm()
+            
+            # 2. 音声の長さを取得
+            audio_clip = AudioFileClip(str(audio_path))
+            total_duration = audio_clip.duration
+            self.logger.info(f"Total audio duration: {total_duration:.1f}s")
+            
+            # 3. 映像クリップを作成
+            self.logger.info("Creating video clips...")
+            video_clips = self._create_video_clips(animated_clips, total_duration)
+            
+            # 4. 映像を連結
+            self.logger.info("Concatenating video clips...")
+            final_video = self._concatenate_clips(video_clips, total_duration)
+            
+            # 5. 音声を追加
+            self.logger.info("Adding audio track...")
+            final_video = final_video.with_audio(audio_clip)
+            
+            # 6. BGMを追加（オプション）
+            if bgm_data:
+                self.logger.info("Adding BGM...")
+                final_video = self._add_bgm(final_video, bgm_data)
+            
+            # 7. 字幕を追加
+            self.logger.info("Adding subtitles...")
+            final_video = self._add_subtitles(final_video, subtitles)
+            
+            # 8. 動画をレンダリング
+            self.logger.info("Rendering final video...")
+            output_path = self._render_video(final_video)
+            
+            # 9. サムネイル生成
+            self.logger.info("Generating thumbnail...")
+            thumbnail_path = self._generate_thumbnail(final_video)
+            
+            # 10. メタデータ保存
+            render_time = time.time() - render_start
+            file_size_mb = output_path.stat().st_size / (1024 * 1024)
+            
+            composition = VideoComposition(
+                subject=self.subject,
+                output_video_path=str(output_path),
+                thumbnail_path=str(thumbnail_path),
+                metadata_path=str(self.phase_dir / "metadata.json"),
+                timeline=VideoTimeline(
+                    subject=self.subject,
+                    clips=[],  # 簡略化
+                    audio_path=str(audio_path),
+                    bgm_segments=[],
+                    subtitles=subtitles,
+                    total_duration=total_duration,
+                    resolution=self.resolution,
+                    fps=self.fps
+                ),
+                render_time_seconds=render_time,
+                file_size_mb=file_size_mb,
+                completed_at=datetime.now()
+            )
+            
+            self._save_metadata(composition)
+            
+            # メモリ解放
+            final_video.close()
+            audio_clip.close()
+            
+            self.logger.info(
+                f"✓ Video composition complete: {file_size_mb:.1f}MB in {render_time:.1f}s"
+            )
+            
+            return composition
+            
+        except Exception as e:
+            self.logger.error(f"Video composition failed: {e}", exc_info=True)
+            raise
+    
+    def validate_output(self, output: VideoComposition) -> bool:
+        """出力のバリデーション"""
+        video_path = Path(output.output_video_path)
+        
+        if not video_path.exists():
+            self.logger.error(f"Output video not found: {video_path}")
+            return False
+        
+        if video_path.stat().st_size == 0:
+            self.logger.error("Output video is empty")
+            return False
+        
+        self.logger.info("Output validation passed")
+        return True
+    
+    def _load_script(self) -> dict:
+        """台本データを読み込み"""
+        script_path = self.working_dir / "01_script" / "script.json"
+        with open(script_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    
+    def _get_audio_path(self) -> Path:
+        """音声ファイルパスを取得"""
+        return self.working_dir / "02_audio" / "narration_full.mp3"
+    
+    def _load_animated_clips(self) -> List[Path]:
+        """アニメ化動画クリップを読み込み"""
+        animated_dir = self.working_dir / "04_animated"
+        clips = sorted(animated_dir.glob("*.mp4"))
+        
+        self.logger.info(f"Found {len(clips)} animated clips")
+        return clips
+    
+    def _load_subtitles(self) -> List[SubtitleEntry]:
+        """字幕データを読み込み"""
+        subtitle_path = self.working_dir / "06_subtitles" / "subtitle_timing.json"
+        
+        if not subtitle_path.exists():
+            self.logger.warning("Subtitle data not found, using empty list")
+            return []
+        
+        with open(subtitle_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        subtitles = []
+        for item in data.get("subtitles", []):
+            subtitle = SubtitleEntry(
+                index=item["index"],
+                start_time=item["start_time"],
+                end_time=item["end_time"],
+                text_line1=item["text_line1"],
+                text_line2=item.get("text_line2", "")
+            )
+            subtitles.append(subtitle)
+        
+        self.logger.info(f"Loaded {len(subtitles)} subtitles")
+        return subtitles
+    
+    def _load_bgm(self) -> Optional[dict]:
+        """BGMデータを読み込み（オプション）"""
+        bgm_path = self.working_dir / "05_bgm" / "bgm_timeline.json"
+        
+        if not bgm_path.exists():
+            self.logger.info("No BGM data found (optional)")
+            return None
+        
+        with open(bgm_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    
+    def _create_video_clips(
+        self,
+        clip_paths: List[Path],
+        target_duration: float
+    ) -> List['VideoFileClip']:
+        """動画クリップをロードして準備"""
+        clips = []
+        
+        self.logger.info(f"Loading {len(clip_paths)} video clips...")
+        
+        for i, path in enumerate(clip_paths, 1):
+            try:
+                self.logger.debug(f"Loading clip {i}/{len(clip_paths)}: {path.name}")
+                clip = VideoFileClip(str(path))
+                
+                # 解像度を統一
+                if clip.size != self.resolution:
+                    self.logger.debug(f"  Resizing from {clip.size} to {self.resolution}")
+                    # MoviePy 2.xではresizedメソッドを使用
+                    clip = clip.resized(self.resolution)
+                
+                clips.append(clip)
+                self.logger.debug(f"  ✓ Loaded: duration={clip.duration:.1f}s, size={clip.size}")
+                
+            except Exception as e:
+                self.logger.error(f"Failed to load clip {path.name}: {e}")
+                self.logger.error(f"  Full path: {path}")
+                # 失敗してもスキップして続行
+                continue
+        
+        self.logger.info(f"Successfully loaded {len(clips)}/{len(clip_paths)} clips")
+        
+        if not clips:
+            self.logger.error("No clips were loaded successfully!")
+            self.logger.error("Please check if the video files are corrupted or in an unsupported format")
+        
+        return clips
+    
+    def _concatenate_clips(
+        self,
+        clips: List['VideoFileClip'],
+        target_duration: float
+    ) -> 'VideoFileClip':
+        """クリップを連結してループ"""
+        if not clips:
+            raise ValueError("No clips to concatenate")
+        
+        # クリップをループして必要な長さにする
+        if self.clip_loop_enabled:
+            final_clips = []
+            current_duration = 0.0
+            
+            while current_duration < target_duration:
+                for clip in clips:
+                    if current_duration >= target_duration:
+                        break
+                    
+                    remaining = target_duration - current_duration
+                    
+                    if clip.duration <= remaining:
+                        final_clips.append(clip)
+                        current_duration += clip.duration
+                    else:
+                        # 最後のクリップをトリミング
+                        trimmed = clip.subclipped(0, remaining)
+                        final_clips.append(trimmed)
+                        current_duration += remaining
+            
+            # クロスフェードで連結
+            if len(final_clips) > 1:
+                video = concatenate_videoclips(
+                    final_clips,
+                    method="compose",
+                    transition=None
+                )
+            else:
+                video = final_clips[0]
+        else:
+            # 単純連結
+            video = concatenate_videoclips(clips, method="compose")
+        
+        return video
+    
+    def _add_bgm(self, video: 'VideoFileClip', bgm_data: dict) -> 'VideoFileClip':
+        """BGMを追加"""
+        try:
+            bgm_segments = bgm_data.get("segments", [])
+            if not bgm_segments:
+                return video
+            
+            # 最初のBGMファイルのみ使用（簡易実装）
+            first_segment = bgm_segments[0]
+            bgm_path = Path(first_segment.get("file_path", ""))
+            
+            if not bgm_path.exists():
+                self.logger.warning(f"BGM file not found: {bgm_path}")
+                return video
+            
+            bgm_clip = AudioFileClip(str(bgm_path))
+            bgm_clip = bgm_clip.volumex(self.bgm_volume)
+            
+            # BGMをループ
+            if bgm_clip.duration < video.duration:
+                loops_needed = int(video.duration / bgm_clip.duration) + 1
+                bgm_clip = bgm_clip.looped(loops_needed)
+            
+            bgm_clip = bgm_clip.subclipped(0, video.duration)
+            
+            # ナレーションとBGMをミックス
+            from moviepy.audio.AudioClip import CompositeAudioClip
+            final_audio = CompositeAudioClip([video.audio, bgm_clip])
+            video = video.with_audio(final_audio)
+            
+            self.logger.info("BGM added successfully")
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to add BGM: {e}")
+        
+        return video
+    
+    def _add_subtitles(
+        self,
+        video: 'VideoFileClip',
+        subtitles: List[SubtitleEntry]
+    ) -> 'VideoFileClip':
+        """字幕を動画に焼き込み"""
+        if not subtitles:
+            self.logger.info("No subtitles to add")
+            return video
+        
+        if not self.text_clip_available:
+            self.logger.warning("TextClip not available, skipping subtitles")
+            return video
+        
+        subtitle_clips = []
+        
+        for subtitle in subtitles:
+            # 字幕テキストを作成
+            text = subtitle.text_line1
+            if subtitle.text_line2:
+                text += "\n" + subtitle.text_line2
+            
+            try:
+                # TextClipを作成
+                txt_clip = TextClip(
+                    text,
+                    font_size=self.subtitle_size,
+                    color=self.subtitle_color,
+                    font=self.subtitle_font,
+                    method='caption',
+                    size=(self.resolution[0] - 100, None),
+                    text_align='center'
+                )
+                
+                # 位置とタイミングを設定
+                txt_clip = txt_clip.set_position(
+                    ('center', self.resolution[1] - self.subtitle_margin)
+                ).set_start(subtitle.start_time).set_duration(
+                    subtitle.end_time - subtitle.start_time
+                )
+                
+                subtitle_clips.append(txt_clip)
+                
+            except Exception as e:
+                self.logger.warning(f"Failed to create subtitle {subtitle.index}: {e}")
+                continue
+        
+        if subtitle_clips:
+            # 字幕を動画に合成
+            video = CompositeVideoClip([video] + subtitle_clips)
+            self.logger.info(f"Added {len(subtitle_clips)} subtitles")
+        
+        return video
+    
+    def _render_video(self, video: 'VideoFileClip') -> Path:
+        """動画をレンダリング"""
+        output_dir = Path(self.config.get("paths", {}).get("output_dir", "data/output"))
+        video_dir = output_dir / "videos"
+        video_dir.mkdir(parents=True, exist_ok=True)
+        
+        output_path = video_dir / f"{self.subject}.mp4"
+        
+        video.write_videofile(
+            str(output_path),
+            codec=self.codec,
+            fps=self.fps,
+            bitrate=self.bitrate,
+            audio_codec="aac",
+            threads=4,
+            logger="bar"  # 進捗バーを表示
+        )
+        
+        return output_path
+    
+    def _generate_thumbnail(self, video: 'VideoFileClip') -> Path:
+        """サムネイルを生成"""
+        output_dir = Path(self.config.get("paths", {}).get("output_dir", "data/output"))
+        thumbnail_dir = output_dir / "thumbnails"
+        thumbnail_dir.mkdir(parents=True, exist_ok=True)
+        
+        thumbnail_path = thumbnail_dir / f"{self.subject}_thumbnail.jpg"
+        
+        # 5秒目のフレームを抽出
+        timestamp = min(5.0, video.duration / 2)
+        frame = video.get_frame(timestamp)
+        
+        from PIL import Image
+        img = Image.fromarray(frame)
+        img.save(thumbnail_path, quality=90)
+        
+        return thumbnail_path
+    
+    def _save_metadata(self, composition: VideoComposition):
+        """メタデータを保存"""
+        metadata_path = self.phase_dir / "metadata.json"
+        
+        data = {
+            "subject": composition.subject,
+            "output_video_path": composition.output_video_path,
+            "thumbnail_path": composition.thumbnail_path,
+            "render_time_seconds": composition.render_time_seconds,
+            "file_size_mb": composition.file_size_mb,
+            "completed_at": composition.completed_at.isoformat(),
+            "resolution": list(self.resolution),
+            "fps": self.fps
+        }
+        
+        with open(metadata_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        
+        self.logger.info(f"Metadata saved: {metadata_path}")

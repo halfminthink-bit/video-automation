@@ -13,10 +13,13 @@ import subprocess
 import tempfile
 
 try:
-    from elevenlabs import generate, set_api_key, Voice, VoiceSettings
+    from elevenlabs.client import ElevenLabs
+    from elevenlabs import VoiceSettings
     ELEVENLABS_AVAILABLE = True
 except ImportError:
     ELEVENLABS_AVAILABLE = False
+    ElevenLabs = None
+    VoiceSettings = None
 
 
 class AudioGenerator:
@@ -37,7 +40,7 @@ class AudioGenerator:
             api_key: ElevenLabs APIキー
             voice_id: 使用する音声ID
             model: モデル名
-            settings: 音声設定（stability, similarity_boost等）
+            settings: 音声設定（stability, similarity_boost, speed等）
             logger: ロガー
             
         Raises:
@@ -49,15 +52,19 @@ class AudioGenerator:
                 "Install it with: pip install elevenlabs"
             )
         
-        set_api_key(api_key)
+        # 新しいAPI: ElevenLabsクライアントを作成
+        self.client = ElevenLabs(api_key=api_key)
         self.voice_id = voice_id
         self.model = model
         self.settings = settings or {}
         self.logger = logger or logging.getLogger(__name__)
         
+        # 速度設定を取得（デフォルト: 1.0 = 通常速度）
+        self.speed = self.settings.get("speed", 1.0)
+        
         self.logger.info(
             f"AudioGenerator initialized: "
-            f"voice_id={voice_id}, model={model}"
+            f"voice_id={voice_id}, model={model}, speed={self.speed}"
         )
     
     def _get_audio_duration(self, audio_path: Path) -> float:
@@ -99,21 +106,88 @@ class AudioGenerator:
         """
         self.logger.debug(f"Generating audio for text: {text[:50]}...")
         
-        audio_data = generate(
-            text=text,
-            voice=Voice(
-                voice_id=self.voice_id,
-                settings=VoiceSettings(
-                    stability=self.settings.get("stability", 0.5),
-                    similarity_boost=self.settings.get("similarity_boost", 0.75),
-                    style=self.settings.get("style", 0),
-                    use_speaker_boost=self.settings.get("use_speaker_boost", True)
-                )
-            ),
-            model=self.model
+        # VoiceSettingsを作成
+        voice_settings = VoiceSettings(
+            stability=self.settings.get("stability", 0.5),
+            similarity_boost=self.settings.get("similarity_boost", 0.75),
+            style=self.settings.get("style", 0),
+            use_speaker_boost=self.settings.get("use_speaker_boost", True)
         )
         
+        # 新しいAPI: text_to_speech.convert()を使用
+        # speed パラメータを追加
+        response = self.client.text_to_speech.convert(
+            voice_id=self.voice_id,
+            text=text,
+            model_id=self.model,
+            voice_settings=voice_settings,
+            output_format="mp3_44100_128"  # 出力フォーマットを明示
+        )
+        
+        # ストリームからバイナリデータを取得
+        audio_data = b"".join(response)
+        
+        # 速度調整が必要な場合（speed != 1.0）、ffmpegで調整
+        if self.speed != 1.0:
+            audio_data = self._adjust_speed(audio_data, self.speed)
+        
         return audio_data
+    
+    def _adjust_speed(self, audio_data: bytes, speed: float) -> bytes:
+        """
+        ffmpegを使用して音声速度を調整
+        
+        Args:
+            audio_data: 元の音声データ
+            speed: 速度倍率（0.5=半分の速度、2.0=2倍速）
+            
+        Returns:
+            速度調整後の音声データ
+        """
+        with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp_in:
+            tmp_in.write(audio_data)
+            tmp_in_path = Path(tmp_in.name)
+        
+        with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp_out:
+            tmp_out_path = Path(tmp_out.name)
+        
+        try:
+            # ffmpegで速度調整（asetrate + atempo）
+            # 0.5-2.0の範囲はatempoで対応
+            # それ以外はasetrateも併用
+            
+            if 0.5 <= speed <= 2.0:
+                # atempoのみで対応可能
+                cmd = [
+                    'ffmpeg',
+                    '-i', str(tmp_in_path),
+                    '-filter:a', f'atempo={speed}',
+                    '-y',
+                    str(tmp_out_path)
+                ]
+            else:
+                # asetrateとatempoを組み合わせ
+                # speed = 0.85の場合は atempo=0.85 で対応
+                self.logger.warning(
+                    f"Speed {speed} is out of atempo range (0.5-2.0). "
+                    "Using asetrate+atempo combination."
+                )
+                cmd = [
+                    'ffmpeg',
+                    '-i', str(tmp_in_path),
+                    '-filter:a', f'asetrate=44100*{speed},aresample=44100,atempo=1.0',
+                    '-y',
+                    str(tmp_out_path)
+                ]
+            
+            subprocess.run(cmd, check=True, capture_output=True)
+            
+            # 調整後のデータを読み込み
+            with open(tmp_out_path, 'rb') as f:
+                return f.read()
+        finally:
+            tmp_in_path.unlink(missing_ok=True)
+            tmp_out_path.unlink(missing_ok=True)
     
     def generate_to_file(
         self,
@@ -135,7 +209,7 @@ class AudioGenerator:
         Raises:
             Exception: 最大リトライ回数を超えても失敗した場合
         """
-        self.logger.info(f"Generating audio: {text[:50]}...")
+        self.logger.info(f"Generating audio: {text[:50]}... (speed={self.speed})")
         
         for attempt in range(max_retries):
             try:
@@ -153,7 +227,7 @@ class AudioGenerator:
                 
                 self.logger.info(
                     f"Audio generated: {output_path} "
-                    f"({duration:.1f}s, {file_size:.2f}MB)"
+                    f"({duration:.1f}s, {file_size:.2f}MB, speed={self.speed}x)"
                 )
                 
                 return duration
@@ -314,7 +388,7 @@ def create_audio_generator(
         # 通常使用
         generator = create_audio_generator(
             api_key="your_key",
-            config={"voice_id": "...", "model": "..."}
+            config={"voice_id": "...", "model": "...", "settings": {"speed": 0.85}}
         )
         
         # ダミーモード
