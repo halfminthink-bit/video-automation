@@ -142,11 +142,24 @@ class AudioProcessor:
                     str(output_path)
                 ]
 
-                result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+                try:
+                    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
 
-                # デバッグ用にffmpegの出力をログに記録
-                if result.stderr:
-                    self.logger.debug(f"ffmpeg output: {result.stderr}")
+                    # デバッグ用にffmpegの出力をログに記録
+                    if result.stderr:
+                        self.logger.debug(f"ffmpeg output: {result.stderr}")
+                except subprocess.CalledProcessError as e:
+                    # ffmpegのエラー詳細をログに記録
+                    self.logger.error(f"ffmpeg command failed: {' '.join(cmd)}")
+                    self.logger.error(f"ffmpeg stdout: {e.stdout}")
+                    self.logger.error(f"ffmpeg stderr: {e.stderr}")
+
+                    # concat listの内容も記録
+                    with open(concat_list_path, 'r', encoding='utf-8') as f:
+                        concat_content = f.read()
+                    self.logger.error(f"Concat list content:\n{concat_content}")
+
+                    raise
                 
                 # 長さを取得
                 duration = self.get_duration(output_path)
