@@ -176,19 +176,60 @@ class AudioGenerator:
             output_format="mp3_44100_128"
         )
 
-        # レスポンスから情報を取得（Pydanticモデルなので属性アクセス）
+        # レスポンスのデバッグ情報をログ出力
+        self.logger.debug(f"Response type: {type(response)}")
+        self.logger.debug(f"Response attributes: {dir(response)}")
+
+        # レスポンスから情報を取得
+        # Pydanticモデルの場合、model_dump()やdict()で辞書に変換できる
+        if hasattr(response, 'model_dump'):
+            response_dict = response.model_dump()
+            self.logger.debug(f"Response dict keys: {response_dict.keys()}")
+        elif hasattr(response, 'dict'):
+            response_dict = response.dict()
+            self.logger.debug(f"Response dict keys: {response_dict.keys()}")
+        elif isinstance(response, dict):
+            response_dict = response
+            self.logger.debug(f"Response is already a dict with keys: {response_dict.keys()}")
+        else:
+            # フォールバック: 属性から直接取得
+            self.logger.warning(f"Unknown response format, trying attribute access")
+            response_dict = {
+                'audio_base64': getattr(response, 'audio_base64', ''),
+                'alignment': getattr(response, 'alignment', {})
+            }
+
+        # audio_base64を取得
+        audio_base64 = response_dict.get('audio_base64', '')
+        if not audio_base64:
+            self.logger.error("audio_base64 is empty!")
+            self.logger.error(f"Full response: {response_dict}")
+            raise ValueError("ElevenLabs API returned empty audio_base64")
+
+        # alignmentを取得
+        alignment = response_dict.get('alignment', {})
+        if isinstance(alignment, dict):
+            characters = alignment.get('characters', [])
+            char_start_times = alignment.get('character_start_times_seconds', [])
+            char_end_times = alignment.get('character_end_times_seconds', [])
+        else:
+            # alignmentがオブジェクトの場合
+            characters = getattr(alignment, 'characters', [])
+            char_start_times = getattr(alignment, 'character_start_times_seconds', [])
+            char_end_times = getattr(alignment, 'character_end_times_seconds', [])
+
         result = {
-            'audio_base64': response.audio_base64 if hasattr(response, 'audio_base64') else '',
+            'audio_base64': audio_base64,
             'alignment': {
-                'characters': response.alignment.characters if hasattr(response, 'alignment') and hasattr(response.alignment, 'characters') else [],
-                'character_start_times_seconds': response.alignment.character_start_times_seconds if hasattr(response, 'alignment') and hasattr(response.alignment, 'character_start_times_seconds') else [],
-                'character_end_times_seconds': response.alignment.character_end_times_seconds if hasattr(response, 'alignment') and hasattr(response.alignment, 'character_end_times_seconds') else []
+                'characters': characters,
+                'character_start_times_seconds': char_start_times,
+                'character_end_times_seconds': char_end_times
             }
         }
 
-        self.logger.debug(
-            f"Generated audio with {len(result['alignment']['characters'])} "
-            f"character timings"
+        self.logger.info(
+            f"Generated audio: {len(audio_base64)} chars base64, "
+            f"{len(characters)} character timings"
         )
 
         return result
