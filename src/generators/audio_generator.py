@@ -6,6 +6,7 @@ APIが利用できない場合はダミー生成器を使用。
 """
 
 import logging
+import base64
 from pathlib import Path
 from typing import Optional, Dict, Any
 import time
@@ -132,7 +133,66 @@ class AudioGenerator:
             audio_data = self._adjust_speed(audio_data, self.speed)
         
         return audio_data
-    
+
+    def generate_with_timestamps(self, text: str) -> Dict[str, Any]:
+        """
+        タイムスタンプ付きで音声を生成
+
+        ElevenLabs API の with-timestamps エンドポイントを使用して、
+        音声データと文字レベルのタイミング情報を同時に取得。
+
+        Args:
+            text: 生成するテキスト
+
+        Returns:
+            {
+                'audio_base64': str,  # Base64エンコードされた音声データ
+                'alignment': {
+                    'characters': List[str],  # 文字のリスト
+                    'character_start_times_seconds': List[float],  # 各文字の開始時間
+                    'character_end_times_seconds': List[float]  # 各文字の終了時間
+                }
+            }
+
+        Raises:
+            Exception: 生成失敗時
+        """
+        self.logger.debug(f"Generating audio with timestamps for text: {text[:50]}...")
+
+        # VoiceSettingsを作成
+        voice_settings = VoiceSettings(
+            stability=self.settings.get("stability", 0.5),
+            similarity_boost=self.settings.get("similarity_boost", 0.75),
+            style=self.settings.get("style", 0),
+            use_speaker_boost=self.settings.get("use_speaker_boost", True)
+        )
+
+        # ElevenLabs API: text_to_speech.convert_with_timestamps()を使用
+        response = self.client.text_to_speech.convert_with_timestamps(
+            voice_id=self.voice_id,
+            text=text,
+            model_id=self.model,
+            voice_settings=voice_settings,
+            output_format="mp3_44100_128"
+        )
+
+        # レスポンスから情報を取得
+        result = {
+            'audio_base64': response.get('audio_base64', ''),
+            'alignment': response.get('alignment', {
+                'characters': [],
+                'character_start_times_seconds': [],
+                'character_end_times_seconds': []
+            })
+        }
+
+        self.logger.debug(
+            f"Generated audio with {len(result['alignment']['characters'])} "
+            f"character timings"
+        )
+
+        return result
+
     def _adjust_speed(self, audio_data: bytes, speed: float) -> bytes:
         """
         ffmpegを使用して音声速度を調整
