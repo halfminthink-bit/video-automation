@@ -14,6 +14,8 @@ Examples:
 import sys
 import argparse
 import logging
+import traceback
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -33,6 +35,52 @@ from src.phases.phase_04_animation import Phase04Animation
 from src.phases.phase_05_bgm import Phase05BGM
 from src.phases.phase_06_subtitles import Phase06Subtitles
 from src.phases.phase_07_composition import Phase07Composition
+
+
+def write_error_log(config: ConfigManager, subject: str, phase_number: int, error: Exception) -> Path:
+    """
+    エラーログをファイルに書き込む
+
+    Args:
+        config: ConfigManager インスタンス
+        subject: 偉人名
+        phase_number: フェーズ番号
+        error: 発生した例外
+
+    Returns:
+        エラーログファイルのパス
+    """
+    # ログディレクトリを取得
+    log_dir = config.get_path("logs_dir")
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    # タイムスタンプ付きのエラーログファイル名を生成
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    error_log_filename = f"error_phase{phase_number}_{subject}_{timestamp}.txt"
+    error_log_path = log_dir / error_log_filename
+
+    # エラー情報を収集
+    error_info = []
+    error_info.append("=" * 80)
+    error_info.append("ERROR LOG - Video Automation CLI")
+    error_info.append("=" * 80)
+    error_info.append(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    error_info.append(f"Subject: {subject}")
+    error_info.append(f"Phase: {phase_number}")
+    error_info.append(f"Error Type: {type(error).__name__}")
+    error_info.append(f"Error Message: {str(error)}")
+    error_info.append("")
+    error_info.append("-" * 80)
+    error_info.append("FULL TRACEBACK:")
+    error_info.append("-" * 80)
+    error_info.append(traceback.format_exc())
+    error_info.append("=" * 80)
+
+    # ファイルに書き込み
+    with open(error_log_path, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(error_info))
+
+    return error_log_path
 
 
 def run_phase(subject: str, phase_number: int, skip_if_exists: bool = False) -> int:
@@ -125,10 +173,32 @@ def run_phase(subject: str, phase_number: int, skip_if_exists: bool = False) -> 
             return 0
         else:
             logger.error(f"Error: {execution.error_message}")
+
+            # エラーログをファイルに出力
+            if execution.error_message:
+                try:
+                    error_log_path = write_error_log(config, subject, phase_number, Exception(execution.error_message))
+                    logger.error(f"Error log saved to: {error_log_path}")
+                    print(f"\n❌ Error log saved to: {error_log_path}")
+                except Exception as log_error:
+                    logger.error(f"Failed to write error log: {log_error}")
+
             return 1
 
     except Exception as e:
         logger.error(f"Execution error: {e}", exc_info=True)
+
+        # エラーログをファイルに出力
+        try:
+            error_log_path = write_error_log(config, subject, phase_number, e)
+            logger.error(f"Error log saved to: {error_log_path}")
+            print(f"\n❌ Error occurred during Phase {phase_number} execution")
+            print(f"❌ Error log saved to: {error_log_path}")
+            print(f"❌ Error: {type(e).__name__}: {str(e)}")
+        except Exception as log_error:
+            logger.error(f"Failed to write error log: {log_error}")
+            print(f"\n❌ Error occurred but failed to save error log: {log_error}")
+
         return 1
 
 
