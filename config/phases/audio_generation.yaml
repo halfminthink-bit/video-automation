@@ -5,7 +5,11 @@
 
 # ElevenLabs API設定
 service: "elevenlabs"
-voice_id: "21m00Tcm4TlvDq8ikWAM"  # Rachel（要調整）
+# 日本語対応のvoice_id（以下から選択）:
+# - "pNInz6obpgDQGcFmaJgB": Adam (多言語対応、男性)
+# - "onwK4e9ZLuTAKqWW03F9": Daniel (多言語対応、男性)
+# または、ElevenLabsダッシュボードで日本語対応の音声を確認してください
+voice_id: "pNInz6obpgDQGcFmaJgB"  # Adam（多言語対応、日本語サポート）
 model: "eleven_turbo_v2"  # より安価で高速なモデル
 with_timestamps: true  # タイムスタンプ付き音声生成を使用
 
