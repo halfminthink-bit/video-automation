@@ -126,16 +126,52 @@ class SubtitleGenerator:
                     audio_path=audio_path,
                     sentences=all_narrations
                 )
-                
-                # セクションごとにマッピング
-                sentence_idx = 0
-                for section in script.sections:
+
+                # セクションごとにマッピング（時間範囲でフィルタリング）
+                # Whisperは全音声ファイルの絶対時間を返すため、
+                # 各セクションの開始・終了時間の範囲内にある文をマッピングする
+                for i, section in enumerate(script.sections):
+                    # 対応する音声セグメントを取得
+                    segment = None
+                    for seg in audio_segments:
+                        if seg.section_id == section.section_id:
+                            segment = seg
+                            break
+
+                    if segment is None:
+                        self.logger.warning(
+                            f"No audio segment found for section {section.section_id}"
+                        )
+                        continue
+
+                    # このセクションの時間範囲
+                    section_start = segment.start_time
+                    section_end = segment.start_time + segment.duration
+
+                    # このセクションに対応する文のタイミングを抽出
                     section_sentences = self._split_into_sentences(section.narration)
                     section_timings = []
-                    for _ in section_sentences:
-                        if sentence_idx < len(sentence_timings):
-                            section_timings.append(sentence_timings[sentence_idx])
-                            sentence_idx += 1
+
+                    # Whisperのタイミングから、このセクションの範囲内のものを取得
+                    # 期待される文の数と一致するものを探す
+                    available_timings = [
+                        t for t in sentence_timings
+                        if section_start <= t.get("start", 0) < section_end
+                    ]
+
+                    # 文の数が一致しない場合は警告
+                    if len(available_timings) != len(section_sentences):
+                        self.logger.warning(
+                            f"Section {section.section_id}: "
+                            f"Expected {len(section_sentences)} sentences, "
+                            f"but found {len(available_timings)} timings in range "
+                            f"[{section_start:.2f}s - {section_end:.2f}s]"
+                        )
+
+                    # 利用可能なタイミングを使用（数が合わない場合は部分的に使用）
+                    for j in range(min(len(section_sentences), len(available_timings))):
+                        section_timings.append(available_timings[j])
+
                     sentence_timings_map[section.section_id] = section_timings
                 
                 self.logger.info(
@@ -227,23 +263,16 @@ class SubtitleGenerator:
         # Whisperのタイミング情報を使用する場合
         if sentence_timings and len(sentence_timings) == len(sentences):
             self.logger.debug(f"Using Whisper timing for {len(sentences)} sentences")
+
             for i, sentence in enumerate(sentences):
                 if not sentence.strip():
                     continue
-                
+
                 timing_info = sentence_timings[i]
+                # Whisperのタイミングは既に全音声ファイルの絶対時間なので、
+                # そのまま使用する（セクションごとのマッピングで既にフィルタリング済み）
                 sentence_start = timing_info.get("start", start_time)
                 sentence_end = timing_info.get("end", start_time + duration)
-                
-                # セクションの開始時間を基準に調整
-                if i == 0:
-                    # 最初の文はセクションの開始時間を基準にする
-                    offset = start_time - sentence_start
-                    sentence_start = start_time
-                else:
-                    sentence_start = start_time + (sentence_start - sentence_timings[0].get("start", 0))
-                
-                sentence_end = sentence_start + (sentence_end - timing_info.get("start", sentence_start))
                 
                 # 最小・最大表示時間の制約を適用
                 sentence_duration = sentence_end - sentence_start

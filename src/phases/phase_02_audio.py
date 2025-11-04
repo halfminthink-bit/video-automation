@@ -313,40 +313,53 @@ class Phase02Audio(PhaseBase):
     def _combine_audio_segments(self, segments: List[AudioSegment]) -> Path:
         """
         音声セグメントを結合
-        
+
         Args:
             segments: AudioSegmentのリスト
-            
+
         Returns:
             統合音声ファイルのPath
         """
         processor = AudioProcessor(logger=self.logger)
-        
+
         # セグメントのパスリスト
         audio_paths = [Path(seg.audio_path) for seg in segments]
-        
+
         # 出力パス
         output_path = self.phase_dir / "narration_full.mp3"
-        
+
         # セクション間の無音時間
         silence_duration = self.phase_config.get("inter_section_silence", 0.5)
-        
+
         self.logger.info(
             f"Combining {len(audio_paths)} segments "
             f"(silence between: {silence_duration}s)"
         )
-        
+
+        # 結合前に各セグメントの開始時間を計算して設定
+        current_time = 0.0
+        for segment in segments:
+            segment.start_time = current_time
+            current_time += segment.duration + silence_duration
+
+        self.logger.debug("Calculated segment start times:")
+        for seg in segments:
+            self.logger.debug(
+                f"  Section {seg.section_id}: "
+                f"start={seg.start_time:.2f}s, duration={seg.duration:.2f}s"
+            )
+
         # 結合
         total_duration = processor.combine_audio_files(
             audio_paths=audio_paths,
             output_path=output_path,
             silence_duration=silence_duration
         )
-        
+
         self.logger.info(
             f"Combined audio created: {output_path} ({total_duration:.1f}s)"
         )
-        
+
         return output_path
     
     def _analyze_audio(self, audio_path: Path) -> dict:
