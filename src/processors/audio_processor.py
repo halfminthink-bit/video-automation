@@ -128,18 +128,25 @@ class AudioProcessor:
                     concat_file.write(f"file '{str(file_path).replace('\\', '/')}'\n")
             
             try:
-                # ffmpegで結合
+                # ffmpegで結合（再エンコード）
+                # -c copy ではなく再エンコードすることで互換性の問題を回避
                 cmd = [
                     'ffmpeg',
                     '-f', 'concat',
                     '-safe', '0',
                     '-i', str(concat_list_path),
-                    '-c', 'copy',
+                    '-c:a', 'libmp3lame',  # MP3コーデックで再エンコード
+                    '-b:a', '128k',  # ビットレート
+                    '-ar', '44100',  # サンプリングレート
                     '-y',  # 上書き
                     str(output_path)
                 ]
-                
-                subprocess.run(cmd, check=True, capture_output=True)
+
+                result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+
+                # デバッグ用にffmpegの出力をログに記録
+                if result.stderr:
+                    self.logger.debug(f"ffmpeg output: {result.stderr}")
                 
                 # 長さを取得
                 duration = self.get_duration(output_path)
