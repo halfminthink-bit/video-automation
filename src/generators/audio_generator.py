@@ -176,14 +176,14 @@ class AudioGenerator:
             output_format="mp3_44100_128"
         )
 
-        # レスポンスから情報を取得
+        # レスポンスから情報を取得（Pydanticモデルなので属性アクセス）
         result = {
-            'audio_base64': response.get('audio_base64', ''),
-            'alignment': response.get('alignment', {
-                'characters': [],
-                'character_start_times_seconds': [],
-                'character_end_times_seconds': []
-            })
+            'audio_base64': response.audio_base64 if hasattr(response, 'audio_base64') else '',
+            'alignment': {
+                'characters': response.alignment.characters if hasattr(response, 'alignment') and hasattr(response.alignment, 'characters') else [],
+                'character_start_times_seconds': response.alignment.character_start_times_seconds if hasattr(response, 'alignment') and hasattr(response.alignment, 'character_start_times_seconds') else [],
+                'character_end_times_seconds': response.alignment.character_end_times_seconds if hasattr(response, 'alignment') and hasattr(response.alignment, 'character_end_times_seconds') else []
+            }
         }
 
         self.logger.debug(

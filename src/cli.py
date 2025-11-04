@@ -143,7 +143,10 @@ def run_phase(subject: str, phase_number: int, skip_if_exists: bool = False) -> 
         logger.info("Execution Result")
         logger.info("="*60)
         logger.info(f"Status: {execution.status.value}")
-        logger.info(f"Duration: {execution.duration_seconds:.2f}s")
+        if execution.duration_seconds is not None:
+            logger.info(f"Duration: {execution.duration_seconds:.2f}s")
+        else:
+            logger.info("Duration: N/A")
 
         if execution.status == PhaseStatus.COMPLETED:
             logger.info("")
