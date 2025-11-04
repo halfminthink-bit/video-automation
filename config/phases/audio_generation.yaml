@@ -6,7 +6,7 @@
 # ElevenLabs API設定
 service: "elevenlabs"
 voice_id: "21m00Tcm4TlvDq8ikWAM"  # Rachel（要調整）
-model: "eleven_multilingual_v2"
+model: "eleven_turbo_v2"  # より安価で高速なモデル
 with_timestamps: true  # タイムスタンプ付き音声生成を使用
 
 # 音声品質設定
