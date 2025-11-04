@@ -1006,17 +1006,19 @@ variation_enabled: true
 
 #### Phase 5: BGM選択（BGM Selection）
 
-**責務**: セクションの雰囲気に合わせてBGMを選択・配置
+**責務**: 台本のbgm_suggestionに基づいてBGMを選択・配置
 
 **入力**:
-- `working/{subject}/01_script/script.json`
-- `working/{subject}/02_audio/audio_analysis.json`
+- `working/{subject}/01_script/script.json`（bgm_suggestionフィールドを含む）
 
 **処理**:
-1. 各セクションの`atmosphere`を読み取る
-2. BGMカテゴリにマッピング（epic, calm等）
-3. `assets/bgm/`から適切な曲を選択
-4. タイムライン上の配置を決定
+1. 台本の各セクションの`bgm_suggestion`を読み取る（opening/main/ending）
+2. 固定の3曲構成から適切なBGMを選択
+   - opening: 導入部のBGM
+   - main: 展開～クライマックスのBGM
+   - ending: 余韻・締めのBGM
+3. タイムライン上の配置を決定
+4. BGM切り替え時のクロスフェードを設定
 5. フェードイン/アウトのタイミング計算
 
 **出力**:
@@ -1027,34 +1029,42 @@ variation_enabled: true
 ```yaml
 bgm_library_path: "assets/bgm/"
 
-# 雰囲気 → BGMカテゴリのマッピング
-atmosphere_mapping:
-  "壮大": "epic"
-  "静か": "calm"
-  "希望": "hopeful"
-  "劇的": "dramatic"
-  "悲劇的": "tragic"
+# 固定BGM構造（起承転結対応）
+fixed_bgm_structure:
+  enabled: true
+  tracks:
+    opening:
+      file: "opening/intro_epic.mp3"
+      title: "Epic Introduction"
+    main:
+      file: "main/dramatic_journey.mp3"
+      title: "Dramatic Journey"
+    ending:
+      file: "ending/peaceful_resolution.mp3"
+      title: "Peaceful Resolution"
 
 default_settings:
   volume: 0.3  # ナレーションの30%
   fade_in_duration: 2.0
   fade_out_duration: 2.0
 
-# セクション間のBGM切り替え
-transition_between_sections:
-  type: "crossfade"  # "crossfade" or "fade"
+# BGM切り替え時のクロスフェード
+transition_between_tracks:
+  type: "crossfade"
   duration: 3.0
-
-# 同じ曲が連続しないようにする
-avoid_consecutive_same_track: true
 ```
+
+**重要な変更点**:
+- 従来の`atmosphere`フィールドではなく、`bgm_suggestion`フィールドを使用
+- 台本生成時（Phase 1）に各セクションに`bgm_suggestion`（BGMType: opening/main/ending）が設定される
+- 固定の3曲構成により、動画全体で一貫した音楽の流れを作る
 
 **スキップ条件**:
 - `working/{subject}/05_bgm/bgm_timeline.json`が存在する
 
 **エラーハンドリング**:
-- BGMファイルなし → デフォルトの静かな曲を使用
-- マッピング失敗 → "calm"カテゴリにフォールバック
+- BGMファイルなし → エラーログを記録、該当セクションをスキップ
+- fixed_bgm_structureが無効 → エラーを発生させる（必須設定）
 
 ---
 
@@ -1122,6 +1132,17 @@ font:
 - Whisperを使用する場合、初回実行時にモデルをダウンロードします（baseモデルで約150MB）
 - 処理時間は音声の長さに比例します（約1分の音声で数秒〜数十秒）
 - Whisperが利用できない場合は、従来の文字数比率方式に自動的にフォールバックします
+- **FP16/FP32の処理**: CPU環境ではFP32を使用し、GPU環境ではFP16を使用します（自動判定）
+  - これにより、CPU環境でのFP16警告が解消されます（whisper_timing.py:88-96で実装）
+
+**実装の詳細**:
+- `src/utils/whisper_timing.py`: Whisperによる単語レベルのタイミング抽出
+- `src/generators/subtitle_generator.py`: Whisperのタイミング情報を使用した字幕生成
+- 処理フロー:
+  1. 音声ファイル全体からWhisperで単語タイミングを取得
+  2. 各セクションの時間範囲に基づいて文のタイミングをマッピング
+  3. 文レベルのタイミング情報から字幕エントリを生成
+  4. 最小・最大表示時間の制約を適用して重複を防止
 
 ---
 
@@ -1131,12 +1152,20 @@ font:
 
 **入力**:
 - Phase 1-6の全ての出力
+- `working/{subject}/01_script/script.json`（BGM情報取得用）
+- `working/{subject}/02_audio/narration_full.mp3`（音声）
+- `working/{subject}/04_animated/*.mp4`（アニメ化動画）
+- `working/{subject}/06_subtitles/subtitle_timing.json`（字幕）
 
 **処理**:
 1. タイムラインの構築
-   - 冒頭30秒: AI動画
-   - その後: アニメ化静止画 + AI動画を配置
+   - アニメ化静止画をループ配置
+   - 音声の長さに合わせて動画クリップを調整
 2. 音声トラックの統合（ナレーション + BGM）
+   - ナレーション音声を読み込み
+   - 台本のbgm_suggestionに基づいてBGMを配置
+   - BGMセグメントごとにクリップを作成（ループ、音量調整、フェード処理）
+   - ナレーションとBGMをCompositeAudioClipでミックス
 3. 字幕オーバーレイ
 4. トランジション効果の適用
 5. MoviePyでレンダリング
