@@ -9,8 +9,8 @@ service: "elevenlabs"
 # - "pNInz6obpgDQGcFmaJgB": Adam (多言語対応、男性)
 # - "onwK4e9ZLuTAKqWW03F9": Daniel (多言語対応、男性)
 # または、ElevenLabsダッシュボードで日本語対応の音声を確認してください
-voice_id: "pNInz6obpgDQGcFmaJgB"  # Adam（多言語対応、日本語サポート）
-model: "eleven_turbo_v2"  # より安価で高速なモデル
+voice_id: "3JDquces8E8bkmvbh6Bc"  
+model: "eleven_turbo_v2_5"  
 with_timestamps: true  # タイムスタンプ付き音声生成を使用
 
 # 音声品質設定
