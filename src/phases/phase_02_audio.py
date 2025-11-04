@@ -3,12 +3,14 @@
 Phase 2: 音声生成
 
 Phase 1で生成された台本からElevenLabs APIを使用してナレーション音声を生成。
+タイムスタンプ機能を使用して、文字レベルのタイミング情報も同時に取得。
 """
 
 import json
 import sys
+import base64
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import logging
 
 # プロジェクトルートをパスに追加
@@ -69,16 +71,16 @@ class Phase02Audio(PhaseBase):
     
     def execute_phase(self) -> AudioGeneration:
         """
-        音声生成の実行
-        
+        音声生成の実行（タイムスタンプ付き）
+
         Returns:
             AudioGeneration: 生成結果
-            
+
         Raises:
             PhaseExecutionError: 実行エラー
         """
-        self.logger.info(f"Generating audio for: {self.subject}")
-        
+        self.logger.info(f"Generating audio with timestamps for: {self.subject}")
+
         try:
             # 1. Phase 1の台本を読み込み
             script = self._load_script()
@@ -86,22 +88,37 @@ class Phase02Audio(PhaseBase):
                 f"Loaded script: {len(script.sections)} sections, "
                 f"estimated {script.total_estimated_duration:.0f}s"
             )
-            
+
             # 2. 音声生成器を作成
             generator = self._create_audio_generator()
-            
-            # 3. セクションごとに音声生成
-            self.logger.info("Generating audio for each section...")
-            segments = self._generate_all_sections(script, generator)
-            
+
+            # 3. with_timestamps が有効かチェック
+            use_timestamps = self.phase_config.get("with_timestamps", True)
+
+            if use_timestamps and hasattr(generator, 'generate_with_timestamps'):
+                # タイムスタンプ付きで生成
+                self.logger.info("Generating audio with timestamps for each section...")
+                segments, timing_data = self._generate_all_sections_with_timestamps(
+                    script, generator
+                )
+
+                # タイミング情報を保存
+                self._save_audio_timing(timing_data)
+            else:
+                # 通常の生成（タイムスタンプなし）
+                self.logger.warning(
+                    "Timestamps not supported by generator, using standard generation"
+                )
+                segments = self._generate_all_sections(script, generator)
+
             # 4. 音声を結合
             self.logger.info("Combining audio segments...")
             full_audio_path = self._combine_audio_segments(segments)
-            
+
             # 5. 音声解析
             self.logger.info("Analyzing generated audio...")
             analysis = self._analyze_audio(full_audio_path)
-            
+
             # 6. 結果をモデルに変換
             audio_gen = AudioGeneration(
                 subject=self.subject,
@@ -109,18 +126,18 @@ class Phase02Audio(PhaseBase):
                 segments=segments,
                 total_duration=analysis["duration"]
             )
-            
+
             # 7. メタデータ保存
             self._save_generation_metadata(audio_gen, analysis)
-            
+
             self.logger.info(
                 f"Audio generation complete: "
                 f"{audio_gen.total_duration:.1f}s, "
                 f"{len(audio_gen.segments)} segments"
             )
-            
+
             return audio_gen
-            
+
         except Exception as e:
             self.logger.error(f"Audio generation failed: {e}", exc_info=True)
             raise PhaseExecutionError(
@@ -309,7 +326,111 @@ class Phase02Audio(PhaseBase):
                 raise
         
         return segments
-    
+
+    def _generate_all_sections_with_timestamps(
+        self,
+        script: VideoScript,
+        generator
+    ) -> tuple[List[AudioSegment], List[Dict[str, Any]]]:
+        """
+        全セクションの音声をタイムスタンプ付きで生成
+
+        Args:
+            script: 台本
+            generator: 音声生成器（generate_with_timestampsメソッド対応）
+
+        Returns:
+            (AudioSegmentのリスト, タイミング情報のリスト)
+        """
+        segments = []
+        timing_data = []
+        sections_dir = self.phase_dir / "sections"
+        sections_dir.mkdir(parents=True, exist_ok=True)
+
+        total_sections = len(script.sections)
+        cumulative_offset = 0.0  # 累積時間オフセット
+        silence_duration = self.phase_config.get("inter_section_silence", 0.5)
+
+        for i, section in enumerate(script.sections, start=1):
+            self.logger.info(
+                f"Generating audio with timestamps for section {i}/{total_sections}: "
+                f"{section.title}"
+            )
+
+            # 音声ファイルパス
+            audio_path = sections_dir / f"section_{section.section_id:02d}.mp3"
+
+            # タイムスタンプ付きで音声生成
+            try:
+                result = generator.generate_with_timestamps(text=section.narration)
+
+                # Base64エンコードされた音声データをデコード
+                audio_data = base64.b64decode(result['audio_base64'])
+
+                # ファイルに保存
+                audio_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(audio_path, 'wb') as f:
+                    f.write(audio_data)
+
+                # 音声の長さを取得
+                duration = generator._get_audio_duration(audio_path)
+
+                # タイミング情報を記録
+                alignment = result.get('alignment', {})
+                timing_info = {
+                    'section_id': section.section_id,
+                    'text': section.narration,
+                    'audio_path': str(audio_path),
+                    'characters': alignment.get('characters', []),
+                    'char_start_times': alignment.get('character_start_times_seconds', []),
+                    'char_end_times': alignment.get('character_end_times_seconds', []),
+                    'offset': cumulative_offset,
+                    'duration': duration
+                }
+                timing_data.append(timing_info)
+
+                # セグメント情報を記録
+                segment = AudioSegment(
+                    section_id=section.section_id,
+                    audio_path=str(audio_path),
+                    duration=duration
+                )
+                segments.append(segment)
+
+                self.logger.info(
+                    f"✓ Section {i}/{total_sections} generated with timestamps "
+                    f"({duration:.1f}s, {len(alignment.get('characters', []))} chars)"
+                )
+
+                # 累積オフセットを更新
+                cumulative_offset += duration + silence_duration
+
+            except Exception as e:
+                self.logger.error(
+                    f"Failed to generate audio with timestamps for "
+                    f"section {section.section_id}: {e}"
+                )
+                raise
+
+        return segments, timing_data
+
+    def _save_audio_timing(self, timing_data: List[Dict[str, Any]]):
+        """
+        音声タイミング情報をJSONファイルに保存
+
+        Args:
+            timing_data: タイミング情報のリスト
+        """
+        timing_path = self.phase_dir / "audio_timing.json"
+
+        with open(timing_path, 'w', encoding='utf-8') as f:
+            json.dump(timing_data, f, indent=2, ensure_ascii=False)
+
+        self.logger.info(
+            f"Audio timing data saved: {timing_path} "
+            f"({len(timing_data)} sections)"
+        )
+
     def _combine_audio_segments(self, segments: List[AudioSegment]) -> Path:
         """
         音声セグメントを結合
