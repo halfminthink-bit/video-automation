@@ -43,23 +43,32 @@ class Phase06Subtitles(PhaseBase):
         return "Subtitle Generation"
     
     def check_inputs_exist(self) -> bool:
-        """Phase 1（台本）とPhase 2（音声解析）の出力を確認"""
+        """Phase 1（台本）とPhase 2（音声タイミング）の出力を確認"""
         script_path = self.config.get_phase_dir(self.subject, 1) / "script.json"
-        audio_analysis_path = self.config.get_phase_dir(self.subject, 2) / "audio_analysis.json"
-        metadata_path = self.config.get_phase_dir(self.subject, 2) / "metadata.json"
-        
+        audio_timing_path = self.config.get_phase_dir(self.subject, 2) / "audio_timing.json"
+
         if not script_path.exists():
             self.logger.error(f"Script not found: {script_path}")
             return False
-        
+
+        # audio_timing.json が存在する場合は優先的に使用
+        if audio_timing_path.exists():
+            self.logger.info(f"Found audio timing data: {audio_timing_path}")
+            return True
+
+        # フォールバック：audio_analysis.json と metadata.json
+        audio_analysis_path = self.config.get_phase_dir(self.subject, 2) / "audio_analysis.json"
         if not audio_analysis_path.exists():
-            self.logger.error(f"Audio analysis not found: {audio_analysis_path}")
+            self.logger.error(
+                f"Neither audio_timing.json nor audio_analysis.json found. "
+                "Please run Phase 2 with with_timestamps enabled."
+            )
             return False
-        
-        # metadata.jsonも確認（segments情報がある場合）
-        if not metadata_path.exists():
-            self.logger.warning(f"Audio metadata not found: {metadata_path}")
-        
+
+        self.logger.warning(
+            "Using fallback mode without timing data. "
+            "For better subtitle sync, enable with_timestamps in Phase 2."
+        )
         return True
     
     def check_outputs_exist(self) -> bool:
@@ -84,16 +93,16 @@ class Phase06Subtitles(PhaseBase):
     
     def execute_phase(self) -> SubtitleGeneration:
         """
-        字幕生成の実行
-        
+        字幕生成の実行（audio_timing.json からタイミング情報を使用）
+
         Returns:
             SubtitleGeneration: 生成された字幕
-            
+
         Raises:
             PhaseExecutionError: 実行エラー
         """
         self.logger.info(f"Generating subtitles for: {self.subject}")
-        
+
         try:
             # 1. 台本を読み込み
             script = self._load_script()
@@ -101,53 +110,62 @@ class Phase06Subtitles(PhaseBase):
                 f"Loaded script: {len(script.sections)} sections, "
                 f"estimated {script.total_estimated_duration:.0f}s"
             )
-            
-            # 2. 音声情報を読み込み
-            audio_segments = self._load_audio_segments()
-            self.logger.info(f"Loaded audio segments: {len(audio_segments)}")
-            
-            # 3. 字幕生成器を作成
-            generator = create_subtitle_generator(
-                config=self.phase_config,
-                logger=self.logger
-            )
-            
-            # 4. 音声ファイルのパスを取得（Whisper使用のため）
-            audio_path = self.config.get_phase_dir(self.subject, 2) / "narration_full.mp3"
-            
-            # 5. 字幕を生成
-            self.logger.info("Generating subtitles...")
-            subtitles = generator.generate_subtitles(
-                script=script,
-                audio_segments=audio_segments,
-                config=self.phase_config,
-                audio_path=audio_path if audio_path.exists() else None
-            )
-            
+
+            # 2. audio_timing.json を読み込み（存在する場合）
+            audio_timing_path = self.config.get_phase_dir(self.subject, 2) / "audio_timing.json"
+
+            if audio_timing_path.exists():
+                # タイムスタンプ付き音声データを使用
+                self.logger.info("Using audio timing data from ElevenLabs")
+                subtitles = self._generate_from_audio_timing(audio_timing_path)
+            else:
+                # フォールバック：Whisperまたは文字数比率を使用
+                self.logger.warning("Audio timing data not found, using fallback method")
+                audio_segments = self._load_audio_segments()
+                self.logger.info(f"Loaded audio segments: {len(audio_segments)}")
+
+                # 字幕生成器を作成
+                generator = create_subtitle_generator(
+                    config=self.phase_config,
+                    logger=self.logger
+                )
+
+                # 音声ファイルのパスを取得（Whisper使用のため）
+                audio_path = self.config.get_phase_dir(self.subject, 2) / "narration_full.mp3"
+
+                # 字幕を生成
+                self.logger.info("Generating subtitles...")
+                subtitles = generator.generate_subtitles(
+                    script=script,
+                    audio_segments=audio_segments,
+                    config=self.phase_config,
+                    audio_path=audio_path if audio_path.exists() else None
+                )
+
             # 6. SRTファイルを保存
             srt_path = self._save_srt_file(subtitles)
-            
+
             # 7. タイミングJSONを保存
             timing_path = self._save_timing_json(subtitles)
-            
+
             # 8. 結果をモデルに変換
             subtitle_gen = SubtitleGeneration(
                 subject=self.subject,
                 subtitles=subtitles,
                 srt_path=str(srt_path),
             )
-            
+
             # 9. メタデータを保存
             self._save_generation_metadata(subtitle_gen)
-            
+
             self.logger.info(
                 f"Subtitle generation complete: "
                 f"{len(subtitles)} entries, "
                 f"SRT: {srt_path}"
             )
-            
+
             return subtitle_gen
-            
+
         except Exception as e:
             self.logger.error(f"Subtitle generation failed: {e}", exc_info=True)
             raise PhaseExecutionError(
@@ -388,10 +406,200 @@ class Phase06Subtitles(PhaseBase):
         self.logger.info(f"Timing JSON saved: {timing_path}")
         return timing_path
     
+    def _generate_from_audio_timing(self, timing_path: Path) -> List[SubtitleEntry]:
+        """
+        audio_timing.json から字幕を生成
+
+        Args:
+            timing_path: audio_timing.json のパス
+
+        Returns:
+            字幕エントリのリスト
+        """
+        self.logger.info(f"Loading audio timing data from: {timing_path}")
+
+        with open(timing_path, 'r', encoding='utf-8') as f:
+            timing_data = json.load(f)
+
+        subtitles = []
+        subtitle_index = 1
+
+        # 設定を取得
+        max_words_per_subtitle = self.phase_config.get("max_words_per_subtitle", 5)
+        max_duration = self.phase_config.get("timing", {}).get("max_display_duration", 3.0)
+        min_display_duration = self.phase_config.get("timing", {}).get("min_display_duration", 1.0)
+
+        for section_data in timing_data:
+            section_id = section_data.get('section_id', 0)
+            characters = section_data.get('characters', [])
+            char_start_times = section_data.get('char_start_times', [])
+            char_end_times = section_data.get('char_end_times', [])
+            offset = section_data.get('offset', 0.0)
+            text = section_data.get('text', '')
+
+            self.logger.debug(
+                f"Processing section {section_id}: {len(characters)} characters"
+            )
+
+            # 文字レベル → 単語レベル に変換
+            words = self._group_characters_into_words(
+                text, characters, char_start_times, char_end_times, offset
+            )
+
+            # 単語 → 字幕グループ に変換
+            subtitle_groups = self._create_subtitle_groups(
+                words, max_words_per_subtitle, max_duration
+            )
+
+            # 字幕エントリを作成
+            for group in subtitle_groups:
+                # 表示時間が短すぎる場合は調整
+                duration = group['end_time'] - group['start_time']
+                if duration < min_display_duration:
+                    group['end_time'] = group['start_time'] + min_display_duration
+
+                subtitle = SubtitleEntry(
+                    index=subtitle_index,
+                    start_time=group['start_time'],
+                    end_time=group['end_time'],
+                    text_line1=group['text'],
+                    text_line2=""  # 単一行で表示
+                )
+                subtitles.append(subtitle)
+                subtitle_index += 1
+
+        self.logger.info(f"Generated {len(subtitles)} subtitles from timing data")
+        return subtitles
+
+    def _group_characters_into_words(
+        self,
+        text: str,
+        characters: List[str],
+        start_times: List[float],
+        end_times: List[float],
+        offset: float
+    ) -> List[Dict[str, Any]]:
+        """
+        文字レベルのタイミング情報を単語レベルに変換
+
+        Args:
+            text: 元のテキスト
+            characters: 文字のリスト
+            start_times: 各文字の開始時間
+            end_times: 各文字の終了時間
+            offset: 累積時間オフセット
+
+        Returns:
+            単語情報のリスト [{'text': str, 'start': float, 'end': float}, ...]
+        """
+        words = []
+        current_word = ""
+        word_start = None
+
+        for i, char in enumerate(characters):
+            if i >= len(start_times) or i >= len(end_times):
+                break
+
+            # オフセットを適用
+            char_start = start_times[i] + offset
+            char_end = end_times[i] + offset
+
+            # 空白または句読点で単語を区切る
+            if char in [' ', '　', '、', '。', '！', '？', '\n']:
+                if current_word:
+                    words.append({
+                        'text': current_word,
+                        'start': word_start,
+                        'end': char_start
+                    })
+                    current_word = ""
+                    word_start = None
+
+                # 句読点も独立した"単語"として追加
+                if char not in [' ', '　', '\n']:
+                    words.append({
+                        'text': char,
+                        'start': char_start,
+                        'end': char_end
+                    })
+            else:
+                if word_start is None:
+                    word_start = char_start
+                current_word += char
+
+        # 最後の単語を追加
+        if current_word and word_start is not None:
+            words.append({
+                'text': current_word,
+                'start': word_start,
+                'end': end_times[-1] + offset if end_times else word_start
+            })
+
+        return words
+
+    def _create_subtitle_groups(
+        self,
+        words: List[Dict[str, Any]],
+        max_words: int = 5,
+        max_duration: float = 3.0
+    ) -> List[Dict[str, Any]]:
+        """
+        単語を字幕グループにまとめる
+
+        Args:
+            words: 単語情報のリスト
+            max_words: 1つの字幕に含める最大単語数
+            max_duration: 1つの字幕の最大表示時間（秒）
+
+        Returns:
+            字幕グループのリスト [{'text': str, 'start_time': float, 'end_time': float}, ...]
+        """
+        groups = []
+        current_group = []
+        group_start = None
+
+        for word in words:
+            if not current_group:
+                # 新しいグループを開始
+                current_group = [word]
+                group_start = word['start']
+            else:
+                # グループに追加するか判定
+                group_duration = word['end'] - group_start
+                should_split = (
+                    len(current_group) >= max_words or
+                    group_duration >= max_duration or
+                    word['text'] in ['。', '！', '？']  # 句点で区切る
+                )
+
+                if should_split:
+                    # 現在のグループを完了
+                    groups.append({
+                        'text': ''.join([w['text'] for w in current_group]),
+                        'start_time': group_start,
+                        'end_time': current_group[-1]['end']
+                    })
+                    # 新しいグループを開始
+                    current_group = [word]
+                    group_start = word['start']
+                else:
+                    # グループに追加
+                    current_group.append(word)
+
+        # 最後のグループを追加
+        if current_group:
+            groups.append({
+                'text': ''.join([w['text'] for w in current_group]),
+                'start_time': group_start,
+                'end_time': current_group[-1]['end']
+            })
+
+        return groups
+
     def _save_generation_metadata(self, subtitle_gen: SubtitleGeneration):
         """
         生成メタデータを保存
-        
+
         Args:
             subtitle_gen: SubtitleGeneration モデル
         """
@@ -411,7 +619,7 @@ class Phase06Subtitles(PhaseBase):
                 "use_mecab": self.phase_config.get("morphological_analysis", {}).get("use_mecab", False)
             }
         }
-        
+
         self.save_metadata(metadata, "metadata.json")
         self.logger.info("Generation metadata saved")
 
