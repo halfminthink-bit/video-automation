@@ -7,7 +7,7 @@ Phase 6: 字幕生成（Subtitle Generation）
 import json
 import sys
 from pathlib import Path
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Dict
 import logging
 
 # プロジェクトルートをパスに追加
