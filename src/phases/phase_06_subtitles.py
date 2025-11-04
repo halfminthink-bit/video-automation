@@ -504,8 +504,13 @@ class Phase06Subtitles(PhaseBase):
             char_start = start_times[i] + offset
             char_end = end_times[i] + offset
 
-            # 空白または句読点で単語を区切る
-            if char in [' ', '　', '、', '。', '！', '？', '\n']:
+            # 空白で単語を区切る
+            # 「。」は完全に除外、「、」は前の単語に付ける
+            if char == '。':
+                # 「。」は無視（スキップ）
+                continue
+            elif char in [' ', '　', '\n']:
+                # 空白・改行で単語を区切る
                 if current_word:
                     words.append({
                         'text': current_word,
@@ -514,15 +519,15 @@ class Phase06Subtitles(PhaseBase):
                     })
                     current_word = ""
                     word_start = None
-
-                # 句読点も独立した"単語"として追加
-                if char not in [' ', '　', '\n']:
-                    words.append({
-                        'text': char,
-                        'start': char_start,
-                        'end': char_end
-                    })
+            elif char == '、':
+                # 「、」は前の単語に付ける
+                if current_word:
+                    current_word += char
+                else:
+                    # 単語がない場合（行頭など）は無視
+                    continue
             else:
+                # 通常の文字
                 if word_start is None:
                     word_start = char_start
                 current_word += char
@@ -568,8 +573,8 @@ class Phase06Subtitles(PhaseBase):
                 group_duration = word['end'] - group_start
                 should_split = (
                     len(current_group) >= max_words or
-                    group_duration >= max_duration or
-                    word['text'] in ['。', '！', '？']  # 句点で区切る
+                    group_duration >= max_duration
+                    # 句読点での区切りは削除（「。」は既に除外済み）
                 )
 
                 if should_split:
