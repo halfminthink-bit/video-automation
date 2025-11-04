@@ -372,11 +372,26 @@ class Phase02Audio(PhaseBase):
                 with open(audio_path, 'wb') as f:
                     f.write(audio_data)
 
-                # 音声の長さを取得
-                duration = generator._get_audio_duration(audio_path)
-
-                # タイミング情報を記録
+                # タイミング情報を取得
                 alignment = result.get('alignment', {})
+
+                # 音声の長さを取得（タイムスタンプから計算）
+                char_end_times = alignment.get('character_end_times_seconds', [])
+                if char_end_times:
+                    # 最後の文字の終了時間が音声の長さ
+                    duration = char_end_times[-1]
+                    self.logger.debug(f"Duration from timestamps: {duration:.2f}s")
+                else:
+                    # フォールバック: ffprobeを使用
+                    try:
+                        duration = generator._get_audio_duration(audio_path)
+                        self.logger.debug(f"Duration from ffprobe: {duration:.2f}s")
+                    except Exception as e:
+                        # ffprobeも失敗した場合は推定値を使用
+                        self.logger.warning(f"Could not get duration from ffprobe: {e}")
+                        # 文字数から推定（1文字あたり約0.2秒と仮定）
+                        duration = len(section.narration) * 0.2
+                        self.logger.warning(f"Using estimated duration: {duration:.2f}s")
                 timing_info = {
                     'section_id': section.section_id,
                     'text': section.narration,

@@ -6,6 +6,7 @@ APIが利用できない場合はダミー生成器を使用。
 """
 
 import logging
+import base64
 from pathlib import Path
 from typing import Optional, Dict, Any
 import time
@@ -94,18 +95,18 @@ class AudioGenerator:
     def generate(self, text: str) -> bytes:
         """
         テキストから音声を生成（バイナリデータを返す）
-
+        
         Args:
             text: 生成するテキスト
-
+            
         Returns:
             音声データ（MP3バイナリ）
-
+            
         Raises:
             Exception: 生成失敗時
         """
         self.logger.debug(f"Generating audio for text: {text[:50]}...")
-
+        
         # VoiceSettingsを作成
         voice_settings = VoiceSettings(
             stability=self.settings.get("stability", 0.5),
@@ -113,7 +114,7 @@ class AudioGenerator:
             style=self.settings.get("style", 0),
             use_speaker_boost=self.settings.get("use_speaker_boost", True)
         )
-
+        
         # 新しいAPI: text_to_speech.convert()を使用
         # speed パラメータを追加
         response = self.client.text_to_speech.convert(
@@ -123,14 +124,14 @@ class AudioGenerator:
             voice_settings=voice_settings,
             output_format="mp3_44100_128"  # 出力フォーマットを明示
         )
-
+        
         # ストリームからバイナリデータを取得
         audio_data = b"".join(response)
-
+        
         # 速度調整が必要な場合（speed != 1.0）、ffmpegで調整
         if self.speed != 1.0:
             audio_data = self._adjust_speed(audio_data, self.speed)
-
+        
         return audio_data
 
     def generate_with_timestamps(self, text: str) -> Dict[str, Any]:
@@ -253,6 +254,64 @@ class AudioGenerator:
             self.logger.error(f"Voice ID: {self.voice_id}, Model: {self.model}")
             raise
     
+        # レスポンスのデバッグ情報をログ出力
+        self.logger.debug(f"Response type: {type(response)}")
+        self.logger.debug(f"Response attributes: {dir(response)}")
+
+        # レスポンスから情報を取得
+        # Pydanticモデルの場合、model_dump()やdict()で辞書に変換できる
+        if hasattr(response, 'model_dump'):
+            response_dict = response.model_dump()
+            self.logger.debug(f"Response dict keys: {response_dict.keys()}")
+        elif hasattr(response, 'dict'):
+            response_dict = response.dict()
+            self.logger.debug(f"Response dict keys: {response_dict.keys()}")
+        elif isinstance(response, dict):
+            response_dict = response
+            self.logger.debug(f"Response is already a dict with keys: {response_dict.keys()}")
+        else:
+            # フォールバック: 属性から直接取得
+            self.logger.warning(f"Unknown response format, trying attribute access")
+            response_dict = {
+                'audio_base64': getattr(response, 'audio_base64', ''),
+                'alignment': getattr(response, 'alignment', {})
+            }
+
+        # audio_base64を取得
+        audio_base64 = response_dict.get('audio_base64', '')
+        if not audio_base64:
+            self.logger.error("audio_base64 is empty!")
+            self.logger.error(f"Full response: {response_dict}")
+            raise ValueError("ElevenLabs API returned empty audio_base64")
+
+        # alignmentを取得
+        alignment = response_dict.get('alignment', {})
+        if isinstance(alignment, dict):
+            characters = alignment.get('characters', [])
+            char_start_times = alignment.get('character_start_times_seconds', [])
+            char_end_times = alignment.get('character_end_times_seconds', [])
+        else:
+            # alignmentがオブジェクトの場合
+            characters = getattr(alignment, 'characters', [])
+            char_start_times = getattr(alignment, 'character_start_times_seconds', [])
+            char_end_times = getattr(alignment, 'character_end_times_seconds', [])
+
+        result = {
+            'audio_base64': audio_base64,
+            'alignment': {
+                'characters': characters,
+                'character_start_times_seconds': char_start_times,
+                'character_end_times_seconds': char_end_times
+            }
+        }
+
+        self.logger.info(
+            f"Generated audio: {len(audio_base64)} chars base64, "
+            f"{len(characters)} character timings"
+        )
+
+        return result
+
     def _adjust_speed(self, audio_data: bytes, speed: float) -> bytes:
         """
         ffmpegを使用して音声速度を調整
