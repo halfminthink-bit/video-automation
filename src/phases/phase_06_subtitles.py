@@ -458,12 +458,16 @@ class Phase06Subtitles(PhaseBase):
                 if duration < min_display_duration:
                     group['end_time'] = group['start_time'] + min_display_duration
 
+                # テキストを2行に分割
+                max_chars = self.phase_config.get("max_chars_per_line", 16)
+                line1, line2 = self._split_text_into_lines(group['text'], max_chars)
+
                 subtitle = SubtitleEntry(
                     index=subtitle_index,
                     start_time=group['start_time'],
                     end_time=group['end_time'],
-                    text_line1=group['text'],
-                    text_line2=""  # 単一行で表示
+                    text_line1=line1,
+                    text_line2=line2
                 )
                 subtitles.append(subtitle)
                 subtitle_index += 1
@@ -600,6 +604,73 @@ class Phase06Subtitles(PhaseBase):
             })
 
         return groups
+
+    def _split_text_into_lines(
+        self,
+        text: str,
+        max_chars_per_line: int = 16
+    ) -> tuple[str, str]:
+        """
+        字幕テキストを2行に分割
+
+        Args:
+            text: 分割するテキスト
+            max_chars_per_line: 1行あたりの最大文字数
+
+        Returns:
+            (line1, line2) のタプル。line2は空文字列の場合もある
+        """
+        # 短い場合はそのまま返す
+        if len(text) <= max_chars_per_line:
+            return (text, "")
+
+        # 2行分を超える場合は、最大文字数×2で切り詰め
+        max_total = max_chars_per_line * 2
+        if len(text) > max_total:
+            text = text[:max_total]
+
+        # 読点「、」で分割を試みる
+        if '、' in text:
+            parts = text.split('、')
+            # 最初の部分が適切な長さなら、そこで分割
+            if len(parts[0]) <= max_chars_per_line:
+                line1 = parts[0] + '、'
+                line2 = '、'.join(parts[1:])
+                # line2が長すぎる場合は、さらに調整
+                if len(line2) > max_chars_per_line:
+                    # line2を切り詰める
+                    line2 = line2[:max_chars_per_line]
+                return (line1, line2)
+
+        # 読点がない、または適切な位置にない場合は、中央付近で分割
+        mid = len(text) // 2
+        # 中央付近の適切な区切り位置を探す（前後3文字の範囲）
+        best_pos = mid
+        for offset in range(4):
+            # 前方を探索
+            pos = mid - offset
+            if pos > 0 and pos < len(text):
+                # 分割に適した文字かチェック
+                if text[pos] in ['、', ' ', '　']:
+                    best_pos = pos + 1
+                    break
+            # 後方を探索
+            pos = mid + offset
+            if pos > 0 and pos < len(text):
+                if text[pos] in ['、', ' ', '　']:
+                    best_pos = pos + 1
+                    break
+
+        # 各行が最大文字数を超えないように調整
+        line1 = text[:best_pos].strip()
+        line2 = text[best_pos:].strip()
+
+        if len(line1) > max_chars_per_line:
+            line1 = line1[:max_chars_per_line]
+        if len(line2) > max_chars_per_line:
+            line2 = line2[:max_chars_per_line]
+
+        return (line1, line2)
 
     def _save_generation_metadata(self, subtitle_gen: SubtitleGeneration):
         """
