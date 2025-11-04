@@ -6,7 +6,7 @@ python-dotenv>=1.0.0
 # AI APIs
 anthropic>=0.18.0
 openai>=1.0.0
-elevenlabs>=0.2.0
+elevenlabs>=0.2.26  # convert_with_timestamps() サポート (2024年5月以降)
 requests>=2.31.0
 
 # Video Processing

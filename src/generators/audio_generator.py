@@ -138,7 +138,7 @@ class AudioGenerator:
         """
         タイムスタンプ付きで音声を生成
 
-        ElevenLabs API の with-timestamps エンドポイントを使用して、
+        ElevenLabs API の convert_with_timestamps() メソッドを使用して、
         音声データと文字レベルのタイミング情報を同時に取得。
 
         Args:
@@ -155,27 +155,105 @@ class AudioGenerator:
             }
 
         Raises:
-            Exception: 生成失敗時
+            ValueError: レスポンスの検証失敗時
+            Exception: API呼び出し失敗時
         """
-        self.logger.debug(f"Generating audio with timestamps for text: {text[:50]}...")
+        self.logger.info(f"Generating audio with timestamps: {text[:50]}...")
 
-        # VoiceSettingsを作成
-        voice_settings = VoiceSettings(
-            stability=self.settings.get("stability", 0.5),
-            similarity_boost=self.settings.get("similarity_boost", 0.75),
-            style=self.settings.get("style", 0),
-            use_speaker_boost=self.settings.get("use_speaker_boost", True)
-        )
+        try:
+            # VoiceSettingsを作成
+            voice_settings = VoiceSettings(
+                stability=self.settings.get("stability", 0.5),
+                similarity_boost=self.settings.get("similarity_boost", 0.75),
+                style=self.settings.get("style", 0),
+                use_speaker_boost=self.settings.get("use_speaker_boost", True)
+            )
 
-        # ElevenLabs API: text_to_speech.convert_with_timestamps()を使用
-        response = self.client.text_to_speech.convert_with_timestamps(
-            voice_id=self.voice_id,
-            text=text,
-            model_id=self.model,
-            voice_settings=voice_settings,
-            output_format="mp3_44100_128"
-        )
+            # ElevenLabs SDK の convert_with_timestamps() を使用
+            self.logger.debug(
+                f"API call: voice_id={self.voice_id}, model={self.model}, "
+                f"output_format=mp3_44100_128"
+            )
 
+            response = self.client.text_to_speech.convert_with_timestamps(
+                text=text,
+                voice_id=self.voice_id,
+                model_id=self.model,
+                output_format="mp3_44100_128",
+                voice_settings=voice_settings
+            )
+
+            # レスポンスから情報を取得
+            # Pydantic モデルの場合は属性アクセス、辞書の場合は get() を使用
+            # 注意: ElevenLabs APIは audio_base_64 (アンダースコア入り) を返す
+            if hasattr(response, 'audio_base_64'):
+                audio_base64 = response.audio_base_64
+            elif isinstance(response, dict):
+                audio_base64 = response.get('audio_base_64', '')
+            else:
+                audio_base64 = ''
+
+            # audio_base64 の検証
+            if not audio_base64:
+                error_msg = (
+                    "API returned empty audio_base_64. "
+                    "Possible causes: API key invalid, insufficient credits, "
+                    "model not supporting timestamps, or network issues."
+                )
+                self.logger.error(error_msg)
+                self.logger.error(f"Response type: {type(response)}")
+                self.logger.error(f"Response attributes: {dir(response)}")
+                raise ValueError(error_msg)
+
+            # アライメント情報を取得
+            if hasattr(response, 'alignment'):
+                alignment = response.alignment
+                characters = alignment.characters if hasattr(alignment, 'characters') else []
+                start_times = (
+                    alignment.character_start_times_seconds
+                    if hasattr(alignment, 'character_start_times_seconds')
+                    else []
+                )
+                end_times = (
+                    alignment.character_end_times_seconds
+                    if hasattr(alignment, 'character_end_times_seconds')
+                    else []
+                )
+            elif isinstance(response, dict) and 'alignment' in response:
+                alignment = response['alignment']
+                characters = alignment.get('characters', [])
+                start_times = alignment.get('character_start_times_seconds', [])
+                end_times = alignment.get('character_end_times_seconds', [])
+            else:
+                characters = []
+                start_times = []
+                end_times = []
+
+            result = {
+                'audio_base64': audio_base64,
+                'alignment': {
+                    'characters': characters,
+                    'character_start_times_seconds': start_times,
+                    'character_end_times_seconds': end_times
+                }
+            }
+
+            # 成功ログ
+            char_count = len(characters)
+            audio_size = len(audio_base64) if audio_base64 else 0
+            self.logger.info(
+                f"Generated audio with {char_count} characters "
+                f"(audio_base64 size: {audio_size} bytes)"
+            )
+
+            return result
+
+        except Exception as e:
+            self.logger.error(f"Failed to generate audio with timestamps: {e}")
+            self.logger.error(f"Text: {text[:100]}...")
+            self.logger.error(f"Voice ID: {self.voice_id}, Model: {self.model}")
+            raise
+    
         # レスポンスのデバッグ情報をログ出力
         self.logger.debug(f"Response type: {type(response)}")
         self.logger.debug(f"Response attributes: {dir(response)}")
