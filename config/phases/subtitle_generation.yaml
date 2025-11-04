@@ -29,6 +29,17 @@ morphological_analysis:
     - "！"
     - "？"
 
+# Whisper設定（音声から正確なタイミング情報を取得）
+whisper:
+  # Whisperを使用してタイミング情報を取得するか
+  enabled: true
+  
+  # Whisperモデル名（tiny, base, small, medium, large）
+  # tiny: 最も高速だが精度が低い
+  # base: バランス型（推奨）
+  # small, medium, large: より高精度だが処理時間が長い
+  model: "base"
+
 # フォント設定（Phase 8で使用）
 font:
   family: "Noto Sans JP Bold"

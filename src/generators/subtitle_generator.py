@@ -15,6 +15,7 @@ from ..core.models import (
     AudioSegment,
     SubtitleEntry
 )
+from ..utils.whisper_timing import create_whisper_extractor
 
 
 class SubtitleGenerator:
@@ -52,6 +53,24 @@ class SubtitleGenerator:
         self.mecab = None
         if self.use_mecab:
             self._init_mecab()
+        
+        # Whisperの設定（タイミング情報取得用）
+        whisper_config = config.get("whisper", {})
+        self.use_whisper = whisper_config.get("enabled", True)
+        self.whisper_model = whisper_config.get("model", "base")
+        self.whisper_extractor = None
+        if self.use_whisper:
+            self.whisper_extractor = create_whisper_extractor(
+                model_name=self.whisper_model,
+                logger=self.logger,
+                language="ja"
+            )
+            if self.whisper_extractor is None:
+                self.logger.warning(
+                    "Whisper is enabled but not available. "
+                    "Falling back to character-based timing."
+                )
+                self.use_whisper = False
     
     def _init_mecab(self):
         """MeCabを初期化（オプション）"""
@@ -72,7 +91,8 @@ class SubtitleGenerator:
         self,
         script: VideoScript,
         audio_segments: List[AudioSegment],
-        config: Dict[str, Any]
+        config: Dict[str, Any],
+        audio_path: Optional[Path] = None
     ) -> List[SubtitleEntry]:
         """
         字幕を生成
@@ -81,6 +101,7 @@ class SubtitleGenerator:
             script: 台本
             audio_segments: 音声セグメント情報
             config: 設定（self.configと重複するが、明示的に渡す）
+            audio_path: 音声ファイルのパス（Whisperを使用する場合）
             
         Returns:
             字幕エントリのリスト
@@ -88,6 +109,44 @@ class SubtitleGenerator:
         self.logger.info(
             f"Generating subtitles from {len(script.sections)} sections"
         )
+        
+        # Whisperを使用する場合、音声からタイミング情報を取得
+        sentence_timings_map = {}
+        if self.use_whisper and audio_path and audio_path.exists():
+            self.logger.info("Using Whisper to extract accurate timing information")
+            try:
+                # 全セクションのナレーションを結合
+                all_narrations = []
+                for section in script.sections:
+                    sentences = self._split_into_sentences(section.narration)
+                    all_narrations.extend(sentences)
+                
+                # Whisperでタイミング情報を取得
+                sentence_timings = self.whisper_extractor.extract_sentence_timings(
+                    audio_path=audio_path,
+                    sentences=all_narrations
+                )
+                
+                # セクションごとにマッピング
+                sentence_idx = 0
+                for section in script.sections:
+                    section_sentences = self._split_into_sentences(section.narration)
+                    section_timings = []
+                    for _ in section_sentences:
+                        if sentence_idx < len(sentence_timings):
+                            section_timings.append(sentence_timings[sentence_idx])
+                            sentence_idx += 1
+                    sentence_timings_map[section.section_id] = section_timings
+                
+                self.logger.info(
+                    f"Extracted timing information for {len(sentence_timings)} sentences"
+                )
+            except Exception as e:
+                self.logger.warning(
+                    f"Failed to extract Whisper timings: {e}. "
+                    "Falling back to character-based timing."
+                )
+                sentence_timings_map = {}
         
         all_subtitles: List[SubtitleEntry] = []
         subtitle_index = 1
@@ -115,11 +174,15 @@ class SubtitleGenerator:
                 segment_start = segment.start_time
                 current_time = segment_start + segment_duration
             
+            # セクションのタイミング情報を取得
+            section_timings = sentence_timings_map.get(section.section_id, [])
+            
             # セクションのナレーションを字幕に分割
             section_subtitles = self._split_section_to_subtitles(
                 narration=section.narration,
                 start_time=segment_start,
-                duration=segment_duration
+                duration=segment_duration,
+                sentence_timings=section_timings
             )
             
             # インデックスを割り当て
@@ -138,7 +201,8 @@ class SubtitleGenerator:
         self,
         narration: str,
         start_time: float,
-        duration: float
+        duration: float,
+        sentence_timings: Optional[List[Dict[str, Any]]] = None
     ) -> List[SubtitleEntry]:
         """
         セクションのナレーションを字幕エントリに分割
@@ -147,6 +211,7 @@ class SubtitleGenerator:
             narration: ナレーション原稿
             start_time: セクションの開始時間
             duration: セクションの長さ
+            sentence_timings: Whisperから取得した文のタイミング情報（オプション）
             
         Returns:
             字幕エントリのリスト
@@ -157,48 +222,90 @@ class SubtitleGenerator:
         if not sentences:
             return []
         
-        # 各文の長さを計算
-        sentence_chars = [len(s) for s in sentences]
-        total_chars = sum(sentence_chars)
-        
-        # 字幕ごとの表示時間を計算
-        # 基本的には全体の時間を文字数で按分
         subtitles: List[SubtitleEntry] = []
-        current_time = start_time - self.lead_time  # リードタイムを考慮
-        current_time = max(0, current_time)  # 負数にならないように
         
-        accumulated_chars = 0
-        
-        for i, sentence in enumerate(sentences):
-            if not sentence.strip():
-                continue
+        # Whisperのタイミング情報を使用する場合
+        if sentence_timings and len(sentence_timings) == len(sentences):
+            self.logger.debug(f"Using Whisper timing for {len(sentences)} sentences")
+            for i, sentence in enumerate(sentences):
+                if not sentence.strip():
+                    continue
+                
+                timing_info = sentence_timings[i]
+                sentence_start = timing_info.get("start", start_time)
+                sentence_end = timing_info.get("end", start_time + duration)
+                
+                # セクションの開始時間を基準に調整
+                if i == 0:
+                    # 最初の文はセクションの開始時間を基準にする
+                    offset = start_time - sentence_start
+                    sentence_start = start_time
+                else:
+                    sentence_start = start_time + (sentence_start - sentence_timings[0].get("start", 0))
+                
+                sentence_end = sentence_start + (sentence_end - timing_info.get("start", sentence_start))
+                
+                # 最小・最大表示時間の制約を適用
+                sentence_duration = sentence_end - sentence_start
+                sentence_duration = max(
+                    self.min_display_duration,
+                    min(sentence_duration, self.max_display_duration)
+                )
+                sentence_end = sentence_start + sentence_duration
+                
+                # リードタイムを適用
+                subtitle_start = max(0, sentence_start - self.lead_time)
+                
+                # 文を2行に分割
+                line1, line2 = self._split_text_to_lines(sentence)
+                
+                # 字幕エントリを作成
+                subtitle = SubtitleEntry(
+                    index=0,  # 後で割り当て
+                    start_time=subtitle_start,
+                    end_time=sentence_end,
+                    text_line1=line1,
+                    text_line2=line2
+                )
+                subtitles.append(subtitle)
+        else:
+            # 従来の方法：文字数比率で計算（フォールバック）
+            self.logger.debug("Using character-based timing (fallback)")
+            sentence_chars = [len(s) for s in sentences]
+            total_chars = sum(sentence_chars)
             
-            # この文までの累積文字数から時間を計算
-            sentence_chars_count = len(sentence)
-            char_ratio = sentence_chars_count / total_chars if total_chars > 0 else 0
-            sentence_duration = duration * char_ratio
+            current_time = start_time - self.lead_time
+            current_time = max(0, current_time)
             
-            # 最小・最大表示時間の制約を適用
-            sentence_duration = max(
-                self.min_display_duration,
-                min(sentence_duration, self.max_display_duration)
-            )
-            
-            # 文を2行に分割
-            line1, line2 = self._split_text_to_lines(sentence)
-            
-            # 字幕エントリを作成
-            subtitle = SubtitleEntry(
-                index=0,  # 後で割り当て
-                start_time=current_time,
-                end_time=current_time + sentence_duration,
-                text_line1=line1,
-                text_line2=line2
-            )
-            subtitles.append(subtitle)
-            
-            current_time += sentence_duration
-            accumulated_chars += sentence_chars_count
+            for i, sentence in enumerate(sentences):
+                if not sentence.strip():
+                    continue
+                
+                # この文までの累積文字数から時間を計算
+                sentence_chars_count = len(sentence)
+                char_ratio = sentence_chars_count / total_chars if total_chars > 0 else 0
+                sentence_duration = duration * char_ratio
+                
+                # 最小・最大表示時間の制約を適用
+                sentence_duration = max(
+                    self.min_display_duration,
+                    min(sentence_duration, self.max_display_duration)
+                )
+                
+                # 文を2行に分割
+                line1, line2 = self._split_text_to_lines(sentence)
+                
+                # 字幕エントリを作成
+                subtitle = SubtitleEntry(
+                    index=0,  # 後で割り当て
+                    start_time=current_time,
+                    end_time=current_time + sentence_duration,
+                    text_line1=line1,
+                    text_line2=line2
+                )
+                subtitles.append(subtitle)
+                
+                current_time += sentence_duration
         
         return subtitles
     

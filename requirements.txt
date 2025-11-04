@@ -16,6 +16,7 @@ pillow>=10.0.0
 
 # Audio Processing
 pydub>=0.25.1
+openai-whisper>=20231117  # 音声認識とタイミング情報取得用
 
 # CLI & Logging
 rich>=13.0.0

@@ -107,14 +107,14 @@
                 ↓          ↓          ↓
     ┌──────────┐  ┌──────────┐  ┌──────────┐
     │ Phase 4  │  │ Phase 5  │  │ Phase 6  │
-    │ 静止画    │  │ AI動画   │  │ BGM選択  │
-    │ アニメ化  │  │ 生成     │  │         │
+    │ 静止画    │  │ BGM選択  │  │ 字幕生成  │
+    │ アニメ化  │  │         │  │         │
     └──────────┘  └──────────┘  └──────────┘
                 ↓          ↓          ↓
-            ┌──────────┐  ┌──────────┐
-            │ Phase 7  │  │ Phase 8  │
-            │ 字幕生成  │  │ 動画統合  │
-            └──────────┘  └──────────┘
+                    ┌──────────┐
+                    │ Phase 7  │
+                    │ 動画統合  │
+                    └──────────┘
                     ↓
         ┌─────────────────────────┐
         │   Final Output          │
@@ -176,17 +176,14 @@ video-automation/
 │   │       ├── 04_animated/             # Phase 4出力
 │   │       │   ├── animated_001.mp4     # アニメ化動画
 │   │       │   └── ...
-│   │       ├── 05_ai_videos/            # Phase 5出力
-│   │       │   ├── opening_30s.mp4      # 冒頭AI動画
-│   │       │   ├── key_moment_01.mp4    # 重要シーン
-│   │       │   └── ...
-│   │       ├── 06_bgm/                  # Phase 6出力
+│   │       ├── 05_bgm/                  # Phase 5出力
 │   │       │   ├── selected_tracks.json # 選択されたBGM
 │   │       │   └── bgm_timeline.json    # BGM配置情報
-│   │       ├── 07_subtitles/            # Phase 7出力
+│   │       ├── 06_subtitles/            # Phase 6出力
 │   │       │   ├── subtitles.srt        # 字幕ファイル
-│   │       │   └── subtitle_timing.json # タイミング情報
-│   │       └── 08_composition/          # Phase 8出力
+│   │       │   ├── subtitle_timing.json # タイミング情報
+│   │       │   └── metadata.json        # 生成メタデータ
+│   │       └── 07_composition/          # Phase 7出力
 │   │           ├── timeline.json        # 最終タイムライン
 │   │           └── composition.log      # 合成ログ
 │   │
@@ -231,10 +228,9 @@ video-automation/
 │   │   ├── phase_02_audio.py            # Phase 2: 音声生成
 │   │   ├── phase_03_images.py           # Phase 3: 画像収集
 │   │   ├── phase_04_animation.py        # Phase 4: 静止画アニメ化
-│   │   ├── phase_05_ai_video.py         # Phase 5: AI動画生成
-│   │   ├── phase_06_bgm.py              # Phase 6: BGM選択
-│   │   ├── phase_07_subtitles.py        # Phase 7: 字幕生成
-│   │   └── phase_08_composition.py      # Phase 8: 動画統合
+│   │   ├── phase_05_bgm.py              # Phase 5: BGM選択
+│   │   ├── phase_06_subtitles.py        # Phase 6: 字幕生成
+│   │   └── phase_07_composition.py     # Phase 7: 動画統合
 │   │
 │   ├── generators/                      # 個別生成器（フェーズから呼ばれる）
 │   │   ├── __init__.py
@@ -250,11 +246,11 @@ video-automation/
 │   │   ├── audio_processor.py           # 音声解析・分割
 │   │   ├── video_compositor.py          # MoviePyでの動画合成
 │   │   ├── bgm_manager.py               # BGM選択・配置ロジック
-│   │   └── thumbnail_creator.py         # サムネイル生成
 │   │
 │   ├── utils/                           # ユーティリティ
 │   │   ├── __init__.py
-│   │   ├── logger.py                    # ロギング設定
+│   │   ├── logger.py                    # ログ設定
+│   │   ├── whisper_timing.py            # Whisperによるタイミング情報取得
 │   │   ├── file_handler.py              # ファイル操作
 │   │   ├── cache_manager.py             # キャッシュ管理
 │   │   ├── progress_tracker.py          # 進捗管理
@@ -454,7 +450,7 @@ class ImageAnimationResult(BaseModel):
     generated_at: datetime
 
 # ========================================
-# Phase 5: AI動画生成
+# Phase 5: BGM選択（注：AI動画生成機能は未実装）
 # ========================================
 
 class AIVideoClip(BaseModel):
@@ -477,7 +473,7 @@ class AIVideoGeneration(BaseModel):
     generated_at: datetime
 
 # ========================================
-# Phase 6: BGM選択
+# Phase 5: BGM選択
 # ========================================
 
 class BGMTrack(BaseModel):
@@ -506,7 +502,7 @@ class BGMSelection(BaseModel):
     selected_at: datetime
 
 # ========================================
-# Phase 7: 字幕生成
+# Phase 6: 字幕生成
 # ========================================
 
 class SubtitleEntry(BaseModel):
@@ -525,7 +521,7 @@ class SubtitleGeneration(BaseModel):
     generated_at: datetime
 
 # ========================================
-# Phase 8: 動画統合
+# Phase 7: 動画統合
 # ========================================
 
 class TimelineClip(BaseModel):
@@ -1004,68 +1000,11 @@ variation_enabled: true
 
 ---
 
-#### Phase 5: AI動画生成（AI Video Generation）
-
-**責務**: 重要シーンのみAI動画を生成
-
-**入力**:
-- `working/{subject}/01_script/script.json`
-
-**処理**:
-1. `requires_ai_video=True`のセクションを抽出
-2. 冒頭30秒用のAI動画生成（特別扱い）
-3. その他の重要シーン用に5-10秒のクリップ生成
-4. Kling AI API（Replicate経由）を呼び出し
-5. 生成完了をポーリングで待機
-6. コスト計算
-
-**出力**:
-- `working/{subject}/05_ai_videos/opening_30s.mp4`
-- `working/{subject}/05_ai_videos/key_moment_XX.mp4`
-- `working/{subject}/05_ai_videos/generation_log.json`
-
-**設定例（config/phases/ai_video_generation.yaml）**:
-```yaml
-service: "kling_ai"
-api_provider: "replicate"
-model: "kwai-kolors/kling-1.6:latest"
-quality: "standard"  # "standard" or "pro"
-
-opening_video:
-  enabled: true
-  duration: 30
-  prompt_template: |
-    {subject}の生涯をドラマチックに描く冒頭シーン。
-    1080p、シネマティック、ドキュメンタリースタイル。
-
-key_moments:
-  max_count: 5  # 最大5つの重要シーン
-  duration_per_clip: 8-12
-  prompt_template: |
-    {scene_description}
-    1080p、歴史ドキュメンタリー風、リアルな描写。
-
-cost_limit:
-  per_video_usd: 1.5  # 1本あたり上限
-  abort_if_exceeded: true
-
-polling:
-  check_interval_seconds: 30
-  max_wait_minutes: 15
-```
-
-**スキップ条件**:
-- `working/{subject}/05_ai_videos/generation_log.json`が存在し、
-  必要な全ての動画が生成済み
-
-**エラーハンドリング**:
-- API失敗 → 3回リトライ
-- タイムアウト → その動画は諦める（警告ログ）
-- コスト超過 → 生成中止、ログ記録
+**注意**: AI動画生成機能は現在未実装です。将来的な拡張として検討されています。
 
 ---
 
-#### Phase 6: BGM選択（BGM Selection）
+#### Phase 5: BGM選択（BGM Selection）
 
 **責務**: セクションの雰囲気に合わせてBGMを選択・配置
 
@@ -1081,8 +1020,8 @@ polling:
 5. フェードイン/アウトのタイミング計算
 
 **出力**:
-- `working/{subject}/06_bgm/selected_tracks.json`
-- `working/{subject}/06_bgm/bgm_timeline.json`
+- `working/{subject}/05_bgm/selected_tracks.json`
+- `working/{subject}/05_bgm/bgm_timeline.json`
 
 **設定例（config/phases/bgm_selection.yaml）**:
 ```yaml
@@ -1111,7 +1050,7 @@ avoid_consecutive_same_track: true
 ```
 
 **スキップ条件**:
-- `working/{subject}/06_bgm/bgm_timeline.json`が存在する
+- `working/{subject}/05_bgm/bgm_timeline.json`が存在する
 
 **エラーハンドリング**:
 - BGMファイルなし → デフォルトの静かな曲を使用
@@ -1119,24 +1058,28 @@ avoid_consecutive_same_track: true
 
 ---
 
-#### Phase 7: 字幕生成（Subtitle Generation）
+#### Phase 6: 字幕生成（Subtitle Generation）
 
 **責務**: 音声に同期した字幕を生成
 
 **入力**:
 - `working/{subject}/01_script/script.json`
+- `working/{subject}/02_audio/narration_full.mp3`（Whisper使用時）
 - `working/{subject}/02_audio/audio_analysis.json`
 
 **処理**:
-1. ナレーション原稿を形態素解析
-2. 2行構成になるよう文節で分割
-3. 音声の長さから表示タイミング計算
-4. 各字幕の表示時間を4-6秒確保
-5. SRTファイル生成
+1. Whisperを使用して音声から単語レベルのタイミング情報を取得（オプション）
+2. ナレーション原稿を形態素解析
+3. 2行構成になるよう文節で分割
+4. Whisperのタイミング情報を使用して表示タイミングを計算
+   - タイミング情報が取得できない場合は文字数比率で計算（フォールバック）
+5. 各字幕の表示時間を4-6秒確保
+6. SRTファイル生成
 
 **出力**:
-- `working/{subject}/07_subtitles/subtitles.srt`
-- `working/{subject}/07_subtitles/subtitle_timing.json`
+- `working/{subject}/06_subtitles/subtitles.srt`
+- `working/{subject}/06_subtitles/subtitle_timing.json`
+- `working/{subject}/06_subtitles/metadata.json`
 
 **設定例（config/phases/subtitle_generation.yaml）**:
 ```yaml
@@ -1149,8 +1092,13 @@ timing:
   lead_time: 0.2  # 音声より少し早く表示（秒）
 
 morphological_analysis:
-  use_mecab: true  # MeCabで形態素解析
+  use_mecab: false  # MeCabで形態素解析（オプション）
   break_on: ["。", "、", "！", "？"]
+
+# Whisper設定（音声から正確なタイミング情報を取得）
+whisper:
+  enabled: true  # Whisperを使用してタイミング情報を取得するか
+  model: "base"  # Whisperモデル名（tiny, base, small, medium, large）
 
 font:
   family: "Noto Sans JP Bold"
@@ -1163,20 +1111,26 @@ font:
 ```
 
 **スキップ条件**:
-- `working/{subject}/07_subtitles/subtitles.srt`が存在する
+- `working/{subject}/06_subtitles/subtitles.srt`と`subtitle_timing.json`が存在する
 
 **エラーハンドリング**:
+- Whisperのタイミング情報取得失敗 → 文字数比率で計算（フォールバック）
 - 形態素解析失敗 → 単純な句点で分割
 - タイミング計算エラー → 均等割り当てにフォールバック
 
+**注意事項**:
+- Whisperを使用する場合、初回実行時にモデルをダウンロードします（baseモデルで約150MB）
+- 処理時間は音声の長さに比例します（約1分の音声で数秒〜数十秒）
+- Whisperが利用できない場合は、従来の文字数比率方式に自動的にフォールバックします
+
 ---
 
-#### Phase 8: 動画統合（Video Composition）
+#### Phase 7: 動画統合（Video Composition）
 
 **責務**: 全ての素材を統合して最終動画を生成
 
 **入力**:
-- Phase 2-7の全ての出力
+- Phase 1-6の全ての出力
 
 **処理**:
 1. タイムラインの構築
@@ -1208,7 +1162,7 @@ transitions:
   fade_duration: 1.0
 
 subtitle_style:
-  # Phase 7の設定を継承
+  # Phase 6の設定を継承
 
 thumbnail:
   template: "assets/templates/thumbnail_base.psd"
@@ -1592,10 +1546,9 @@ python -m src.cli status "織田信長"
 #   [✓] Phase 2: Audio Generation (45.2s)
 #   [✓] Phase 3: Image Collection (23.1s)
 #   [✓] Phase 4: Image Animation (156.7s)
-#   [⟳] Phase 5: AI Video Generation (running...)
-#   [ ] Phase 6: BGM Selection
-#   [ ] Phase 7: Subtitle Generation
-#   [ ] Phase 8: Video Composition
+#   [✓] Phase 5: BGM Selection (5.2s)
+#   [ ] Phase 6: Subtitle Generation
+#   [ ] Phase 7: Video Composition
 
 # キャッシュ確認
 python -m src.cli cache-info
@@ -1630,9 +1583,9 @@ python -m src.cli stats --subject "織田信長"
 - [ ] Day 5-7: Phase 4（静止画アニメ）実装・テスト
 
 ### Week 2: 動画生成
-- [ ] Day 1-2: Phase 5（AI動画）実装
-- [ ] Day 3-4: Phase 6-7（BGM、字幕）実装
-- [ ] Day 5-7: Phase 8（動画統合）実装・テスト
+- [ ] Day 1-2: Phase 5（BGM選択）実装
+- [ ] Day 3-4: Phase 6（字幕生成）実装
+- [ ] Day 5-7: Phase 7（動画統合）実装・テスト
 
 ### Week 3: 統合・最適化
 - [ ] Day 1-2: エンドツーエンドテスト

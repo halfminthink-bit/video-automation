@@ -1,0 +1,114 @@
+# phase: script generation (1分版)
+# ========================================
+# Phase 1: 台本生成設定 - 1分テスト用
+# ========================================
+
+# Claude API設定
+model: "claude-sonnet-4-20250514"
+max_tokens: 4000
+temperature: 0.7
+
+# 台本構造（1分版）
+sections:
+  count_min: 3
+  count_max: 3
+  target_duration_per_section: 20  # 秒（約20秒 × 3 = 60秒）
+
+# AI動画生成のトリガーキーワード（1分版では基本的に使わない）
+ai_video_trigger_keywords:
+  - "戦闘"
+  - "決戦"
+
+# プロンプトテンプレート（1分版）
+prompt_template: |
+  あなたは歴史解説動画の台本作家です。
+  {subject}について、**1分（60秒）の短編動画台本**を作成してください。
+  
+  ## 要件
+  1. **全体を3つのセクションに分割（各20秒）**
+  2. 各セクションは約20秒程度
+  3. 高齢者にも分かりやすい言葉遣い
+  4. ナレーションは自然な話し言葉
+  5. **1分で伝わる最も重要なエピソードに絞る**
+  6. **起承転結を意識した構成**
+  
+  ## 起承転結とBGMの配置（重要）
+  動画全体を起承転結で構成し、以下のようにBGMを配置してください：
+  
+  **BGMの切り替えは2回:**
+  1. Opening（起）→ Main（承）への切り替え（20秒時点）
+  2. Main（承）→ Ending（結）への切り替え（40秒時点）
+  
+  **各BGMの使い方:**
+  - **opening (0-20秒)**: 最初のセクション（起）- インパクトある導入、世界観の提示
+  - **main (20-40秒)**: 中盤のセクション（承）- 最も重要なエピソードの展開
+  - **ending (40-60秒)**: 最後のセクション（結）- しんみりとした余韻、感動的な締め
+  
+  **注意:**
+  - 各BGMは1セクションずつ使用
+  - opening: インパクト重視
+  - main: ストーリー展開
+  - ending: しんみりと締める
+  
+  ## 出力形式（JSON）
+  {{
+    "title": "動画タイトル（短く印象的に）",
+    "description": "YouTube説明文（簡潔に）",
+    "sections": [
+      {{
+        "section_id": 1,
+        "title": "導入",
+        "narration": "ナレーション原稿（約20秒分、自然な話し言葉）",
+        "estimated_duration": 20,
+        "image_keywords": ["キーワード1", "キーワード2"],
+        "atmosphere": "壮大/静か/希望/劇的/悲劇的",
+        "requires_ai_video": false,
+        "ai_video_prompt": null,
+        "bgm_suggestion": "opening"
+      }},
+      {{
+        "section_id": 2,
+        "title": "展開",
+        "narration": "ナレーション原稿（約20秒分）",
+        "estimated_duration": 20,
+        "image_keywords": ["キーワード3", "キーワード4"],
+        "atmosphere": "壮大/静か/希望/劇的/悲劇的",
+        "requires_ai_video": false,
+        "ai_video_prompt": null,
+        "bgm_suggestion": "main"
+      }},
+      {{
+        "section_id": 3,
+        "title": "締め",
+        "narration": "ナレーション原稿（約20秒分）",
+        "estimated_duration": 20,
+        "image_keywords": ["キーワード5", "キーワード6"],
+        "atmosphere": "静か/希望/悲劇的",
+        "requires_ai_video": false,
+        "ai_video_prompt": null,
+        "bgm_suggestion": "ending"
+      }}
+    ]
+  }}
+  
+  ## 注意事項
+  - 必ずJSON形式で出力
+  - ナレーションは読みやすく、句読点を適切に配置
+  - 画像キーワードは英語でも可（検索精度向上のため）
+  - AI動画は基本的にfalse（1分版では使わない）
+  - **bgm_suggestion は必ず "opening", "main", "ending" のいずれかを指定**
+  - **1分で伝わる最も印象的なエピソードに絞る**
+
+# バリデーション設定（1分版）
+validation:
+  min_sections: 3
+  max_sections: 3
+  min_section_duration: 15  # 最低15秒
+  max_section_duration: 25  # 最大25秒
+  min_total_duration: 45    # 最低45秒
+  max_total_duration: 75    # 最大75秒
+  
+  # BGM切り替え検証
+  max_bgm_switches: 2  # 最大2回の切り替え（opening→main→ending）
+  require_opening_at_start: true  # 最初のセクションはopeningを推奨
+  require_ending_at_end: true  # 最後のセクションはendingを推奨

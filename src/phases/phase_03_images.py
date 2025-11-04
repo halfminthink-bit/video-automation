@@ -154,14 +154,18 @@ class Phase03Images:
         images_per_section = self.phase_config.get("images_per_section", 3)
         
         for section_idx, section in enumerate(script.sections):
-            self.logger.info(f"Generating images for Section {section_idx + 1}: {section.title}")
+            # section.section_idを使う（1-based indexing from JSON）
+            self.logger.info(f"Generating images for Section {section.section_id}: {section.title}")
             
             # セクションの画像を生成
+            # 最初のセクションの最初の画像には is_first_image=True を渡す
+            is_first_section = (section_idx == 0 and len(all_images) == 0)
             section_images = self._generate_section_images(
                 generator=generator,
                 section=section,
-                section_id=section_idx,
-                target_count=images_per_section
+                section_id=section.section_id,  # Use 1-based section_id for filename
+                target_count=images_per_section,
+                is_first_section=is_first_section
             )
             
             all_images.extend(section_images)
@@ -277,7 +281,8 @@ class Phase03Images:
         generator: ImageGenerator,
         section,
         section_id: int,
-        target_count: int
+        target_count: int,
+        is_first_section: bool = False
     ) -> List[CollectedImage]:
         """
         セクションの画像を生成
@@ -287,6 +292,7 @@ class Phase03Images:
             section: ScriptSection
             section_id: セクションID
             target_count: 生成する画像数
+            is_first_section: 最初のセクションかどうか
             
         Returns:
             生成された画像のリスト
@@ -316,14 +322,16 @@ class Phase03Images:
                     f"(type={image_type}, style={style})"
                 )
                 
-                # 画像生成
+                # 画像生成（最初の画像のみ is_first_image=True）
+                is_first_image = is_first_section and idx == 0
                 image = generator.generate_image(
                     keyword=keyword,
                     atmosphere=section.atmosphere,
                     section_context=section.title,
                     image_type=image_type,
                     style=style,
-                    section_id=section_id
+                    section_id=section_id,
+                    is_first_image=is_first_image
                 )
                 
                 images.append(image)

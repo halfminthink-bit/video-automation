@@ -76,17 +76,6 @@ class Phase07Composition(PhaseBase):
         self.subtitle_color = subtitle_config.get("color", "white")
         self.subtitle_position = subtitle_config.get("position", "bottom")
         self.subtitle_margin = subtitle_config.get("margin_bottom", 80)
-        
-        # TextClipが使えるか確認
-        self.text_clip_available = True
-        try:
-            # TextClipのテスト
-            test_clip = TextClip("test", font_size=10, color='white')
-            test_clip.close()
-        except Exception as e:
-            self.logger.warning(f"TextClip not available: {e}")
-            self.logger.warning("Subtitles will be skipped (ImageMagick may be required)")
-            self.text_clip_available = False
     
     def get_phase_number(self) -> int:
         return 7
@@ -281,15 +270,61 @@ class Phase07Composition(PhaseBase):
         return subtitles
     
     def _load_bgm(self) -> Optional[dict]:
-        """BGMデータを読み込み（オプション）"""
-        bgm_path = self.working_dir / "05_bgm" / "bgm_timeline.json"
+        """BGMデータを読み込み（台本ベース）"""
+        # BGMフォルダのパス
+        bgm_base_path = Path(self.config.get("paths", {}).get("bgm_library", "assets/bgm"))
         
-        if not bgm_path.exists():
-            self.logger.info("No BGM data found (optional)")
+        if not bgm_base_path.exists():
+            self.logger.warning(f"BGM library not found: {bgm_base_path}")
             return None
         
-        with open(bgm_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        # 台本を読み込んでBGM情報を取得
+        script = self._load_script()
+        
+        bgm_segments = []
+        current_time = 0.0
+        
+        # 辞書として扱う（script["sections"]）
+        for section in script.get("sections", []):
+            bgm_type = section.get("bgm_suggestion", "main")  # "opening", "main", "ending"
+            
+            # BGMフォルダからファイルを探す
+            bgm_folder = bgm_base_path / bgm_type
+            if not bgm_folder.exists():
+                self.logger.warning(f"BGM folder not found: {bgm_folder}")
+                continue
+            
+            # フォルダ内の最初のMP3ファイルを使用
+            bgm_files = list(bgm_folder.glob("*.mp3"))
+            if not bgm_files:
+                self.logger.warning(f"No MP3 files found in: {bgm_folder}")
+                continue
+            
+            bgm_file = bgm_files[0]  # 最初のファイルを使用
+            
+            segment = {
+                "bgm_type": bgm_type,
+                "file_path": str(bgm_file),
+                "start_time": current_time,
+                "duration": section.get("estimated_duration", 120),
+                "section_id": section.get("section_id", 0),
+                "section_title": section.get("title", "")
+            }
+            
+            bgm_segments.append(segment)
+            current_time += segment["duration"]
+            
+            self.logger.debug(
+                f"BGM segment {segment['section_id']}: {bgm_type} "
+                f"({current_time - segment['duration']:.1f}s - {current_time:.1f}s)"
+            )
+        
+        if not bgm_segments:
+            self.logger.info("No BGM segments created")
+            return None
+        
+        self.logger.info(f"Created {len(bgm_segments)} BGM segments from script")
+        return {"segments": bgm_segments}
     
     def _create_video_clips(
         self,
@@ -375,39 +410,64 @@ class Phase07Composition(PhaseBase):
         return video
     
     def _add_bgm(self, video: 'VideoFileClip', bgm_data: dict) -> 'VideoFileClip':
-        """BGMを追加"""
+        """BGMを追加（セクションごとに切り替え）"""
         try:
             bgm_segments = bgm_data.get("segments", [])
             if not bgm_segments:
                 return video
             
-            # 最初のBGMファイルのみ使用（簡易実装）
-            first_segment = bgm_segments[0]
-            bgm_path = Path(first_segment.get("file_path", ""))
+            # BGMセグメントごとにクリップを作成
+            bgm_clips = []
             
-            if not bgm_path.exists():
-                self.logger.warning(f"BGM file not found: {bgm_path}")
+            for segment in bgm_segments:
+                bgm_path = Path(segment.get("file_path", ""))
+                
+                if not bgm_path.exists():
+                    self.logger.warning(f"BGM file not found: {bgm_path}")
+                    continue
+                
+                start_time = segment.get("start_time", 0.0)
+                duration = segment.get("duration", 0.0)
+                
+                # BGMファイルを読み込み
+                bgm_clip = AudioFileClip(str(bgm_path))
+                
+                # BGMが短い場合はループ
+                if bgm_clip.duration < duration:
+                    loops_needed = int(duration / bgm_clip.duration) + 1
+                    bgm_clip = bgm_clip.looped(loops_needed)
+                
+                # 必要な長さにトリミング
+                bgm_clip = bgm_clip.subclipped(0, min(duration, bgm_clip.duration))
+                
+                # 音量調整
+                bgm_clip = bgm_clip.volumex(self.bgm_volume)
+                
+                # 開始時間を設定
+                bgm_clip = bgm_clip.with_start(start_time)
+                
+                bgm_clips.append(bgm_clip)
+                
+                self.logger.debug(
+                    f"Added BGM: {segment.get('bgm_type')} "
+                    f"({start_time:.1f}s - {start_time + duration:.1f}s)"
+                )
+            
+            if not bgm_clips:
+                self.logger.warning("No BGM clips were created")
                 return video
-            
-            bgm_clip = AudioFileClip(str(bgm_path))
-            bgm_clip = bgm_clip.volumex(self.bgm_volume)
-            
-            # BGMをループ
-            if bgm_clip.duration < video.duration:
-                loops_needed = int(video.duration / bgm_clip.duration) + 1
-                bgm_clip = bgm_clip.looped(loops_needed)
-            
-            bgm_clip = bgm_clip.subclipped(0, video.duration)
             
             # ナレーションとBGMをミックス
             from moviepy.audio.AudioClip import CompositeAudioClip
-            final_audio = CompositeAudioClip([video.audio, bgm_clip])
+            final_audio = CompositeAudioClip([video.audio] + bgm_clips)
             video = video.with_audio(final_audio)
             
-            self.logger.info("BGM added successfully")
+            self.logger.info(f"Added {len(bgm_clips)} BGM segments successfully")
             
         except Exception as e:
             self.logger.warning(f"Failed to add BGM: {e}")
+            import traceback
+            self.logger.debug(traceback.format_exc())
         
         return video
     
@@ -416,52 +476,127 @@ class Phase07Composition(PhaseBase):
         video: 'VideoFileClip',
         subtitles: List[SubtitleEntry]
     ) -> 'VideoFileClip':
-        """字幕を動画に焼き込み"""
+        """字幕を動画に焼き込み（Pillow実装）"""
         if not subtitles:
             self.logger.info("No subtitles to add")
             return video
         
-        if not self.text_clip_available:
-            self.logger.warning("TextClip not available, skipping subtitles")
-            return video
+        from PIL import Image, ImageDraw, ImageFont
+        import numpy as np
+        from moviepy import ImageClip
         
         subtitle_clips = []
         
-        for subtitle in subtitles:
-            # 字幕テキストを作成
-            text = subtitle.text_line1
-            if subtitle.text_line2:
-                text += "\n" + subtitle.text_line2
+        # フォントの準備
+        try:
+            # 日本語フォントを試す（Windowsの場合）
+            font_paths = [
+                "C:/Windows/Fonts/msgothic.ttc",  # MSゴシック
+                "C:/Windows/Fonts/meiryo.ttc",     # メイリオ
+                "C:/Windows/Fonts/yugothm.ttc",    # 游ゴシック
+                "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",  # Linux
+                "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",  # macOS
+            ]
             
+            font = None
+            for font_path in font_paths:
+                try:
+                    font = ImageFont.truetype(font_path, self.subtitle_size)
+                    self.logger.info(f"Using font: {font_path}")
+                    break
+                except:
+                    continue
+            
+            if font is None:
+                # フォントが見つからない場合はデフォルト
+                font = ImageFont.load_default()
+                self.logger.warning("Japanese font not found, using default font")
+        
+        except Exception as e:
+            font = ImageFont.load_default()
+            self.logger.warning(f"Font loading failed: {e}, using default")
+        
+        for subtitle in subtitles:
             try:
-                # TextClipを作成
-                txt_clip = TextClip(
-                    text,
-                    font_size=self.subtitle_size,
-                    color=self.subtitle_color,
-                    font=self.subtitle_font,
-                    method='caption',
-                    size=(self.resolution[0] - 100, None),
-                    text_align='center'
+                # 字幕テキストを作成
+                text = subtitle.text_line1
+                if subtitle.text_line2:
+                    text += "\n" + subtitle.text_line2
+                
+                # 画像を作成（透明背景）
+                img_width = self.resolution[0]
+                img_height = 200  # 字幕エリアの高さ
+                
+                # RGBA画像を作成（透明背景）
+                img = Image.new('RGBA', (img_width, img_height), (0, 0, 0, 0))
+                draw = ImageDraw.Draw(img)
+                
+                # テキストサイズを取得（複数行対応）
+                lines = text.split('\n')
+                line_heights = []
+                line_widths = []
+                
+                for line in lines:
+                    bbox = draw.textbbox((0, 0), line, font=font)
+                    line_width = bbox[2] - bbox[0]
+                    line_height = bbox[3] - bbox[1]
+                    line_widths.append(line_width)
+                    line_heights.append(line_height)
+                
+                total_height = sum(line_heights) + (len(lines) - 1) * 10  # 行間10px
+                max_width = max(line_widths)
+                
+                # 背景矩形を描画（半透明黒）
+                padding = 20
+                bg_x1 = (img_width - max_width) // 2 - padding
+                bg_y1 = (img_height - total_height) // 2 - padding
+                bg_x2 = (img_width + max_width) // 2 + padding
+                bg_y2 = (img_height + total_height) // 2 + padding
+                
+                draw.rectangle(
+                    [bg_x1, bg_y1, bg_x2, bg_y2],
+                    fill=(0, 0, 0, 180)  # 半透明黒
                 )
                 
-                # 位置とタイミングを設定
-                txt_clip = txt_clip.set_position(
-                    ('center', self.resolution[1] - self.subtitle_margin)
-                ).set_start(subtitle.start_time).set_duration(
-                    subtitle.end_time - subtitle.start_time
-                )
+                # テキストを描画（中央揃え）
+                current_y = (img_height - total_height) // 2
+                for i, line in enumerate(lines):
+                    line_width = line_widths[i]
+                    line_x = (img_width - line_width) // 2
+                    
+                    # 影を描画（エッジ効果）
+                    for dx, dy in [(-2, -2), (-2, 2), (2, -2), (2, 2)]:
+                        draw.text((line_x + dx, current_y + dy), line, 
+                                 font=font, fill=(0, 0, 0, 255))
+                    
+                    # メインテキストを描画
+                    draw.text((line_x, current_y), line, 
+                             font=font, fill=(255, 255, 255, 255))
+                    
+                    current_y += line_heights[i] + 10
                 
-                subtitle_clips.append(txt_clip)
+                # PILImageをnumpy配列に変換
+                img_array = np.array(img)
+                
+                # ImageClipを作成
+                img_clip = ImageClip(img_array, duration=subtitle.end_time - subtitle.start_time)
+                img_clip = img_clip.with_start(subtitle.start_time)
+                
+                # 画面下部に配置
+                img_clip = img_clip.with_position(('center', self.resolution[1] - img_height - 20))
+                
+                subtitle_clips.append(img_clip)
                 
             except Exception as e:
                 self.logger.warning(f"Failed to create subtitle {subtitle.index}: {e}")
+                import traceback
+                self.logger.debug(traceback.format_exc())
                 continue
         
         if subtitle_clips:
             # 字幕を動画に合成
             video = CompositeVideoClip([video] + subtitle_clips)
-            self.logger.info(f"Added {len(subtitle_clips)} subtitles")
+            self.logger.info(f"Added {len(subtitle_clips)} subtitles using Pillow")
         
         return video
     

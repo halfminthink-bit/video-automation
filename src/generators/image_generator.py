@@ -77,6 +77,7 @@ class ImageGenerator:
         """
         self.service = service
         self.api_key = api_key
+        self.claude_api_key = claude_api_key  # 重要度判定用
         self.output_dir = output_dir or Path("data/working/generated_images")
         self.cache_dir = cache_dir or Path("data/cache/generated_images")
         self.logger = logger or logging.getLogger(__name__)
@@ -125,6 +126,7 @@ class ImageGenerator:
         image_type: str = "general",
         style: str = "photorealistic",
         section_id: Optional[int] = None,
+        is_first_image: bool = False,
         width: int = 1344,
         height: int = 768
     ) -> CollectedImage:
@@ -138,6 +140,7 @@ class ImageGenerator:
             image_type: 画像タイプ（portrait, battle, landscape等）
             style: 画風（photorealistic, oil_painting, ukiyo-e等）
             section_id: セクションID
+            is_first_image: 最初の画像かどうか（必ずcriticalにする）
             width: 幅
             height: 高さ
             
@@ -186,6 +189,18 @@ class ImageGenerator:
             )
         else:
             raise ValueError(f"Unknown service: {self.service}")
+        
+        # Step 3: 重要度判定
+        image.importance, image.importance_reason = self._judge_importance(
+            keyword=keyword,
+            section_context=section_context,
+            atmosphere=atmosphere,
+            is_first_image=is_first_image
+        )
+        
+        self.logger.info(
+            f"Image importance: {image.importance} - {image.importance_reason}"
+        )
         
         return image
     
@@ -343,6 +358,103 @@ Quality: highly detailed, photorealistic"""
             return ImageClassification.DOCUMENT
         else:
             return ImageClassification.DAILY_LIFE
+    
+    def _judge_importance(
+        self,
+        keyword: str,
+        section_context: str,
+        atmosphere: str,
+        is_first_image: bool = False
+    ) -> tuple[str, str]:
+        """
+        Claude APIで画像の重要度を判定
+        
+        判定基準:
+        - 最初の画像は必ずcritical（インパクトのあるオープニング確保）
+        - 動きが派手で見ごたえのあるシーンのみ critical
+        - 目標: 全体の約50%を critical と判定
+        
+        Args:
+            keyword: 画像のキーワード
+            section_context: セクションの文脈・タイトル
+            atmosphere: 雰囲気
+            is_first_image: 最初の画像かどうか
+            
+        Returns:
+            (importance, reason): ('critical' or 'static', 判定理由)
+        """
+        # 最初の画像は必ずcritical（インパクトのあるオープニング確保）
+        if is_first_image:
+            return 'critical', 'First image (impactful opening)'
+        
+        # Claude APIが利用不可の場合はデフォルトでstatic
+        if not self.claude_api_key:
+            self.logger.warning("Claude API key not available, defaulting to static")
+            return 'static', 'No Claude API key'
+        
+        try:
+            # Claude APIに判定を依頼
+            prompt = f"""以下のシーンが動画として派手で見ごたえがあるか判定してください。
+
+【判定基準】
+動きが派手で見ごたえのあるシーン（critical）:
+- 戦闘や対決などの激しいアクションシーン
+- 炎、爆発、戦場などの迫力あるシーン
+- 人々が動いている活気ある場面
+- 劇的な動きや変化がある印象的なシーン
+
+動きがない静かなシーン（static）:
+- 建物や風景のみの静止画的なシーン
+- 人物が静かに立っているだけの肖像画
+- 淡々とした日常シーン
+- 古文書などの資料画像
+
+【シーン情報】
+- キーワード: {keyword}
+- 文脈: {section_context}
+- 雰囲気: {atmosphere}
+
+「動きがあるか」「見ごたえがあるか」を重視して判定してください。
+
+以下の形式で回答してください:
+importance: critical または static
+reason: 判定理由を1行で"""
+
+            import anthropic
+            client = anthropic.Anthropic(api_key=self.claude_api_key)
+            
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=200,
+                messages=[{
+                    "role": "user",
+                    "content": prompt
+                }]
+            )
+            
+            # レスポンスをパース
+            text = response.content[0].text
+            lines = text.strip().split('\n')
+            
+            importance = 'static'
+            reason = 'Unknown'
+            
+            for line in lines:
+                if line.startswith('importance:'):
+                    importance = line.split(':')[1].strip().lower()
+                elif line.startswith('reason:'):
+                    reason = line.split(':')[1].strip()
+            
+            # critical/static 以外の値が来た場合のフォールバック
+            if importance not in ['critical', 'static']:
+                importance = 'static'
+                reason = f'Invalid response, defaulted to static: {text}'
+            
+            return importance, reason
+            
+        except Exception as e:
+            self.logger.error(f"Failed to judge importance with Claude: {e}")
+            return 'static', f'Error: {str(e)}'
     
     def get_total_cost(self) -> float:
         """総コスト（USD）を取得"""

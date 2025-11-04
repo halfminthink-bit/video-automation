@@ -112,28 +112,32 @@ class Phase06Subtitles(PhaseBase):
                 logger=self.logger
             )
             
-            # 4. 字幕を生成
+            # 4. 音声ファイルのパスを取得（Whisper使用のため）
+            audio_path = self.config.get_phase_dir(self.subject, 2) / "narration_full.mp3"
+            
+            # 5. 字幕を生成
             self.logger.info("Generating subtitles...")
             subtitles = generator.generate_subtitles(
                 script=script,
                 audio_segments=audio_segments,
-                config=self.phase_config
+                config=self.phase_config,
+                audio_path=audio_path if audio_path.exists() else None
             )
             
-            # 5. SRTファイルを保存
+            # 6. SRTファイルを保存
             srt_path = self._save_srt_file(subtitles)
             
-            # 6. タイミングJSONを保存
+            # 7. タイミングJSONを保存
             timing_path = self._save_timing_json(subtitles)
             
-            # 7. 結果をモデルに変換
+            # 8. 結果をモデルに変換
             subtitle_gen = SubtitleGeneration(
                 subject=self.subject,
                 subtitles=subtitles,
                 srt_path=str(srt_path),
             )
             
-            # 8. メタデータを保存
+            # 9. メタデータを保存
             self._save_generation_metadata(subtitle_gen)
             
             self.logger.info(

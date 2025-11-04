@@ -11,7 +11,7 @@ import logging
 from dotenv import load_dotenv
 
 # プロジェクトルートをパスに追加
-project_root = Path(__file__).parent
+project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 # .envファイルを明示的に読み込み
