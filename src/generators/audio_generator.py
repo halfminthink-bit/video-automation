@@ -184,17 +184,18 @@ class AudioGenerator:
 
             # レスポンスから情報を取得
             # Pydantic モデルの場合は属性アクセス、辞書の場合は get() を使用
-            if hasattr(response, 'audio_base64'):
-                audio_base64 = response.audio_base64
+            # 注意: ElevenLabs APIは audio_base_64 (アンダースコア入り) を返す
+            if hasattr(response, 'audio_base_64'):
+                audio_base64 = response.audio_base_64
             elif isinstance(response, dict):
-                audio_base64 = response.get('audio_base64', '')
+                audio_base64 = response.get('audio_base_64', '')
             else:
                 audio_base64 = ''
 
             # audio_base64 の検証
             if not audio_base64:
                 error_msg = (
-                    "API returned empty audio_base64. "
+                    "API returned empty audio_base_64. "
                     "Possible causes: API key invalid, insufficient credits, "
                     "model not supporting timestamps, or network issues."
                 )
