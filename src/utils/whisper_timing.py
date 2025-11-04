@@ -44,8 +44,11 @@ class WhisperTimingExtractor:
         
         self.logger.info(f"Loading Whisper model: {model_name}")
         try:
-            self.model = whisper.load_model(model_name)
-            self.logger.info("Whisper model loaded successfully")
+            # CPUで実行する場合はFP32を使用（FP16はGPUのみ対応）
+            import torch
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            self.model = whisper.load_model(model_name, device=device)
+            self.logger.info(f"Whisper model loaded successfully on {device}")
         except Exception as e:
             self.logger.error(f"Failed to load Whisper model: {e}")
             raise
@@ -81,11 +84,16 @@ class WhisperTimingExtractor:
         
         try:
             # Whisperで音声認識（word_timestamps=Trueで単語レベルのタイミングを取得）
+            # CPUではFP16が使えないため、fp16=Falseを明示的に指定
+            import torch
+            fp16_enabled = torch.cuda.is_available()
+
             result = self.model.transcribe(
                 str(audio_path),
                 language=self.language,
                 word_timestamps=True,
-                initial_prompt=text if text else None
+                initial_prompt=text if text else None,
+                fp16=fp16_enabled  # CPUの場合はFP32を使用
             )
             
             # 単語レベルのタイミング情報を抽出
