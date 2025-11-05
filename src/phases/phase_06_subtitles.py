@@ -978,13 +978,19 @@ class Phase06Subtitles(PhaseBase):
         absolute_max: int = 18
     ) -> tuple[str, str]:
         """
-        字幕テキストを2行に分割（厳密版）
+        字幕テキストを2行に分割（厳密版・改善版）
+
+        分割優先順位:
+        1. 「、」での分割
+        2. 漢字→ひらがなの境界
+        3. ひらがな→漢字の境界
+        4. カタカナとの境界
+        5. 中央での強制分割
 
         ルール:
-        1. 推奨: 各行16文字以内
-        2. 最大: 各行18文字以内（絶対制限）
-        3. 意味の区切り（、）を優先
-        4. 句読点がない場合は単語の区切りで分割
+        - 推奨: 各行16文字以内
+        - 最大: 各行18文字以内（絶対制限）
+        - 繰り返し記号（々、ー等）の直前では分割しない
 
         Args:
             text: 分割するテキスト
@@ -998,7 +1004,7 @@ class Phase06Subtitles(PhaseBase):
         if len(text) <= recommended_max:
             return (text, "")
 
-        # 「、」がある場合: 「、」で分割を試みる
+        # 優先順位1: 「、」がある場合
         if '、' in text:
             # 全ての「、」の位置を取得
             comma_positions = [i for i, char in enumerate(text) if char == '、']
@@ -1023,13 +1029,71 @@ class Phase06Subtitles(PhaseBase):
             if best_split:
                 return (text[:best_split], text[best_split:])
 
-        # 「、」がない、または「、」での分割が制限を満たさない場合
-        # → 中央付近で分割
+        # 優先順位2-4: 文字種の境界で分割を試みる
+        # 理想的な分割位置の範囲を計算
+        ideal_min = max(1, recommended_max - 5)  # 推奨値の前後5文字
+        ideal_max = min(len(text) - 1, recommended_max + 5)
 
+        # 文字種の境界を探す（理想的な範囲内）
+        best_boundary_split = None
+        best_boundary_score = float('inf')
+
+        for pos in range(ideal_min, ideal_max + 1):
+            if pos <= 0 or pos >= len(text):
+                continue
+
+            line1_len = pos
+            line2_len = len(text) - pos
+
+            # 絶対制限チェック
+            if line1_len > absolute_max or line2_len > absolute_max:
+                continue
+
+            # 前後の文字を取得
+            prev_char = text[pos - 1]
+            curr_char = text[pos]
+
+            # 繰り返し記号の直前はスキップ
+            if curr_char in ['々', 'ー', '・', '～', '…']:
+                continue
+
+            # 文字種を判定
+            prev_type = self._get_char_type(prev_char)
+            curr_type = self._get_char_type(curr_char)
+
+            # 文字種の境界でスコアを計算
+            if prev_type != curr_type:
+                # 優先度を設定
+                priority = 0
+
+                # 漢字→ひらがな（最も優先）
+                if prev_type == 'kanji' and curr_type == 'hiragana':
+                    priority = 1
+                # ひらがな→漢字（2番目）
+                elif prev_type == 'hiragana' and curr_type == 'kanji':
+                    priority = 2
+                # カタカナとの境界（3番目）
+                elif prev_type == 'katakana' or curr_type == 'katakana':
+                    priority = 3
+                # その他の境界
+                else:
+                    priority = 4
+
+                # スコア計算: 優先度 + 推奨値からの乖離
+                score = priority * 100 + abs(line1_len - recommended_max) + abs(line2_len - recommended_max)
+
+                if score < best_boundary_score:
+                    best_boundary_score = score
+                    best_boundary_split = pos
+
+        if best_boundary_split:
+            return (text[:best_boundary_split], text[best_boundary_split:])
+
+        # 優先順位5: 中央での強制分割（最終手段）
         # まず中央で試す
         mid = len(text) // 2
 
-        # 中央付近で単語の区切り（ひらがな→カタカナ、カタカナ→漢字など）を探す
+        # 中央付近で単語の区切りを探す
         for offset in range(min(5, len(text) // 4)):  # 前後5文字の範囲
             # 前方
             if mid - offset > 0 and mid - offset <= absolute_max:
@@ -1063,6 +1127,9 @@ class Phase06Subtitles(PhaseBase):
         - カタカナ→漢字の境界
         - 漢字→ひらがなの境界
 
+        不適切な分割位置:
+        - 繰り返し記号・長音記号の直前（々、ー、・、～、…）
+
         Args:
             text: 元のテキスト
             pos: 分割位置
@@ -1079,6 +1146,10 @@ class Phase06Subtitles(PhaseBase):
         # 句読点の直後
         if prev_char in ['。', '、', '！', '？', '」', '』']:
             return True
+
+        # 繰り返し記号・長音記号の直前は分割しない
+        if curr_char in ['々', 'ー', '・', '～', '…']:
+            return False
 
         # 文字種の境界
         prev_type = self._get_char_type(prev_char)
