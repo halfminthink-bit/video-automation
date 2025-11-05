@@ -408,7 +408,12 @@ class Phase06Subtitles(PhaseBase):
 
     def _generate_from_audio_timing(self, timing_path: Path) -> List[SubtitleEntry]:
         """
-        audio_timing.json から字幕を生成（意味の区切り優先版）
+        audio_timing.json から字幕を生成（最終版）
+
+        ルール:
+        1. 1行の推奨文字数: 16文字
+        2. 1行の最大文字数: 18文字（絶対制限）
+        3. 19文字以上: 字幕を分割すべき
         """
         self.logger.info(f"Loading audio timing data from: {timing_path}")
 
@@ -423,6 +428,12 @@ class Phase06Subtitles(PhaseBase):
         max_chars_per_line = self.phase_config.get("max_chars_per_line", 16)
         max_chars_per_subtitle = max_chars_per_line * 2  # 32文字
 
+        # 1行の絶対的な制限
+        ABSOLUTE_MAX_CHARS_PER_LINE = 18  # これを超えたら字幕を分割
+
+        # 複数の「、」がある文を分割する閾値
+        MULTI_COMMA_THRESHOLD = 25
+
         for section_data in timing_data:
             section_id = section_data.get('section_id', 0)
             characters = section_data.get('characters', [])
@@ -430,45 +441,104 @@ class Phase06Subtitles(PhaseBase):
             char_end_times = section_data.get('char_end_times', [])
             offset = section_data.get('offset', 0.0)
 
-            self.logger.debug(f"Processing section {section_id}: {len(characters)} characters")
-
             # ステップ1: 「。」で文を分割
             sentences = self._split_by_period_with_timing(
                 characters, char_start_times, char_end_times, offset
             )
 
-            self.logger.debug(f"Section {section_id}: {len(sentences)} sentences")
-
             # ステップ2: 各文を処理
             for sentence in sentences:
                 sentence_text = sentence['text']
                 sentence_len = len(sentence_text)
+                comma_count = sentence_text.count('、')
 
-                if sentence_len <= max_chars_per_subtitle:
-                    # 32文字以内: そのまま1つの字幕
-                    duration = sentence['end_time'] - sentence['start_time']
-                    if duration < min_duration:
-                        sentence['end_time'] = sentence['start_time'] + min_duration
+                # ケースA: 複数の「、」がある長めの文
+                if comma_count >= 2 and sentence_len >= MULTI_COMMA_THRESHOLD:
+                    self.logger.debug(f"Multi-comma split: {comma_count} commas, {sentence_len} chars")
+                    chunks = self._split_by_multiple_commas(sentence, max_chars_per_line)
 
-                    line1, line2 = self._split_text_into_lines(sentence_text, max_chars_per_line)
+                    for chunk in chunks:
+                        # 2行に分割して1行制限チェック
+                        line1, line2 = self._split_text_into_lines_strict(
+                            chunk['text'], max_chars_per_line, ABSOLUTE_MAX_CHARS_PER_LINE
+                        )
 
-                    subtitle = SubtitleEntry(
-                        index=subtitle_index,
-                        start_time=sentence['start_time'],
-                        end_time=sentence['end_time'],
-                        text_line1=line1,
-                        text_line2=line2
+                        # 1行制限違反チェック
+                        if len(line1) > ABSOLUTE_MAX_CHARS_PER_LINE or len(line2) > ABSOLUTE_MAX_CHARS_PER_LINE:
+                            self.logger.warning(
+                                f"Line too long after split: line1={len(line1)}, line2={len(line2)} "
+                                f"Text: {chunk['text'][:30]}..."
+                            )
+
+                        duration = chunk['end_time'] - chunk['start_time']
+                        if duration < min_duration:
+                            chunk['end_time'] = chunk['start_time'] + min_duration
+
+                        subtitle = SubtitleEntry(
+                            index=subtitle_index,
+                            start_time=chunk['start_time'],
+                            end_time=chunk['end_time'],
+                            text_line1=line1,
+                            text_line2=line2
+                        )
+                        subtitles.append(subtitle)
+                        subtitle_index += 1
+
+                # ケースB: 32文字以内の文
+                elif sentence_len <= max_chars_per_subtitle:
+                    # 2行に分割
+                    line1, line2 = self._split_text_into_lines_strict(
+                        sentence_text, max_chars_per_line, ABSOLUTE_MAX_CHARS_PER_LINE
                     )
-                    subtitles.append(subtitle)
-                    subtitle_index += 1
 
-                    self.logger.debug(
-                        f"Subtitle {subtitle_index-1}: [{sentence_len} chars] {line1[:10]}..."
-                    )
+                    # 1行制限違反チェック → 字幕を分割すべき
+                    if len(line1) > ABSOLUTE_MAX_CHARS_PER_LINE or len(line2) > ABSOLUTE_MAX_CHARS_PER_LINE:
+                        self.logger.warning(
+                            f"Sentence too long to fit in 2 lines ({sentence_len} chars), "
+                            "splitting by comma..."
+                        )
+                        # 「、」で分割
+                        chunks = self._split_sentence_by_comma_if_needed(
+                            sentence, max_chars_per_subtitle
+                        )
+
+                        for chunk in chunks:
+                            duration = chunk['end_time'] - chunk['start_time']
+                            if duration < min_duration:
+                                chunk['end_time'] = chunk['start_time'] + min_duration
+
+                            line1, line2 = self._split_text_into_lines_strict(
+                                chunk['text'], max_chars_per_line, ABSOLUTE_MAX_CHARS_PER_LINE
+                            )
+
+                            subtitle = SubtitleEntry(
+                                index=subtitle_index,
+                                start_time=chunk['start_time'],
+                                end_time=chunk['end_time'],
+                                text_line1=line1,
+                                text_line2=line2
+                            )
+                            subtitles.append(subtitle)
+                            subtitle_index += 1
+                    else:
+                        # 1行制限OK → そのまま1つの字幕
+                        duration = sentence['end_time'] - sentence['start_time']
+                        if duration < min_duration:
+                            sentence['end_time'] = sentence['start_time'] + min_duration
+
+                        subtitle = SubtitleEntry(
+                            index=subtitle_index,
+                            start_time=sentence['start_time'],
+                            end_time=sentence['end_time'],
+                            text_line1=line1,
+                            text_line2=line2
+                        )
+                        subtitles.append(subtitle)
+                        subtitle_index += 1
+
+                # ケースC: 32文字超
                 else:
-                    # 32文字超: 「、」で区切る
-                    self.logger.debug(f"Splitting by comma ({sentence_len} chars)")
-
+                    self.logger.debug(f"Long sentence split: {sentence_len} chars")
                     chunks = self._split_sentence_by_comma_if_needed(
                         sentence, max_chars_per_subtitle
                     )
@@ -478,7 +548,9 @@ class Phase06Subtitles(PhaseBase):
                         if duration < min_duration:
                             chunk['end_time'] = chunk['start_time'] + min_duration
 
-                        line1, line2 = self._split_text_into_lines(chunk['text'], max_chars_per_line)
+                        line1, line2 = self._split_text_into_lines_strict(
+                            chunk['text'], max_chars_per_line, ABSOLUTE_MAX_CHARS_PER_LINE
+                        )
 
                         subtitle = SubtitleEntry(
                             index=subtitle_index,
@@ -679,6 +751,75 @@ class Phase06Subtitles(PhaseBase):
 
         return sentences
 
+    def _split_by_multiple_commas(
+        self,
+        sentence: Dict[str, Any],
+        max_chars_per_line: int = 16
+    ) -> List[Dict[str, Any]]:
+        """
+        複数の「、」がある長めの文を分割
+
+        各チャンクが1行（16文字程度）で収まるように細かく分割
+
+        Args:
+            sentence: 文のデータ（text, start_time, end_time, char_data）
+            max_chars_per_line: 1行あたりの推奨最大文字数
+
+        Returns:
+            分割されたチャンクのリスト
+        """
+        text = sentence['text']
+        char_data = sentence['char_data']
+
+        # 「、」の位置を全て見つける
+        comma_positions = [i for i, char in enumerate(text) if char == '、']
+
+        if not comma_positions:
+            # 「、」がない場合はそのまま返す
+            return [{
+                'text': text,
+                'start_time': sentence['start_time'],
+                'end_time': sentence['end_time']
+            }]
+
+        # 各「、」で分割してチャンクを作成
+        chunks = []
+        start_pos = 0
+
+        for comma_pos in comma_positions:
+            end_pos = comma_pos + 1  # 「、」を含める
+            chunk_text = text[start_pos:end_pos]
+            chunk_char_data = char_data[start_pos:end_pos]
+
+            if chunk_char_data:
+                chunk_start = chunk_char_data[0][1]
+                chunk_end = chunk_char_data[-1][2]
+
+                chunks.append({
+                    'text': chunk_text,
+                    'start_time': chunk_start,
+                    'end_time': chunk_end
+                })
+
+            start_pos = end_pos
+
+        # 最後の部分（最後の「、」の後ろ）
+        if start_pos < len(text):
+            chunk_text = text[start_pos:]
+            chunk_char_data = char_data[start_pos:]
+
+            if chunk_char_data:
+                chunk_start = chunk_char_data[0][1]
+                chunk_end = chunk_char_data[-1][2]
+
+                chunks.append({
+                    'text': chunk_text,
+                    'start_time': chunk_start,
+                    'end_time': chunk_end
+                })
+
+        return chunks
+
     def _split_sentence_by_comma_if_needed(
         self,
         sentence: Dict[str, Any],
@@ -829,6 +970,148 @@ class Phase06Subtitles(PhaseBase):
             line2 = line2[:max_chars_per_line]
 
         return (line1, line2)
+
+    def _split_text_into_lines_strict(
+        self,
+        text: str,
+        recommended_max: int = 16,
+        absolute_max: int = 18
+    ) -> tuple[str, str]:
+        """
+        字幕テキストを2行に分割（厳密版）
+
+        ルール:
+        1. 推奨: 各行16文字以内
+        2. 最大: 各行18文字以内（絶対制限）
+        3. 意味の区切り（、）を優先
+        4. 句読点がない場合は単語の区切りで分割
+
+        Args:
+            text: 分割するテキスト
+            recommended_max: 推奨最大文字数（16文字）
+            absolute_max: 絶対的な最大文字数（18文字）
+
+        Returns:
+            (line1, line2) のタプル
+        """
+        # 短い場合はそのまま返す
+        if len(text) <= recommended_max:
+            return (text, "")
+
+        # 「、」がある場合: 「、」で分割を試みる
+        if '、' in text:
+            # 全ての「、」の位置を取得
+            comma_positions = [i for i, char in enumerate(text) if char == '、']
+
+            # 最適な「、」を探す（各行が推奨文字数に近くなるように）
+            best_split = None
+            best_score = float('inf')
+
+            for pos in comma_positions:
+                split_pos = pos + 1  # 「、」を含める
+                line1_len = split_pos
+                line2_len = len(text) - split_pos
+
+                # 絶対制限チェック
+                if line1_len <= absolute_max and line2_len <= absolute_max:
+                    # スコア計算: 推奨値からの乖離を最小化
+                    score = abs(line1_len - recommended_max) + abs(line2_len - recommended_max)
+                    if score < best_score:
+                        best_score = score
+                        best_split = split_pos
+
+            if best_split:
+                return (text[:best_split], text[best_split:])
+
+        # 「、」がない、または「、」での分割が制限を満たさない場合
+        # → 中央付近で分割
+
+        # まず中央で試す
+        mid = len(text) // 2
+
+        # 中央付近で単語の区切り（ひらがな→カタカナ、カタカナ→漢字など）を探す
+        for offset in range(min(5, len(text) // 4)):  # 前後5文字の範囲
+            # 前方
+            if mid - offset > 0 and mid - offset <= absolute_max:
+                pos = mid - offset
+                if len(text) - pos <= absolute_max:  # line2も制限内
+                    # 自然な区切り位置かチェック
+                    if self._is_good_split_position(text, pos):
+                        return (text[:pos], text[pos:])
+
+            # 後方
+            if mid + offset < len(text) and mid + offset <= absolute_max:
+                pos = mid + offset
+                if len(text) - pos <= absolute_max:  # line2も制限内
+                    if self._is_good_split_position(text, pos):
+                        return (text[:pos], text[pos:])
+
+        # 適切な位置が見つからない場合: 強制的に中央で分割
+        # ただし、絶対制限は守る
+        if mid > absolute_max:
+            mid = absolute_max
+
+        return (text[:mid], text[mid:])
+
+    def _is_good_split_position(self, text: str, pos: int) -> bool:
+        """
+        テキストの分割位置が適切かどうかを判定
+
+        適切な分割位置:
+        - 句読点の直後（。、！？）
+        - ひらがな→カタカナの境界
+        - カタカナ→漢字の境界
+        - 漢字→ひらがなの境界
+
+        Args:
+            text: 元のテキスト
+            pos: 分割位置
+
+        Returns:
+            適切ならTrue
+        """
+        if pos <= 0 or pos >= len(text):
+            return False
+
+        prev_char = text[pos - 1]
+        curr_char = text[pos]
+
+        # 句読点の直後
+        if prev_char in ['。', '、', '！', '？', '」', '』']:
+            return True
+
+        # 文字種の境界
+        prev_type = self._get_char_type(prev_char)
+        curr_type = self._get_char_type(curr_char)
+
+        # ひらがな→カタカナ、カタカナ→漢字など
+        if prev_type != curr_type:
+            return True
+
+        return False
+
+    def _get_char_type(self, char: str) -> str:
+        """
+        文字の種類を判定
+
+        Returns:
+            'hiragana', 'katakana', 'kanji', 'other'
+        """
+        code = ord(char)
+
+        # ひらがな: U+3040 - U+309F
+        if 0x3040 <= code <= 0x309F:
+            return 'hiragana'
+
+        # カタカナ: U+30A0 - U+30FF
+        if 0x30A0 <= code <= 0x30FF:
+            return 'katakana'
+
+        # 漢字: U+4E00 - U+9FFF
+        if 0x4E00 <= code <= 0x9FFF:
+            return 'kanji'
+
+        return 'other'
 
     def _save_generation_metadata(self, subtitle_gen: SubtitleGeneration):
         """
