@@ -982,8 +982,8 @@ class Phase06Subtitles(PhaseBase):
 
         分割優先順位:
         1. 「、」での分割
-        2. 漢字→ひらがなの境界
-        3. ひらがな→漢字の境界
+        2. ひらがな→漢字の境界
+        3. 漢字→ひらがなの境界
         4. カタカナとの境界
         5. 中央での強制分割
 
@@ -991,6 +991,7 @@ class Phase06Subtitles(PhaseBase):
         - 推奨: 各行16文字以内
         - 最大: 各行18文字以内（絶対制限）
         - 繰り返し記号（々、ー等）の直前では分割しない
+        - 句読点のみの行は作らない（句読点を削除）
 
         Args:
             text: 分割するテキスト
@@ -1027,7 +1028,11 @@ class Phase06Subtitles(PhaseBase):
                         best_split = split_pos
 
             if best_split:
-                return (text[:best_split], text[best_split:])
+                line1 = text[:best_split]
+                line2 = text[best_split:]
+                # 句読点のみの行をチェック
+                line1, line2 = self._remove_punctuation_only_line(line1, line2)
+                return (line1, line2)
 
         # 優先順位2-4: 文字種の境界で分割を試みる
         # 理想的な分割位置の範囲を計算
@@ -1066,11 +1071,11 @@ class Phase06Subtitles(PhaseBase):
                 # 優先度を設定
                 priority = 0
 
-                # 漢字→ひらがな（最も優先）
-                if prev_type == 'kanji' and curr_type == 'hiragana':
+                # ひらがな→漢字（最も優先）
+                if prev_type == 'hiragana' and curr_type == 'kanji':
                     priority = 1
-                # ひらがな→漢字（2番目）
-                elif prev_type == 'hiragana' and curr_type == 'kanji':
+                # 漢字→ひらがな（2番目）
+                elif prev_type == 'kanji' and curr_type == 'hiragana':
                     priority = 2
                 # カタカナとの境界（3番目）
                 elif prev_type == 'katakana' or curr_type == 'katakana':
@@ -1087,7 +1092,11 @@ class Phase06Subtitles(PhaseBase):
                     best_boundary_split = pos
 
         if best_boundary_split:
-            return (text[:best_boundary_split], text[best_boundary_split:])
+            line1 = text[:best_boundary_split]
+            line2 = text[best_boundary_split:]
+            # 句読点のみの行をチェック
+            line1, line2 = self._remove_punctuation_only_line(line1, line2)
+            return (line1, line2)
 
         # 優先順位5: 中央での強制分割（最終手段）
         # まず中央で試す
@@ -1101,21 +1110,65 @@ class Phase06Subtitles(PhaseBase):
                 if len(text) - pos <= absolute_max:  # line2も制限内
                     # 自然な区切り位置かチェック
                     if self._is_good_split_position(text, pos):
-                        return (text[:pos], text[pos:])
+                        line1 = text[:pos]
+                        line2 = text[pos:]
+                        # 句読点のみの行をチェック
+                        line1, line2 = self._remove_punctuation_only_line(line1, line2)
+                        return (line1, line2)
 
             # 後方
             if mid + offset < len(text) and mid + offset <= absolute_max:
                 pos = mid + offset
                 if len(text) - pos <= absolute_max:  # line2も制限内
                     if self._is_good_split_position(text, pos):
-                        return (text[:pos], text[pos:])
+                        line1 = text[:pos]
+                        line2 = text[pos:]
+                        # 句読点のみの行をチェック
+                        line1, line2 = self._remove_punctuation_only_line(line1, line2)
+                        return (line1, line2)
 
         # 適切な位置が見つからない場合: 強制的に中央で分割
         # ただし、絶対制限は守る
         if mid > absolute_max:
             mid = absolute_max
 
-        return (text[:mid], text[mid:])
+        line1 = text[:mid]
+        line2 = text[mid:]
+        # 句読点のみの行をチェック
+        line1, line2 = self._remove_punctuation_only_line(line1, line2)
+        return (line1, line2)
+
+    def _remove_punctuation_only_line(
+        self,
+        line1: str,
+        line2: str
+    ) -> tuple[str, str]:
+        """
+        句読点のみの行を削除
+
+        line1またはline2が句読点のみの場合、その句読点を削除する
+
+        Args:
+            line1: 1行目のテキスト
+            line2: 2行目のテキスト
+
+        Returns:
+            (修正後のline1, 修正後のline2) のタプル
+        """
+        # 句読点のリスト
+        punctuation_chars = ['。', '！', '？', '、', '…']
+
+        # line2が句読点のみかチェック
+        if line2 and all(char in punctuation_chars for char in line2.strip()):
+            # 句読点を削除
+            return (line1.rstrip(), "")
+
+        # line1が句読点のみかチェック（稀なケース）
+        if line1 and all(char in punctuation_chars for char in line1.strip()):
+            # line1を削除してline2をline1に
+            return (line2, "")
+
+        return (line1, line2)
 
     def _is_good_split_position(self, text: str, pos: int) -> bool:
         """
