@@ -408,13 +408,7 @@ class Phase06Subtitles(PhaseBase):
 
     def _generate_from_audio_timing(self, timing_path: Path) -> List[SubtitleEntry]:
         """
-        audio_timing.json から字幕を生成
-
-        Args:
-            timing_path: audio_timing.json のパス
-
-        Returns:
-            字幕エントリのリスト
+        audio_timing.json から字幕を生成（意味の区切り優先版）
         """
         self.logger.info(f"Loading audio timing data from: {timing_path}")
 
@@ -425,9 +419,9 @@ class Phase06Subtitles(PhaseBase):
         subtitle_index = 1
 
         # 設定を取得
-        max_words_per_subtitle = self.phase_config.get("max_words_per_subtitle", 5)
-        max_duration = self.phase_config.get("timing", {}).get("max_display_duration", 3.0)
-        min_display_duration = self.phase_config.get("timing", {}).get("min_display_duration", 1.0)
+        min_duration = self.phase_config.get("timing", {}).get("min_display_duration", 1.0)
+        max_chars_per_line = self.phase_config.get("max_chars_per_line", 16)
+        max_chars_per_subtitle = max_chars_per_line * 2  # 32文字
 
         for section_data in timing_data:
             section_id = section_data.get('section_id', 0)
@@ -435,44 +429,68 @@ class Phase06Subtitles(PhaseBase):
             char_start_times = section_data.get('char_start_times', [])
             char_end_times = section_data.get('char_end_times', [])
             offset = section_data.get('offset', 0.0)
-            text = section_data.get('text', '')
 
-            self.logger.debug(
-                f"Processing section {section_id}: {len(characters)} characters"
+            self.logger.debug(f"Processing section {section_id}: {len(characters)} characters")
+
+            # ステップ1: 「。」で文を分割
+            sentences = self._split_by_period_with_timing(
+                characters, char_start_times, char_end_times, offset
             )
 
-            # 文字レベル → 単語レベル に変換
-            words = self._group_characters_into_words(
-                text, characters, char_start_times, char_end_times, offset
-            )
+            self.logger.debug(f"Section {section_id}: {len(sentences)} sentences")
 
-            # 単語 → 字幕グループ に変換
-            subtitle_groups = self._create_subtitle_groups(
-                words, max_words_per_subtitle, max_duration
-            )
+            # ステップ2: 各文を処理
+            for sentence in sentences:
+                sentence_text = sentence['text']
+                sentence_len = len(sentence_text)
 
-            # 字幕エントリを作成
-            for group in subtitle_groups:
-                # 表示時間が短すぎる場合は調整
-                duration = group['end_time'] - group['start_time']
-                if duration < min_display_duration:
-                    group['end_time'] = group['start_time'] + min_display_duration
+                if sentence_len <= max_chars_per_subtitle:
+                    # 32文字以内: そのまま1つの字幕
+                    duration = sentence['end_time'] - sentence['start_time']
+                    if duration < min_duration:
+                        sentence['end_time'] = sentence['start_time'] + min_duration
 
-                # テキストを2行に分割
-                max_chars = self.phase_config.get("max_chars_per_line", 16)
-                line1, line2 = self._split_text_into_lines(group['text'], max_chars)
+                    line1, line2 = self._split_text_into_lines(sentence_text, max_chars_per_line)
 
-                subtitle = SubtitleEntry(
-                    index=subtitle_index,
-                    start_time=group['start_time'],
-                    end_time=group['end_time'],
-                    text_line1=line1,
-                    text_line2=line2
-                )
-                subtitles.append(subtitle)
-                subtitle_index += 1
+                    subtitle = SubtitleEntry(
+                        index=subtitle_index,
+                        start_time=sentence['start_time'],
+                        end_time=sentence['end_time'],
+                        text_line1=line1,
+                        text_line2=line2
+                    )
+                    subtitles.append(subtitle)
+                    subtitle_index += 1
 
-        self.logger.info(f"Generated {len(subtitles)} subtitles from timing data")
+                    self.logger.debug(
+                        f"Subtitle {subtitle_index-1}: [{sentence_len} chars] {line1[:10]}..."
+                    )
+                else:
+                    # 32文字超: 「、」で区切る
+                    self.logger.debug(f"Splitting by comma ({sentence_len} chars)")
+
+                    chunks = self._split_sentence_by_comma_if_needed(
+                        sentence, max_chars_per_subtitle
+                    )
+
+                    for chunk in chunks:
+                        duration = chunk['end_time'] - chunk['start_time']
+                        if duration < min_duration:
+                            chunk['end_time'] = chunk['start_time'] + min_duration
+
+                        line1, line2 = self._split_text_into_lines(chunk['text'], max_chars_per_line)
+
+                        subtitle = SubtitleEntry(
+                            index=subtitle_index,
+                            start_time=chunk['start_time'],
+                            end_time=chunk['end_time'],
+                            text_line1=line1,
+                            text_line2=line2
+                        )
+                        subtitles.append(subtitle)
+                        subtitle_index += 1
+
+        self.logger.info(f"Generated {len(subtitles)} subtitles")
         return subtitles
 
     def _group_characters_into_words(
@@ -604,6 +622,146 @@ class Phase06Subtitles(PhaseBase):
             })
 
         return groups
+
+    def _split_by_period_with_timing(
+        self,
+        characters: List[str],
+        char_start_times: List[float],
+        char_end_times: List[float],
+        offset: float
+    ) -> List[Dict[str, Any]]:
+        """
+        文字列を句読点「。」で分割し、各文のタイミング情報を付与
+
+        Returns:
+            [{'text': str, 'start_time': float, 'end_time': float,
+              'char_data': [(char, start, end), ...]}, ...]
+        """
+        sentences = []
+        current_sentence = ""
+        sentence_start_time = None
+        sentence_char_data = []
+
+        for i, char in enumerate(characters):
+            if i >= len(char_start_times) or i >= len(char_end_times):
+                break
+
+            char_start = char_start_times[i] + offset
+            char_end = char_end_times[i] + offset
+
+            if sentence_start_time is None:
+                sentence_start_time = char_start
+
+            current_sentence += char
+            sentence_char_data.append((char, char_start, char_end))
+
+            # 「。」で文を区切る
+            if char == '。':
+                sentences.append({
+                    'text': current_sentence,
+                    'start_time': sentence_start_time,
+                    'end_time': char_end,
+                    'char_data': sentence_char_data
+                })
+                current_sentence = ""
+                sentence_start_time = None
+                sentence_char_data = []
+
+        # 最後の文
+        if current_sentence and sentence_start_time is not None:
+            last_end = char_end_times[-1] + offset if char_end_times else sentence_start_time
+            sentences.append({
+                'text': current_sentence,
+                'start_time': sentence_start_time,
+                'end_time': last_end,
+                'char_data': sentence_char_data
+            })
+
+        return sentences
+
+    def _split_sentence_by_comma_if_needed(
+        self,
+        sentence: Dict[str, Any],
+        max_chars: int
+    ) -> List[Dict[str, Any]]:
+        """
+        長い文を「、」で意味の区切りを入れて分割
+
+        ロジック:
+        1. 32文字以内なら何もしない
+        2. 32文字超なら、32文字以内で最も後ろにある「、」で区切る
+        3. 区切った後の部分がまだ32文字超なら、再帰的に処理
+        """
+        text = sentence['text']
+        char_data = sentence['char_data']
+
+        # 32文字以内ならそのまま
+        if len(text) <= max_chars:
+            return [{
+                'text': text,
+                'start_time': sentence['start_time'],
+                'end_time': sentence['end_time']
+            }]
+
+        # 「、」の位置を全て見つける
+        comma_positions = [i for i, char in enumerate(text) if char == '、']
+
+        # 「、」がない場合は仕方ないのでそのまま
+        if not comma_positions:
+            return [{
+                'text': text,
+                'start_time': sentence['start_time'],
+                'end_time': sentence['end_time']
+            }]
+
+        # 32文字以内で最も後ろにある「、」を見つける
+        split_position = None
+        for pos in comma_positions:
+            if pos + 1 <= max_chars:  # 「、」を含めた位置
+                split_position = pos + 1
+            else:
+                break
+
+        # 適切な分割位置が見つからない（最初の「、」が32文字超）
+        # → 強制的に最初の「、」で区切る
+        if split_position is None:
+            split_position = comma_positions[0] + 1
+
+        # 分割
+        first_part_text = text[:split_position]
+        second_part_text = text[split_position:]
+
+        first_part_char_data = char_data[:split_position]
+        second_part_char_data = char_data[split_position:]
+
+        # タイミング情報
+        first_start = first_part_char_data[0][1] if first_part_char_data else sentence['start_time']
+        first_end = first_part_char_data[-1][2] if first_part_char_data else sentence['start_time']
+
+        second_start = second_part_char_data[0][1] if second_part_char_data else first_end
+        second_end = second_part_char_data[-1][2] if second_part_char_data else sentence['end_time']
+
+        # 最初のチャンク
+        chunks = [{
+            'text': first_part_text,
+            'start_time': first_start,
+            'end_time': first_end
+        }]
+
+        # 残りの部分を再帰的に処理
+        if second_part_text:
+            remaining_sentence = {
+                'text': second_part_text,
+                'start_time': second_start,
+                'end_time': second_end,
+                'char_data': second_part_char_data
+            }
+            remaining_chunks = self._split_sentence_by_comma_if_needed(
+                remaining_sentence, max_chars
+            )
+            chunks.extend(remaining_chunks)
+
+        return chunks
 
     def _split_text_into_lines(
         self,
