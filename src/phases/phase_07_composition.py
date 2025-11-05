@@ -16,6 +16,7 @@ try:
         CompositeVideoClip,
         concatenate_videoclips,
         TextClip,
+        CompositeAudioClip,
     )
     MOVIEPY_AVAILABLE = True
     MOVIEPY_IMPORT_ERROR = None
@@ -271,9 +272,17 @@ class Phase07Composition(PhaseBase):
     
     def _load_bgm(self) -> Optional[dict]:
         """BGMデータを読み込み（台本ベース）"""
-        # BGMフォルダのパス
-        bgm_base_path = Path(self.config.get("paths", {}).get("bgm_library", "assets/bgm"))
-        
+        # BGMフォルダのパス（プロジェクトルートからの絶対パス）
+        bgm_library_config = self.config.get("paths", {}).get("bgm_library", "assets/bgm")
+        bgm_base_path = Path(bgm_library_config)
+
+        # 相対パスの場合はプロジェクトルートからの絶対パスに変換
+        if not bgm_base_path.is_absolute():
+            project_root = Path(__file__).parent.parent.parent
+            bgm_base_path = project_root / bgm_base_path
+
+        self.logger.info(f"BGM library path: {bgm_base_path}")
+
         if not bgm_base_path.exists():
             self.logger.warning(f"BGM library not found: {bgm_base_path}")
             return None
@@ -287,20 +296,22 @@ class Phase07Composition(PhaseBase):
         # 辞書として扱う（script["sections"]）
         for section in script.get("sections", []):
             bgm_type = section.get("bgm_suggestion", "main")  # "opening", "main", "ending"
-            
+
             # BGMフォルダからファイルを探す
             bgm_folder = bgm_base_path / bgm_type
             if not bgm_folder.exists():
                 self.logger.warning(f"BGM folder not found: {bgm_folder}")
+                self.logger.warning(f"Looking for BGM type '{bgm_type}' in section '{section.get('title', 'unknown')}'")
                 continue
-            
+
             # フォルダ内の最初のMP3ファイルを使用
             bgm_files = list(bgm_folder.glob("*.mp3"))
             if not bgm_files:
                 self.logger.warning(f"No MP3 files found in: {bgm_folder}")
                 continue
-            
+
             bgm_file = bgm_files[0]  # 最初のファイルを使用
+            self.logger.debug(f"Found BGM file: {bgm_file.name} for type '{bgm_type}'")
             
             segment = {
                 "bgm_type": bgm_type,
@@ -320,10 +331,12 @@ class Phase07Composition(PhaseBase):
             )
         
         if not bgm_segments:
-            self.logger.info("No BGM segments created")
+            self.logger.warning("No BGM segments created - check if BGM files exist in assets/bgm/{opening,main,ending}/")
             return None
-        
-        self.logger.info(f"Created {len(bgm_segments)} BGM segments from script")
+
+        self.logger.info(f"✓ Created {len(bgm_segments)} BGM segments from script:")
+        for seg in bgm_segments:
+            self.logger.info(f"  - {seg['bgm_type']}: {seg['section_title']} ({seg['duration']:.1f}s)")
         return {"segments": bgm_segments}
     
     def _create_video_clips(
@@ -390,7 +403,7 @@ class Phase07Composition(PhaseBase):
                         current_duration += clip.duration
                     else:
                         # 最後のクリップをトリミング
-                        trimmed = clip.subclipped(0, remaining)
+                        trimmed = clip.subclip(0, remaining)
                         final_clips.append(trimmed)
                         current_duration += remaining
             
@@ -414,8 +427,11 @@ class Phase07Composition(PhaseBase):
         try:
             bgm_segments = bgm_data.get("segments", [])
             if not bgm_segments:
+                self.logger.info("No BGM segments to add")
                 return video
-            
+
+            self.logger.info(f"Adding {len(bgm_segments)} BGM segments to video...")
+
             # BGMセグメントごとにクリップを作成
             bgm_clips = []
             
@@ -431,38 +447,41 @@ class Phase07Composition(PhaseBase):
                 
                 # BGMファイルを読み込み
                 bgm_clip = AudioFileClip(str(bgm_path))
-                
+                original_duration = bgm_clip.duration
+
                 # BGMが短い場合はループ
                 if bgm_clip.duration < duration:
                     loops_needed = int(duration / bgm_clip.duration) + 1
+                    self.logger.debug(f"  Looping BGM {loops_needed} times (original: {original_duration:.1f}s, needed: {duration:.1f}s)")
                     bgm_clip = bgm_clip.looped(loops_needed)
-                
+
                 # 必要な長さにトリミング
-                bgm_clip = bgm_clip.subclipped(0, min(duration, bgm_clip.duration))
-                
+                bgm_clip = bgm_clip.subclip(0, min(duration, bgm_clip.duration))
+
                 # 音量調整
                 bgm_clip = bgm_clip.volumex(self.bgm_volume)
+                self.logger.debug(f"  Volume set to: {self.bgm_volume:.0%}")
                 
                 # 開始時間を設定
                 bgm_clip = bgm_clip.with_start(start_time)
                 
                 bgm_clips.append(bgm_clip)
-                
-                self.logger.debug(
-                    f"Added BGM: {segment.get('bgm_type')} "
-                    f"({start_time:.1f}s - {start_time + duration:.1f}s)"
+
+                self.logger.info(
+                    f"  ✓ Added BGM segment: {segment.get('bgm_type')} "
+                    f"({start_time:.1f}s - {start_time + duration:.1f}s) - {bgm_path.name}"
                 )
             
             if not bgm_clips:
                 self.logger.warning("No BGM clips were created")
                 return video
-            
+
             # ナレーションとBGMをミックス
-            from moviepy.audio.AudioClip import CompositeAudioClip
+            self.logger.info(f"Mixing narration with {len(bgm_clips)} BGM segments...")
             final_audio = CompositeAudioClip([video.audio] + bgm_clips)
             video = video.with_audio(final_audio)
-            
-            self.logger.info(f"Added {len(bgm_clips)} BGM segments successfully")
+
+            self.logger.info(f"✓ Successfully added {len(bgm_clips)} BGM segments to video")
             
         except Exception as e:
             self.logger.warning(f"Failed to add BGM: {e}")
