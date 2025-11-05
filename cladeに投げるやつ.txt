@@ -1,0 +1,102 @@
+python -m src.cli run-phase "織田信長" --phase 7
+-phase "織田信長" --phase 7                                               
+[11/06/25 00:03:04] INFO     ================================== cli.py:125
+                             ==========================                   
+                    INFO     Running Phase 7 for: 織田信長      cli.py:126
+                    INFO     ================================== cli.py:127
+                             ==========================                   
+                    INFO                                     logger.py:178
+                             ===============================              
+                             =============================                
+                    INFO     Phase 7: Video Composition      logger.py:179
+[11/06/25 00:03:05] INFO     =============================== logger.py:180
+                             =============================                
+                                                                          
+                    INFO     Phase 7 started             phase_base.py:271
+                    INFO     Starting video    phase_07_composition.py:129
+                             composition for:                             
+                             織田信長                                     
+                    INFO     Loading data...   phase_07_composition.py:134
+                    INFO     Found 9 animated  phase_07_composition.py:245
+                             clips                                        
+                    INFO     Loaded 19         phase_07_composition.py:270
+                             subtitles                                    
+                    INFO     BGM library path: phase_07_composition.py:284
+                             C:\Users\hyokaime                            
+                             n\kyota\video-aut                            
+                             omation\assets\bg                            
+                             m                                            
+                    INFO     ✓ Created 3 BGM   phase_07_composition.py:337
+                             segments from                                
+                             script:                                      
+                    INFO       - opening: 導入 phase_07_composition.py:339
+                             (20.0s)                                      
+                    INFO       - main: 展開    phase_07_composition.py:339
+                             (20.0s)                                      
+                    INFO       - ending: 締め  phase_07_composition.py:339
+                             (20.0s)                                      
+                    INFO     Total audio       phase_07_composition.py:144
+                             duration: 73.0s                              
+                    INFO     Creating video    phase_07_composition.py:147
+                             clips...                                     
+                    INFO     Loading 9 video   phase_07_composition.py:350
+                             clips...                                     
+[11/06/25 00:03:07] INFO     Successfully      phase_07_composition.py:372
+                             loaded 9/9 clips                             
+                    INFO     Concatenating     phase_07_composition.py:151
+                             video clips...                               
+[11/06/25 00:03:08] INFO     Adding audio      phase_07_composition.py:155
+                             track...                                     
+                    INFO     Adding BGM...     phase_07_composition.py:160
+                    INFO     Adding 3 BGM      phase_07_composition.py:433
+                             segments to                                  
+                             video...                                     
+                    WARNING  Failed to add     phase_07_composition.py:487
+                             BGM:                                         
+                             'AudioFileClip'                              
+                             object has no                                
+                             attribute                                    
+                             'volumex'                                    
+                    INFO     Adding            phase_07_composition.py:164
+                             subtitles...                                 
+                    INFO     Using font:       phase_07_composition.py:524
+                             C:/Windows/Fonts/                            
+                             msgothic.ttc                                 
+                    INFO     Added 19          phase_07_composition.py:618
+                             subtitles using                              
+                             Pillow                                       
+                    INFO     Rendering final   phase_07_composition.py:168
+                             video...                                     
+MoviePy - Building video data\output\videos\織田信長.mp4.
+MoviePy - Writing audio in 織田信長TEMP_MPY_wvf_snd.mp4
+MoviePy - Done.
+MoviePy - Writing video data\output\videos\織田信長.mp4
+
+MoviePy - Done !
+MoviePy - video ready data\output\videos\織田信長.mp4
+[11/06/25 00:26:56] INFO     Generating        phase_07_composition.py:172
+                             thumbnail...                                 
+[11/06/25 00:26:57] INFO     Metadata saved:   phase_07_composition.py:678
+                             C:\Users\hyokaime                            
+                             n\kyota\video-aut                            
+                             omation\data\work                            
+                             ing\織田信長\07_c                            
+                             omposition\metada                            
+                             ta.json                                      
+                    INFO     ✓ Video           phase_07_composition.py:205
+                             composition                                  
+                             complete: 47.1MB                             
+                             in 1432.1s                                   
+                    INFO     Output validation phase_07_composition.py:227
+                             passed                                       
+                    INFO     ✓ Phase 7 completed in 1432.3s  logger.py:194
+                    INFO                                        cli.py:141
+                    INFO     ================================== cli.py:142
+                             ==========================                   
+                    INFO     Execution Result                   cli.py:143
+                    INFO     ================================== cli.py:144
+                             ==========================                   
+                    INFO     Status: completed                  cli.py:145
+                    INFO     Duration: 1432.33s                 cli.py:147
+                    INFO                                        cli.py:152
+                    INFO     Output files:                      cli.py:153
