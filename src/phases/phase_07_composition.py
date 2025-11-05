@@ -403,7 +403,7 @@ class Phase07Composition(PhaseBase):
                         current_duration += clip.duration
                     else:
                         # 最後のクリップをトリミング
-                        trimmed = clip.subclip(0, remaining)
+                        trimmed = clip.subclipped(0, remaining)
                         final_clips.append(trimmed)
                         current_duration += remaining
             
@@ -456,7 +456,7 @@ class Phase07Composition(PhaseBase):
                     bgm_clip = bgm_clip.looped(loops_needed)
 
                 # 必要な長さにトリミング
-                bgm_clip = bgm_clip.subclip(0, min(duration, bgm_clip.duration))
+                bgm_clip = bgm_clip.subclipped(0, min(duration, bgm_clip.duration))
 
                 # 音量調整
                 bgm_clip = bgm_clip.volumex(self.bgm_volume)
