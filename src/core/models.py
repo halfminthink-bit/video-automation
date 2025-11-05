@@ -269,6 +269,7 @@ class SubtitleEntry(BaseModel):
     end_time: float                   # 秒
     text_line1: str                   # 1行目
     text_line2: str = ""              # 2行目（空の場合あり）
+    text_line3: str = ""              # 3行目（空の場合あり）
 
     @field_validator('end_time')
     @classmethod

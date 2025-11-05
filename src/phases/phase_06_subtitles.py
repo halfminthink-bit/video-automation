@@ -142,6 +142,10 @@ class Phase06Subtitles(PhaseBase):
                     audio_path=audio_path if audio_path.exists() else None
                 )
 
+            # 3. 句読点を削除（分割ロジックの後に実行）
+            self.logger.info("Removing punctuation from subtitles...")
+            subtitles = self._remove_punctuation_from_subtitles(subtitles)
+
             # 6. SRTファイルを保存
             srt_path = self._save_srt_file(subtitles)
 
@@ -323,34 +327,35 @@ class Phase06Subtitles(PhaseBase):
     def _save_srt_file(self, subtitles: List[SubtitleEntry]) -> Path:
         """
         SRTファイルを保存
-        
+
         Args:
             subtitles: 字幕エントリのリスト
-            
+
         Returns:
             保存されたSRTファイルのPath
         """
         srt_path = self.phase_dir / "subtitles.srt"
-        
+
         with open(srt_path, 'w', encoding='utf-8') as f:
             for subtitle in subtitles:
                 # インデックス
                 f.write(f"{subtitle.index}\n")
-                
+
                 # タイムコード（HH:MM:SS,mmm形式）
                 start_str = self._format_srt_time(subtitle.start_time)
                 end_str = self._format_srt_time(subtitle.end_time)
                 f.write(f"{start_str} --> {end_str}\n")
-                
-                # テキスト（2行まで）
+
+                # テキスト（3行まで）
+                f.write(f"{subtitle.text_line1}\n")
                 if subtitle.text_line2:
-                    f.write(f"{subtitle.text_line1}\n{subtitle.text_line2}\n")
-                else:
-                    f.write(f"{subtitle.text_line1}\n")
-                
+                    f.write(f"{subtitle.text_line2}\n")
+                if hasattr(subtitle, 'text_line3') and subtitle.text_line3:
+                    f.write(f"{subtitle.text_line3}\n")
+
                 # 空行
                 f.write("\n")
-        
+
         self.logger.info(f"SRT file saved: {srt_path}")
         return srt_path
     
@@ -374,15 +379,15 @@ class Phase06Subtitles(PhaseBase):
     def _save_timing_json(self, subtitles: List[SubtitleEntry]) -> Path:
         """
         タイミングJSONを保存
-        
+
         Args:
             subtitles: 字幕エントリのリスト
-            
+
         Returns:
             保存されたJSONファイルのPath
         """
         timing_path = self.phase_dir / "subtitle_timing.json"
-        
+
         timing_data = {
             "subject": self.subject,
             "subtitle_count": len(subtitles),
@@ -394,15 +399,16 @@ class Phase06Subtitles(PhaseBase):
                     "end_time": s.end_time,
                     "duration": s.end_time - s.start_time,
                     "text_line1": s.text_line1,
-                    "text_line2": s.text_line2
+                    "text_line2": s.text_line2,
+                    "text_line3": s.text_line3 if hasattr(s, 'text_line3') else ""
                 }
                 for s in subtitles
             ]
         }
-        
+
         with open(timing_path, 'w', encoding='utf-8') as f:
             json.dump(timing_data, f, indent=2, ensure_ascii=False)
-        
+
         self.logger.info(f"Timing JSON saved: {timing_path}")
         return timing_path
 
@@ -1236,6 +1242,61 @@ class Phase06Subtitles(PhaseBase):
             return 'kanji'
 
         return 'other'
+
+    def _remove_punctuation_from_subtitles(
+        self,
+        subtitles: List[SubtitleEntry]
+    ) -> List[SubtitleEntry]:
+        """
+        字幕から句読点を削除
+
+        重要: 分割ロジックの後に実行すること
+        分割位置の判定には句読点を使うため、削除は最後に行う
+
+        削除対象: 。、！？，．
+        削除しない: 「」『』・～…（カギカッコや中点等）
+
+        Args:
+            subtitles: 句読点を含む字幕リスト
+
+        Returns:
+            句読点を削除した字幕リスト
+        """
+        # 削除対象の句読点
+        punctuation_to_remove = ['。', '、', '！', '？', '，', '．']
+
+        cleaned_subtitles = []
+
+        for subtitle in subtitles:
+            # 各行から句読点を削除
+            line1 = subtitle.text_line1
+            for punct in punctuation_to_remove:
+                line1 = line1.replace(punct, '')
+
+            line2 = subtitle.text_line2
+            if line2:
+                for punct in punctuation_to_remove:
+                    line2 = line2.replace(punct, '')
+
+            line3 = subtitle.text_line3 if hasattr(subtitle, 'text_line3') else ""
+            if line3:
+                for punct in punctuation_to_remove:
+                    line3 = line3.replace(punct, '')
+
+            # 新しいSubtitleEntryを作成
+            cleaned_subtitle = SubtitleEntry(
+                index=subtitle.index,
+                start_time=subtitle.start_time,
+                end_time=subtitle.end_time,
+                text_line1=line1,
+                text_line2=line2,
+                text_line3=line3
+            )
+
+            cleaned_subtitles.append(cleaned_subtitle)
+
+        self.logger.info(f"Removed punctuation from {len(cleaned_subtitles)} subtitles")
+        return cleaned_subtitles
 
     def _save_generation_metadata(self, subtitle_gen: SubtitleGeneration):
         """

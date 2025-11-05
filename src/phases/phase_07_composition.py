@@ -17,6 +17,8 @@ try:
         concatenate_videoclips,
         TextClip,
         CompositeAudioClip,
+        ColorClip,
+        ImageClip,
     )
     MOVIEPY_AVAILABLE = True
     MOVIEPY_IMPORT_ERROR = None
@@ -50,26 +52,26 @@ class Phase07Composition(PhaseBase):
             raise ImportError(error_msg)
         
         self.phase_config = config.get_phase_config(7)
-        
+
         # 出力設定
         output_config = self.phase_config.get("output", {})
         self.resolution = tuple(output_config.get("resolution", [1920, 1080]))
         self.fps = output_config.get("fps", 30)
         self.codec = output_config.get("codec", "libx264")
         self.bitrate = output_config.get("bitrate", "5000k")
-        
+
         # クリップループ設定
         clip_config = self.phase_config.get("clip_loop", {})
         self.clip_loop_enabled = clip_config.get("enabled", True)
         self.crossfade_duration = clip_config.get("crossfade_duration", 0.5)
         self.min_clip_duration = clip_config.get("min_clip_duration", 4.0)
-        
+
         # BGM設定
         bgm_config = self.phase_config.get("bgm", {})
         self.bgm_volume = bgm_config.get("volume", 0.3)
         self.bgm_fade_in = bgm_config.get("fade_in", 2.0)
         self.bgm_fade_out = bgm_config.get("fade_out", 2.0)
-        
+
         # 字幕設定
         subtitle_config = self.phase_config.get("subtitle", {})
         self.subtitle_font = subtitle_config.get("font_family", "Arial")
@@ -77,6 +79,10 @@ class Phase07Composition(PhaseBase):
         self.subtitle_color = subtitle_config.get("color", "white")
         self.subtitle_position = subtitle_config.get("position", "bottom")
         self.subtitle_margin = subtitle_config.get("margin_bottom", 80)
+
+        # 二分割レイアウト設定
+        self.split_config = self.phase_config.get("split_layout", {})
+        self.split_enabled = self.split_config.get("enabled", False)
     
     def get_phase_number(self) -> int:
         return 7
@@ -142,27 +148,46 @@ class Phase07Composition(PhaseBase):
             audio_clip = AudioFileClip(str(audio_path))
             total_duration = audio_clip.duration
             self.logger.info(f"Total audio duration: {total_duration:.1f}s")
-            
-            # 3. 映像クリップを作成
-            self.logger.info("Creating video clips...")
-            video_clips = self._create_video_clips(animated_clips, total_duration)
-            
-            # 4. 映像を連結
-            self.logger.info("Concatenating video clips...")
-            final_video = self._concatenate_clips(video_clips, total_duration)
-            
-            # 5. 音声を追加
-            self.logger.info("Adding audio track...")
-            final_video = final_video.with_audio(audio_clip)
-            
-            # 6. BGMを追加（オプション）
-            if bgm_data:
-                self.logger.info("Adding BGM...")
-                final_video = self._add_bgm(final_video, bgm_data)
-            
-            # 7. 字幕を追加
-            self.logger.info("Adding subtitles...")
-            final_video = self._add_subtitles(final_video, subtitles)
+
+            # 3. 動画生成（二分割レイアウト or 全画面）
+            if self.split_enabled:
+                self.logger.info("Creating split layout video (subtitle | video)...")
+
+                # 二分割レイアウトで動画生成
+                final_video = self._create_split_layout_video(
+                    animated_clips=animated_clips,
+                    subtitles=subtitles,
+                    total_duration=total_duration
+                )
+
+                # 音声を追加
+                self.logger.info("Adding audio track...")
+                final_video = final_video.with_audio(audio_clip)
+
+                # BGMを追加
+                if bgm_data:
+                    self.logger.info("Adding BGM...")
+                    final_video = self._add_bgm(final_video, bgm_data)
+
+            else:
+                # 既存の処理（全画面動画）
+                self.logger.info("Creating full-screen video with bottom subtitles...")
+
+                # 3. 映像クリップを作成
+                video_clips = self._create_video_clips(animated_clips, total_duration)
+
+                # 4. 映像を連結
+                final_video = self._concatenate_clips(video_clips, total_duration)
+
+                # 5. 音声を追加
+                final_video = final_video.with_audio(audio_clip)
+
+                # 6. BGMを追加（オプション）
+                if bgm_data:
+                    final_video = self._add_bgm(final_video, bgm_data)
+
+                # 7. 字幕を追加
+                final_video = self._add_subtitles(final_video, subtitles)
             
             # 8. 動画をレンダリング
             self.logger.info("Rendering final video...")
@@ -248,14 +273,14 @@ class Phase07Composition(PhaseBase):
     def _load_subtitles(self) -> List[SubtitleEntry]:
         """字幕データを読み込み"""
         subtitle_path = self.working_dir / "06_subtitles" / "subtitle_timing.json"
-        
+
         if not subtitle_path.exists():
             self.logger.warning("Subtitle data not found, using empty list")
             return []
-        
+
         with open(subtitle_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
-        
+
         subtitles = []
         for item in data.get("subtitles", []):
             subtitle = SubtitleEntry(
@@ -263,10 +288,11 @@ class Phase07Composition(PhaseBase):
                 start_time=item["start_time"],
                 end_time=item["end_time"],
                 text_line1=item["text_line1"],
-                text_line2=item.get("text_line2", "")
+                text_line2=item.get("text_line2", ""),
+                text_line3=item.get("text_line3", "")
             )
             subtitles.append(subtitle)
-        
+
         self.logger.info(f"Loaded {len(subtitles)} subtitles")
         return subtitles
     
@@ -657,6 +683,314 @@ class Phase07Composition(PhaseBase):
         
         return thumbnail_path
     
+    def _create_split_layout_video(
+        self,
+        animated_clips: List[Path],
+        subtitles: List[SubtitleEntry],
+        total_duration: float
+    ) -> 'VideoFileClip':
+        """
+        二分割レイアウトの動画を生成
+
+        左側: 黒背景 + 字幕（960x1080）
+        右側: アニメ動画（960x1080にリサイズ）
+
+        Args:
+            animated_clips: Phase 4の動画ファイルパスリスト
+            subtitles: 字幕データ
+            total_duration: 全体の長さ（秒）
+
+        Returns:
+            合成された二分割レイアウト動画
+        """
+        self.logger.info("Creating split layout video...")
+
+        # Step 1: 左側（字幕側）を生成
+        self.logger.info("Creating subtitle side (left)...")
+        left_side = self._create_subtitle_side(subtitles, total_duration)
+
+        # Step 2: 右側（動画側）を生成
+        self.logger.info("Creating video side (right)...")
+        right_side = self._create_video_side(animated_clips, total_duration)
+
+        # Step 3: 左右を横並びに配置
+        self.logger.info("Compositing left and right sides...")
+        final_video = CompositeVideoClip([
+            left_side.with_position((0, 0)),           # 左側
+            right_side.with_position((960, 0))         # 右側
+        ], size=(1920, 1080))
+
+        self.logger.info("Split layout video created successfully")
+        return final_video
+
+    def _create_subtitle_side(
+        self,
+        subtitles: List[SubtitleEntry],
+        duration: float
+    ) -> 'VideoFileClip':
+        """
+        左側の字幕エリアを生成
+
+        - 960x1080の黒背景
+        - 字幕を中央に配置（3行まで対応）
+        - Pillowで画像を生成してImageClipに変換
+
+        Returns:
+            字幕側の動画クリップ
+        """
+        from PIL import Image, ImageDraw, ImageFont
+        import numpy as np
+
+        # 黒背景の作成（960x1080）
+        width = self.split_config.get('left_width', 960)
+        height = self.resolution[1]  # 1080
+
+        # 字幕クリップのリスト
+        subtitle_clips = []
+
+        # フォント読み込み
+        font = self._load_japanese_font(self.subtitle_size)
+
+        for subtitle in subtitles:
+            try:
+                # 字幕画像を生成（3行対応）
+                img = self._create_subtitle_image(
+                    text_line1=subtitle.text_line1,
+                    text_line2=subtitle.text_line2,
+                    text_line3=subtitle.text_line3,
+                    width=width,
+                    height=height,
+                    font=font
+                )
+
+                # ImageClipに変換
+                img_array = np.array(img)
+                clip = ImageClip(img_array, duration=subtitle.end_time - subtitle.start_time)
+                clip = clip.with_start(subtitle.start_time)
+
+                subtitle_clips.append(clip)
+
+            except Exception as e:
+                self.logger.warning(f"Failed to create subtitle image for index {subtitle.index}: {e}")
+                continue
+
+        # 黒背景のベースクリップ
+        black_bg = ColorClip(size=(width, height), color=(0, 0, 0), duration=duration)
+
+        # 字幕を合成
+        if subtitle_clips:
+            final_clip = CompositeVideoClip([black_bg] + subtitle_clips)
+            self.logger.info(f"Created subtitle side with {len(subtitle_clips)} subtitles")
+        else:
+            final_clip = black_bg
+            self.logger.warning("No subtitle clips created, using black background only")
+
+        return final_clip
+
+    def _create_video_side(
+        self,
+        clip_paths: List[Path],
+        duration: float
+    ) -> 'VideoFileClip':
+        """
+        右側の動画エリアを生成
+
+        - Phase 4の動画を960x1080にリサイズ
+        - 連結してループ
+
+        Returns:
+            動画側のクリップ
+        """
+        width = self.split_config.get('right_width', 960)
+        height = self.resolution[1]  # 1080
+
+        # 各クリップを読み込んでリサイズ
+        video_clips = []
+        for i, clip_path in enumerate(clip_paths, 1):
+            try:
+                self.logger.debug(f"Loading clip {i}/{len(clip_paths)}: {clip_path.name}")
+                clip = VideoFileClip(str(clip_path))
+
+                # 960x1080にリサイズ（crop or fit）
+                clip_resized = self._resize_clip_for_split_layout(clip, width, height)
+                video_clips.append(clip_resized)
+
+                self.logger.debug(f"  Resized to {width}x{height}")
+
+            except Exception as e:
+                self.logger.error(f"Failed to load clip {clip_path.name}: {e}")
+                continue
+
+        # クリップを連結
+        if video_clips:
+            concatenated = concatenate_videoclips(video_clips, method="compose")
+
+            # 音声の長さに合わせてループ
+            if concatenated.duration < duration:
+                loops = int(duration / concatenated.duration) + 1
+                self.logger.info(f"Looping video clips {loops} times to match duration")
+                concatenated = concatenate_videoclips([concatenated] * loops, method="compose")
+
+            # 長さを調整
+            final_clip = concatenated.subclipped(0, duration)
+        else:
+            # クリップがない場合は黒画面
+            self.logger.warning("No video clips loaded, using black background")
+            final_clip = ColorClip(size=(width, height), color=(0, 0, 0), duration=duration)
+
+        return final_clip
+
+    def _resize_clip_for_split_layout(
+        self,
+        clip: 'VideoFileClip',
+        target_width: int,
+        target_height: int
+    ) -> 'VideoFileClip':
+        """
+        クリップを目標サイズにリサイズ
+
+        resize_method設定に応じて処理:
+        - "crop": アスペクト比を保ちつつクロップ
+        - "fit": アスペクト比を保ちつつフィット（余白あり）
+        - "stretch": アスペクト比無視して引き伸ばし
+        """
+        resize_method = self.split_config.get('right_side', {}).get('resize_method', 'crop')
+
+        if resize_method == "crop":
+            # クロップ（はみ出た部分をカット）
+            # まず高さを合わせる
+            clip = clip.resized(height=target_height)
+            if clip.w > target_width:
+                # 中央でクロップ
+                x_center = clip.w / 2
+                x1 = int(x_center - target_width / 2)
+                clip = clip.cropped(x1=x1, width=target_width)
+            return clip
+
+        elif resize_method == "fit":
+            # フィット（アスペクト比を保持、余白あり）
+            clip = clip.resized(width=target_width)
+            if clip.h < target_height:
+                # 上下に黒い余白を追加
+                # CompositeVideoClipで中央配置
+                y_offset = (target_height - clip.h) // 2
+                bg = ColorClip(size=(target_width, target_height), color=(0, 0, 0))
+                clip = CompositeVideoClip([bg, clip.with_position((0, y_offset))])
+            return clip
+
+        else:  # stretch
+            # 引き伸ばし
+            return clip.resized((target_width, target_height))
+
+    def _create_subtitle_image(
+        self,
+        text_line1: str,
+        text_line2: Optional[str],
+        text_line3: Optional[str],
+        width: int,
+        height: int,
+        font
+    ) -> 'Image.Image':
+        """
+        字幕画像を生成（最大3行）
+
+        - 透明背景のRGBA画像
+        - テキストを中央に配置
+        - 影・縁取り効果
+
+        注意: text_line1/2/3 は既に句読点が削除されている前提
+
+        Returns:
+            PIL Image (RGBA)
+        """
+        from PIL import Image, ImageDraw
+
+        # 句読点チェック（Phase 6で削除済みのはず）
+        if any(punct in text_line1 for punct in ['。', '、', '！', '？']):
+            self.logger.warning(
+                f"Punctuation found in subtitle text: {text_line1}. "
+                "This should have been removed in Phase 6."
+            )
+
+        # 透明背景
+        img = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+
+        # テキスト行をリスト化
+        lines = [text_line1]
+        if text_line2:
+            lines.append(text_line2)
+        if text_line3:
+            lines.append(text_line3)
+
+        # 各行のサイズを計算
+        line_heights = []
+        line_widths = []
+
+        for line in lines:
+            bbox = draw.textbbox((0, 0), line, font=font)
+            line_width = bbox[2] - bbox[0]
+            line_height = bbox[3] - bbox[1]
+            line_widths.append(line_width)
+            line_heights.append(line_height)
+
+        # 行間を取得
+        line_spacing = self.split_config.get('left_side', {}).get('line_spacing', 1.3)
+        spacing_px = int(line_heights[0] * (line_spacing - 1.0)) if line_heights else 10
+
+        # 全体の高さ計算
+        total_height = sum(line_heights) + spacing_px * (len(lines) - 1)
+
+        # 描画開始位置（中央）
+        start_y = (height - total_height) // 2
+
+        # 各行を描画
+        current_y = start_y
+        stroke_width = self.phase_config.get('subtitle', {}).get('stroke_width', 2)
+
+        for i, line in enumerate(lines):
+            line_width = line_widths[i]
+            line_x = (width - line_width) // 2  # 中央揃え
+
+            # 影を描画（4方向）
+            for dx, dy in [(-stroke_width, -stroke_width), (-stroke_width, stroke_width),
+                           (stroke_width, -stroke_width), (stroke_width, stroke_width)]:
+                draw.text((line_x + dx, current_y + dy), line,
+                         font=font, fill=(0, 0, 0, 255))
+
+            # メインテキスト
+            draw.text((line_x, current_y), line,
+                     font=font, fill=(255, 255, 255, 255))
+
+            current_y += line_heights[i] + spacing_px
+
+        return img
+
+    def _load_japanese_font(self, size: int):
+        """日本語フォントを読み込む"""
+        from PIL import ImageFont
+
+        # フォントパスのリスト
+        font_paths = [
+            "C:/Windows/Fonts/msgothic.ttc",  # MSゴシック
+            "C:/Windows/Fonts/meiryo.ttc",     # メイリオ
+            "C:/Windows/Fonts/yugothm.ttc",    # 游ゴシック
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",  # Linux
+            "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",  # macOS
+        ]
+
+        for font_path in font_paths:
+            try:
+                font = ImageFont.truetype(font_path, size)
+                self.logger.debug(f"Using font: {font_path}")
+                return font
+            except:
+                continue
+
+        # フォントが見つからない場合はデフォルト
+        self.logger.warning("Japanese font not found, using default font")
+        return ImageFont.load_default()
+
     def _save_metadata(self, composition: VideoComposition):
         """メタデータを保存"""
         metadata_path = self.phase_dir / "metadata.json"
