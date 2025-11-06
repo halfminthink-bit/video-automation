@@ -484,8 +484,8 @@ class Phase07Composition(PhaseBase):
                 # 必要な長さにトリミング
                 bgm_clip = bgm_clip.subclipped(0, min(duration, bgm_clip.duration))
 
-                # 音量調整
-                bgm_clip = bgm_clip.volumex(self.bgm_volume)
+                # 音量調整 (MoviePy 2.x)
+                bgm_clip = bgm_clip.with_volume_scaled(self.bgm_volume)
                 self.logger.debug(f"  Volume set to: {self.bgm_volume:.0%}")
                 
                 # 開始時間を設定
