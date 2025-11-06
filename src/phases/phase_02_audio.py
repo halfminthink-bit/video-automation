@@ -354,7 +354,7 @@ class Phase02Audio(PhaseBase):
         optimizer = None
         if use_optimization:
             try:
-                api_key = self.config.get_api_key("ANTHROPIC_API_KEY")
+                api_key = self.config.get_api_key("CLAUDE_API_KEY")
                 optimizer = TextOptimizer(
                     api_key=api_key,
                     model=text_opt_config.get("model", "claude-sonnet-4-20250514"),
