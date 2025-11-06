@@ -434,8 +434,8 @@ class Phase06Subtitles(PhaseBase):
         max_chars_per_line = self.phase_config.get("max_chars_per_line", 16)
         max_chars_per_subtitle = max_chars_per_line * 2  # 32文字
 
-        # 1行の絶対的な制限
-        ABSOLUTE_MAX_CHARS_PER_LINE = 18  # これを超えたら字幕を分割
+        # 1行の絶対的な制限（厳格に16文字）
+        ABSOLUTE_MAX_CHARS_PER_LINE = 16  # これを超えたら必ず字幕を分割
 
         # 複数の「、」がある文を分割する閾値
         MULTI_COMMA_THRESHOLD = 25
@@ -981,7 +981,7 @@ class Phase06Subtitles(PhaseBase):
         self,
         text: str,
         recommended_max: int = 16,
-        absolute_max: int = 18
+        absolute_max: int = 16
     ) -> tuple[str, str]:
         """
         字幕テキストを2行に分割（厳密版・改善版）
@@ -995,14 +995,14 @@ class Phase06Subtitles(PhaseBase):
 
         ルール:
         - 推奨: 各行16文字以内
-        - 最大: 各行18文字以内（絶対制限）
+        - 最大: 各行16文字以内（厳格な制限）
         - 繰り返し記号（々、ー等）の直前では分割しない
         - 句読点のみの行は作らない（句読点を削除）
 
         Args:
             text: 分割するテキスト
             recommended_max: 推奨最大文字数（16文字）
-            absolute_max: 絶対的な最大文字数（18文字）
+            absolute_max: 絶対的な最大文字数（16文字）
 
         Returns:
             (line1, line2) のタプル
