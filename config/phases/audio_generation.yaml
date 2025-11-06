@@ -30,7 +30,7 @@ settings:
   similarity_boost: 0.75  # 0-1（高いほど元の声に近い）
   style: 0                # 0-1（スタイルの強さ）
   use_speaker_boost: true # スピーカーブースト有効化
-  speed: 0.9              # 0.25-4.0（1.0が通常速度）
+  speed: 1.0              # 0.25-4.0（1.0が通常速度）
 
 # 出力フォーマット
 format:
