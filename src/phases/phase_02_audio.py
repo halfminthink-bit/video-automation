@@ -394,15 +394,27 @@ class Phase02Audio(PhaseBase):
 
             # テキストの最適化
             text_to_generate = section.narration
+            display_text = section.narration  # デフォルトは元のテキスト
+
             if optimizer:
                 try:
                     optimized = optimizer.optimize_for_tts(
                         text=section.narration,
                         context=overall_context
                     )
-                    self.logger.info(f"Original: {section.narration[:50]}...")
-                    self.logger.info(f"Optimized: {optimized[:50]}...")
-                    text_to_generate = optimized
+                    # 最適化結果が辞書の場合
+                    if isinstance(optimized, dict):
+                        text_to_generate = optimized.get("tts_text", section.narration)
+                        display_text = optimized.get("display_text", section.narration)
+                        self.logger.info(f"Original: {section.narration[:50]}...")
+                        self.logger.info(f"TTS text: {text_to_generate[:50]}...")
+                        self.logger.info(f"Display text: {display_text[:50]}...")
+                    else:
+                        # 後方互換性: 文字列が返された場合
+                        text_to_generate = optimized
+                        display_text = optimized
+                        self.logger.info(f"Original: {section.narration[:50]}...")
+                        self.logger.info(f"Optimized: {optimized[:50]}...")
                 except Exception as e:
                     self.logger.warning(f"Text optimization failed: {e}")
                     self.logger.warning("Using original text")
@@ -458,7 +470,9 @@ class Phase02Audio(PhaseBase):
                         self.logger.warning(f"Using estimated duration: {duration:.2f}s")
                 timing_info = {
                     'section_id': section.section_id,
-                    'text': section.narration,
+                    'text': section.narration,  # 元のテキスト（後方互換性のため）
+                    'tts_text': text_to_generate,  # 音声用テキスト
+                    'display_text': display_text,  # 字幕用テキスト
                     'audio_path': str(audio_path),
                     'characters': alignment.get('characters', []),
                     'char_start_times': alignment.get('character_start_times_seconds', []),

@@ -6,6 +6,11 @@
 # テキスト最適化設定
 text_optimization:
   enabled: true                          # テキスト最適化を有効化
+  # 音声用（tts_text）と字幕用（display_text）の2種類を生成
+  # - tts_text: 平仮名のみで音声読み上げに最適化（括弧なし）
+  #   例: "おだのぶなが" → ElevenLabsが正確に読み上げ
+  # - display_text: 元の漢字を保持、字幕表示用
+  #   例: "織田信長" → 字幕として表示
   model: "claude-sonnet-4-20250514"      # 使用するClaudeモデル
   use_context: true                      # 全体の文脈情報を活用
 

@@ -447,10 +447,43 @@ class Phase06Subtitles(PhaseBase):
             char_end_times = section_data.get('char_end_times', [])
             offset = section_data.get('offset', 0.0)
 
-            # ステップ1: 「。」で文を分割
-            sentences = self._split_by_period_with_timing(
+            # display_text を取得（フォールバックで text または tts_text を使用）
+            display_text = section_data.get('display_text') or section_data.get('tts_text') or section_data.get('text', '')
+
+            # ステップ1: 「。」で文を分割（タイミング情報を取得）
+            tts_sentences = self._split_by_period_with_timing(
                 characters, char_start_times, char_end_times, offset
             )
+
+            # display_text を '。' で分割
+            display_sentences_text = display_text.split('。')
+            # 空文字列を削除し、'。'を再度付加
+            display_sentences_text = [s + '。' for s in display_sentences_text if s.strip()]
+
+            # display_text で置き換え
+            sentences = []
+            for idx, tts_sent in enumerate(tts_sentences):
+                if idx < len(display_sentences_text):
+                    # display_text を使用
+                    sentence = {
+                        'text': display_sentences_text[idx],
+                        'start_time': tts_sent['start_time'],
+                        'end_time': tts_sent['end_time'],
+                        'char_data': tts_sent.get('char_data', [])
+                    }
+                    sentences.append(sentence)
+                    self.logger.debug(f"Using display_text: {display_sentences_text[idx][:30]}...")
+                else:
+                    # フォールバック: tts_text を使用
+                    sentences.append(tts_sent)
+                    self.logger.warning(f"Display text not available for sentence {idx}, using TTS text")
+
+            # display_text の方が文が多い場合は警告
+            if len(display_sentences_text) > len(tts_sentences):
+                self.logger.warning(
+                    f"Display text has more sentences ({len(display_sentences_text)}) "
+                    f"than TTS text ({len(tts_sentences)})"
+                )
 
             # ステップ2: 各文を処理
             for sentence in sentences:
