@@ -28,6 +28,7 @@ from src.core.exceptions import (
 )
 from src.generators.audio_generator import create_audio_generator
 from src.processors.audio_processor import AudioProcessor
+from src.processors.text_optimizer import TextOptimizer
 
 
 class Phase02Audio(PhaseBase):
@@ -335,6 +336,9 @@ class Phase02Audio(PhaseBase):
         """
         全セクションの音声をタイムスタンプ付きで生成
 
+        各セクションのテキストを最適化し、前後のセクションを
+        文脈として渡すことで自然なイントネーションを実現。
+
         Args:
             script: 台本
             generator: 音声生成器（generate_with_timestampsメソッド対応）
@@ -342,6 +346,38 @@ class Phase02Audio(PhaseBase):
         Returns:
             (AudioSegmentのリスト, タイミング情報のリスト)
         """
+        # テキスト最適化が有効かチェック
+        text_opt_config = self.phase_config.get("text_optimization", {})
+        use_optimization = text_opt_config.get("enabled", False)
+
+        # テキストオプティマイザーの初期化
+        optimizer = None
+        if use_optimization:
+            try:
+                api_key = self.config.get_api_key("ANTHROPIC_API_KEY")
+                optimizer = TextOptimizer(
+                    api_key=api_key,
+                    model=text_opt_config.get("model", "claude-sonnet-4-20250514"),
+                    logger=self.logger
+                )
+                self.logger.info("TextOptimizer initialized")
+            except Exception as e:
+                self.logger.warning(f"Failed to initialize TextOptimizer: {e}")
+                self.logger.warning("Proceeding without text optimization")
+
+        # 全体の文脈情報
+        overall_context = None
+        if use_optimization and text_opt_config.get("use_context", True):
+            overall_context = f"""偉人: {script.subject}
+時代背景: {script.description}
+動画のテーマ: {script.title}
+"""
+
+        # 文脈制御の設定
+        context_config = self.phase_config.get("context_awareness", {})
+        use_previous = context_config.get("use_previous_text", True)
+        use_next = context_config.get("use_next_text", True)
+
         segments = []
         timing_data = []
         sections_dir = self.phase_dir / "sections"
@@ -353,16 +389,44 @@ class Phase02Audio(PhaseBase):
 
         for i, section in enumerate(script.sections, start=1):
             self.logger.info(
-                f"Generating audio with timestamps for section {i}/{total_sections}: "
-                f"{section.title}"
+                f"Processing section {i}/{total_sections}: {section.section_id}"
             )
+
+            # テキストの最適化
+            text_to_generate = section.narration
+            if optimizer:
+                try:
+                    optimized = optimizer.optimize_for_tts(
+                        text=section.narration,
+                        context=overall_context
+                    )
+                    self.logger.info(f"Original: {section.narration[:50]}...")
+                    self.logger.info(f"Optimized: {optimized[:50]}...")
+                    text_to_generate = optimized
+                except Exception as e:
+                    self.logger.warning(f"Text optimization failed: {e}")
+                    self.logger.warning("Using original text")
+
+            # 前後のテキストを取得（文脈用）
+            previous_text = None
+            next_text = None
+
+            if use_previous and i > 1:
+                previous_text = script.sections[i-2].narration
+
+            if use_next and i < total_sections:
+                next_text = script.sections[i].narration
 
             # 音声ファイルパス
             audio_path = sections_dir / f"section_{section.section_id:02d}.mp3"
 
-            # タイムスタンプ付きで音声生成
+            # タイムスタンプ付きで音声生成（文脈対応）
             try:
-                result = generator.generate_with_timestamps(text=section.narration)
+                result = generator.generate_with_timestamps(
+                    text=text_to_generate,
+                    previous_text=previous_text,
+                    next_text=next_text
+                )
 
                 # Base64エンコードされた音声データをデコード
                 audio_data = base64.b64decode(result['audio_base64'])

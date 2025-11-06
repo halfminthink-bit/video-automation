@@ -134,15 +134,25 @@ class AudioGenerator:
         
         return audio_data
 
-    def generate_with_timestamps(self, text: str) -> Dict[str, Any]:
+    def generate_with_timestamps(
+        self,
+        text: str,
+        previous_text: Optional[str] = None,
+        next_text: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
-        タイムスタンプ付きで音声を生成
+        タイムスタンプ付きで音声を生成（文脈対応）
 
         ElevenLabs API の convert_with_timestamps() メソッドを使用して、
         音声データと文字レベルのタイミング情報を同時に取得。
 
+        previous_text/next_textを指定することで、前後の文脈を考慮した
+        自然なイントネーションで音声を生成できる。
+
         Args:
             text: 生成するテキスト
+            previous_text: 前のテキスト（文脈用、無料）
+            next_text: 次のテキスト（文脈用、無料）
 
         Returns:
             {
@@ -160,6 +170,11 @@ class AudioGenerator:
         """
         self.logger.info(f"Generating audio with timestamps: {text[:50]}...")
 
+        if previous_text:
+            self.logger.debug(f"Using previous_text for context: {previous_text[:30]}...")
+        if next_text:
+            self.logger.debug(f"Using next_text for context: {next_text[:30]}...")
+
         try:
             # VoiceSettingsを作成
             voice_settings = VoiceSettings(
@@ -170,6 +185,7 @@ class AudioGenerator:
             )
 
             # ElevenLabs SDK の convert_with_timestamps() を使用
+            # previous_text / next_text を追加
             self.logger.debug(
                 f"API call: voice_id={self.voice_id}, model={self.model}, "
                 f"output_format=mp3_44100_128"
@@ -180,7 +196,9 @@ class AudioGenerator:
                 voice_id=self.voice_id,
                 model_id=self.model,
                 output_format="mp3_44100_128",
-                voice_settings=voice_settings
+                voice_settings=voice_settings,
+                previous_text=previous_text,
+                next_text=next_text
             )
 
             # レスポンスから情報を取得

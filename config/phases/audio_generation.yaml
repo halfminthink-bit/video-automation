@@ -3,6 +3,17 @@
 # Phase 2: 音声生成設定
 # ========================================
 
+# テキスト最適化設定
+text_optimization:
+  enabled: true                          # テキスト最適化を有効化
+  model: "claude-sonnet-4-20250514"      # 使用するClaudeモデル
+  use_context: true                      # 全体の文脈情報を活用
+
+# 文脈制御設定
+context_awareness:
+  use_previous_text: true                # 前のセクションを文脈に使用
+  use_next_text: true                    # 次のセクションを文脈に使用
+
 # ElevenLabs API設定
 service: "elevenlabs"
 # 日本語対応のvoice_id（以下から選択）:
@@ -15,11 +26,11 @@ with_timestamps: true  # タイムスタンプ付き音声生成を使用
 
 # 音声品質設定
 settings:
-  stability: 0.5          # 0-1（低いほどバリエーション豊か）
+  stability: 0.7          # 0-1（低いほどバリエーション豊か）日本語は少し高めが良い
   similarity_boost: 0.75  # 0-1（高いほど元の声に近い）
   style: 0                # 0-1（スタイルの強さ）
   use_speaker_boost: true # スピーカーブースト有効化
-  speed: 1.0              # 0.25-4.0（1.0が通常速度）
+  speed: 0.9              # 0.25-4.0（1.0が通常速度）
 
 # 出力フォーマット
 format:
