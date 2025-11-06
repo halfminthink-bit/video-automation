@@ -66,21 +66,52 @@ class TextOptimizer:
             optimized_response = response.content[0].text.strip()
             self.logger.info(f"Text optimized successfully")
 
+            # レスポンスをデバッグ出力
+            self.logger.debug(f"Raw response: {optimized_response[:200]}...")
+
             # レスポンスをパース（JSON形式を期待）
             import json
+            import re
+
             try:
-                result = json.loads(optimized_response)
+                # マークダウンのコードブロック記法を除去
+                # ```json ... ``` または ``` ... ``` を除去
+                json_text = optimized_response
+
+                # ```json で始まる場合
+                if json_text.startswith("```json"):
+                    json_text = json_text[7:]  # ```json を除去
+                elif json_text.startswith("```"):
+                    json_text = json_text[3:]  # ``` を除去
+
+                # 末尾の ``` を除去
+                if json_text.endswith("```"):
+                    json_text = json_text[:-3]
+
+                # 前後の空白を除去
+                json_text = json_text.strip()
+
+                self.logger.debug(f"Cleaned JSON: {json_text[:200]}...")
+
+                result = json.loads(json_text)
+
                 # tts_textとdisplay_textが両方存在するか確認
                 if "tts_text" in result and "display_text" in result:
+                    self.logger.info(
+                        f"Successfully parsed: tts_text={result['tts_text'][:30]}..., "
+                        f"display_text={result['display_text'][:30]}..."
+                    )
                     return result
                 else:
                     self.logger.warning("Response missing required fields, using original text")
+                    self.logger.warning(f"Response keys: {list(result.keys())}")
                     return {
                         "tts_text": text,
                         "display_text": text
                     }
-            except json.JSONDecodeError:
-                self.logger.warning("Failed to parse JSON response, using original text")
+            except json.JSONDecodeError as e:
+                self.logger.warning(f"Failed to parse JSON response: {e}")
+                self.logger.warning(f"Response was: {optimized_response[:500]}")
                 return {
                     "tts_text": text,
                     "display_text": text
@@ -108,57 +139,36 @@ class TextOptimizer:
 """ if context else ""
 
         return f"""あなたは音声合成AIの前処理専門家です。
-以下のナレーション原稿を、ElevenLabsが正確に読み上げられるように最適化してください。
 
 {context_section}
 
-【重要】
-音声用テキスト（tts_text）と字幕用テキスト（display_text）の2種類を生成してください。
-
-【tts_text（音声用）の最適化ルール】
-1. **固有名詞を平仮名のみで記載**
-   - 人名・地名・寺社名などは全て平仮名
-   - 括弧は使用しない
-   - 例: 織田信長 → おだのぶなが
-
-2. **読みづらい漢字→ひらがな化**
-   - 難読漢字、同音異義語、読み間違いしやすい言葉
-   - 例: 雰囲気→ふんいき、重々→じゅうじゅう
-
-3. **数字の読み方を平仮名で記載**
-   - 西暦や大きな数字は平仮名
-   - 例: 1560年 → せんごひゃくろくじゅうねん
-
-4. **句読点を適切に配置**
-   - 長い文は読点で区切る
-   - AIの息継ぎポイントを制御
-
-5. **長文を分割**
-   - 1文は20-30文字程度に
-   - 複雑な構文は簡潔に
-
-【display_text（字幕用）の最適化ルール】
-1. **元の漢字を保持**
-   - 固有名詞は漢字のまま
-   - 例: 織田信長（漢字のまま）
-
-2. **括弧は不要**
-   - 読み仮名の括弧は付けない
-
-3. **句読点は元のまま**
-   - 句読点の位置はtts_textと同じ
-
-4. **意味・内容は絶対に変更しない**
-   - あくまで表示用の調整
+【タスク】
+以下のナレーション原稿を最適化し、JSON形式で2種類のテキストを返してください。
 
 【入力テキスト】
 {text}
 
+【出力ルール】
+
+1. **tts_text（音声用）**: ElevenLabsが読み上げる用
+   - 固有名詞は全て平仮名（括弧なし）
+     例: 織田信長 → おだのぶなが
+   - 難読漢字も平仮名化
+     例: 雰囲気→ふんいき、明智光秀→あけちみつひで
+   - 数字は平仮名で読み方を明示
+     例: 1560年→せんごひゃくろくじゅうねん、49歳→よんじゅうきゅうさい
+   - 句読点は元のまま維持
+
+2. **display_text（字幕用）**: 字幕として表示する用
+   - 固有名詞は漢字のまま（括弧なし）
+   - 難読漢字も元の漢字のまま
+   - 数字は元のまま
+   - 句読点は元のまま維持
+
 【出力形式】
-必ずJSON形式で返してください。説明や解説は不要です。
+JSON形式のみを返してください。説明文、コードブロック記法（```）、その他の文章は一切含めないでください。
 
 {{
-  "tts_text": "音声用のテキスト（平仮名のみ）",
-  "display_text": "字幕用のテキスト（漢字を保持）"
-}}
-"""
+  "tts_text": "ここに音声用テキスト（平仮名）",
+  "display_text": "ここに字幕用テキスト（漢字）"
+}}"""
