@@ -64,10 +64,9 @@ class TextOptimizer:
             )
 
             optimized_response = response.content[0].text.strip()
-            self.logger.info(f"Text optimized successfully")
 
-            # レスポンスをデバッグ出力
-            self.logger.debug(f"Raw response: {optimized_response[:200]}...")
+            # レスポンスをINFOレベルで出力（デバッグ用）
+            self.logger.info(f"Claude API response (first 300 chars): {optimized_response[:300]}")
 
             # レスポンスをパース（JSON形式を期待）
             import json
@@ -81,37 +80,41 @@ class TextOptimizer:
                 # ```json で始まる場合
                 if json_text.startswith("```json"):
                     json_text = json_text[7:]  # ```json を除去
+                    self.logger.info("Removed ```json prefix")
                 elif json_text.startswith("```"):
                     json_text = json_text[3:]  # ``` を除去
+                    self.logger.info("Removed ``` prefix")
 
                 # 末尾の ``` を除去
                 if json_text.endswith("```"):
                     json_text = json_text[:-3]
+                    self.logger.info("Removed ``` suffix")
 
                 # 前後の空白を除去
                 json_text = json_text.strip()
 
-                self.logger.debug(f"Cleaned JSON: {json_text[:200]}...")
+                self.logger.info(f"Cleaned JSON (first 200 chars): {json_text[:200]}")
 
                 result = json.loads(json_text)
 
                 # tts_textとdisplay_textが両方存在するか確認
                 if "tts_text" in result and "display_text" in result:
                     self.logger.info(
-                        f"Successfully parsed: tts_text={result['tts_text'][:30]}..., "
-                        f"display_text={result['display_text'][:30]}..."
+                        f"✓ Successfully parsed JSON: "
+                        f"tts_text={result['tts_text'][:50]}..., "
+                        f"display_text={result['display_text'][:50]}..."
                     )
                     return result
                 else:
-                    self.logger.warning("Response missing required fields, using original text")
+                    self.logger.warning("Response missing required fields (tts_text or display_text)")
                     self.logger.warning(f"Response keys: {list(result.keys())}")
                     return {
                         "tts_text": text,
                         "display_text": text
                     }
             except json.JSONDecodeError as e:
-                self.logger.warning(f"Failed to parse JSON response: {e}")
-                self.logger.warning(f"Response was: {optimized_response[:500]}")
+                self.logger.warning(f"✗ Failed to parse JSON: {e}")
+                self.logger.warning(f"Full response (first 500 chars): {optimized_response[:500]}")
                 return {
                     "tts_text": text,
                     "display_text": text
