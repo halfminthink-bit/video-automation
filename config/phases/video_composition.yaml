@@ -9,6 +9,25 @@ output:
   preset: "medium"          # エンコード速度 (ultrafast/fast/medium/slow)
   bitrate: "5000k"          # ビットレート
 
+# 二分割レイアウト設定
+split_layout:
+  enabled: true             # 二分割レイアウトを有効化
+  left_width: 960           # 左側の幅（ピクセル）
+  right_width: 960          # 右側の幅（ピクセル）
+
+  # 左側（字幕側）の設定
+  left_side:
+    background_color: "#000000"  # 真っ黒
+    subtitle_position: "center"  # 中央配置
+    subtitle_valign: "center"    # 縦方向も中央
+    max_lines: 3                 # 最大3行
+    line_spacing: 1.3            # 行間
+
+  # 右側（動画側）の設定
+  right_side:
+    resize_method: "crop"        # crop / fit / stretch
+    background_color: "#000000"  # 余白がある場合の背景色
+
 # クリップループ設定
 clip_loop:
   enabled: true             # クリップをループして音声の長さに合わせる
