@@ -63,10 +63,17 @@ class AudioProcessor:
             '-show_streams',
             str(audio_path)
         ]
-        
+
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+
+        # stdout が None または空の場合のエラーハンドリング
+        if not result.stdout:
+            raise RuntimeError(
+                f"ffprobe returned no output for {audio_path}. "
+                f"stderr: {result.stderr}"
+            )
+
         return json.loads(result.stdout)
-        self._check_ffmpeg()
     
     def combine_audio_files(
         self,
