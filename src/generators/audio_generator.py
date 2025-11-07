@@ -172,8 +172,13 @@ class AudioGenerator:
 
         if previous_text:
             self.logger.debug(f"Using previous_text for context: {previous_text[:30]}...")
+        else:
+            self.logger.debug("No previous_text (first section)")
+
         if next_text:
             self.logger.debug(f"Using next_text for context: {next_text[:30]}...")
+        else:
+            self.logger.debug("No next_text (last section)")
 
         try:
             # VoiceSettingsを作成
@@ -186,20 +191,33 @@ class AudioGenerator:
 
             # ElevenLabs SDK の convert_with_timestamps() を使用
             # previous_text / next_text を追加
+            # 重要: 空文字列の場合は None を渡すことで、APIが正しく処理する
             self.logger.debug(
                 f"API call: voice_id={self.voice_id}, model={self.model}, "
-                f"output_format=mp3_44100_128"
+                f"output_format=mp3_44100_128, "
+                f"previous_text={'set' if previous_text else 'None'}, "
+                f"next_text={'set' if next_text else 'None'}"
             )
 
-            response = self.client.text_to_speech.convert_with_timestamps(
-                text=text,
-                voice_id=self.voice_id,
-                model_id=self.model,
-                output_format="mp3_44100_128",
-                voice_settings=voice_settings,
-                previous_text=previous_text,
-                next_text=next_text
-            )
+            # API呼び出しパラメータを構築
+            # 空文字列の場合は None を渡す（APIが正しく処理するため）
+            api_params = {
+                "text": text,
+                "voice_id": self.voice_id,
+                "model_id": self.model,
+                "output_format": "mp3_44100_128",
+                "voice_settings": voice_settings,
+            }
+
+            # previous_text が空文字列または None の場合は渡さない
+            if previous_text:
+                api_params["previous_text"] = previous_text
+
+            # next_text が空文字列または None の場合は渡さない
+            if next_text:
+                api_params["next_text"] = next_text
+
+            response = self.client.text_to_speech.convert_with_timestamps(**api_params)
 
             # レスポンスから情報を取得
             # Pydantic モデルの場合は属性アクセス、辞書の場合は get() を使用

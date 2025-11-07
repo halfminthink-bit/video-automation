@@ -420,14 +420,24 @@ class Phase02Audio(PhaseBase):
                     self.logger.warning("Using original text")
 
             # 前後のテキストを取得（文脈用）
-            previous_text = ""  # 空文字列で初期化（Noneだと音声が変わる可能性があるため）
-            next_text = ""      # 同様に空文字列で初期化
+            # 重要: 空の場合は None を渡すことで、ElevenLabs API が正しく処理する
+            previous_text = None
+            next_text = None
 
             if use_previous and i > 1:
                 previous_text = script.sections[i-2].narration
+                self.logger.debug(f"Section {i}: Using previous_text from section {i-1}")
 
             if use_next and i < total_sections:
                 next_text = script.sections[i].narration
+                self.logger.debug(f"Section {i}: Using next_text from section {i+1}")
+
+            # デバッグログ: セクションごとのパラメータを確認
+            self.logger.info(
+                f"Section {i} generation params: "
+                f"has_previous={previous_text is not None}, "
+                f"has_next={next_text is not None}"
+            )
 
             # 音声ファイルパス
             audio_path = sections_dir / f"section_{section.section_id:02d}.mp3"
