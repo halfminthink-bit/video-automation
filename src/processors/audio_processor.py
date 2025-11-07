@@ -6,6 +6,8 @@ ffmpeg-pythonを使用した音声ファイルの結合、解析、変換を提�
 
 import subprocess
 import json
+import os
+import sys
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 import logging
@@ -55,6 +57,15 @@ class AudioProcessor:
         Returns:
             音声情報の辞書
         """
+        # Windowsでの日本語パス対応: パスを絶対パスに変換
+        audio_path = Path(audio_path).resolve()
+        
+        # ファイルの存在チェック
+        if not audio_path.exists():
+            raise FileNotFoundError(f"Audio file not found: {audio_path}")
+        
+        self.logger.debug(f"Getting audio info for: {audio_path}")
+        
         cmd = [
             'ffprobe',
             '-v', 'quiet',
@@ -63,10 +74,36 @@ class AudioProcessor:
             '-show_streams',
             str(audio_path)
         ]
-        
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+
+        # Windowsの場合、環境変数でエンコーディングを指定
+        env = os.environ.copy()
+        if sys.platform == 'win32':
+            # Windowsでのエンコーディング問題を回避
+            env['PYTHONIOENCODING'] = 'utf-8'
+
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            check=True,
+            env=env
+        )
+
+        # stdout が None または空の場合のエラーハンドリング
+        if not result.stdout:
+            error_msg = (
+                f"ffprobe returned no output for {audio_path}.\n"
+                f"File exists: {audio_path.exists()}\n"
+                f"File size: {audio_path.stat().st_size if audio_path.exists() else 'N/A'} bytes\n"
+                f"stderr: {result.stderr}\n"
+                f"Command: {' '.join(cmd)}"
+            )
+            self.logger.error(error_msg)
+            raise RuntimeError(error_msg)
+
         return json.loads(result.stdout)
-        self._check_ffmpeg()
     
     def combine_audio_files(
         self,
@@ -143,7 +180,20 @@ class AudioProcessor:
                 ]
 
                 try:
-                    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+                    # Windowsでのエンコーディング対応
+                    env = os.environ.copy()
+                    if sys.platform == 'win32':
+                        env['PYTHONIOENCODING'] = 'utf-8'
+                    
+                    result = subprocess.run(
+                        cmd,
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                        encoding='utf-8',
+                        errors='replace',
+                        env=env
+                    )
 
                     # デバッグ用にffmpegの出力をログに記録
                     if result.stderr:
@@ -199,7 +249,20 @@ class AudioProcessor:
             str(output_path)
         ]
         
-        subprocess.run(cmd, check=True, capture_output=True)
+        # Windowsでのエンコーディング対応
+        env = os.environ.copy()
+        if sys.platform == 'win32':
+            env['PYTHONIOENCODING'] = 'utf-8'
+        
+        subprocess.run(
+            cmd,
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            env=env
+        )
     
     def get_duration(self, audio_path: Path) -> float:
         """
