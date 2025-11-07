@@ -396,13 +396,23 @@ class StableDiffusionGenerator:
             
             # ファイルが実際に存在するか確認
             if Path(data['file_path']).exists():
-                return CollectedImage(**data)
+                # CollectedImageの現在のフィールドのみを抽出（古いフィールドを除外）
+                valid_fields = {
+                    'image_id', 'file_path', 'source_url', 'source',
+                    'classification', 'keywords', 'resolution',
+                    'aspect_ratio', 'quality_score'
+                }
+                filtered_data = {k: v for k, v in data.items() if k in valid_fields}
+                return CollectedImage(**filtered_data)
             else:
                 cache_file.unlink()
                 return None
                 
         except Exception as e:
             self.logger.warning(f"Failed to load cache: {e}")
+            # キャッシュが破損している場合は削除
+            if cache_file.exists():
+                cache_file.unlink()
             return None
     
     def _save_to_cache(self, cache_key: str, image: CollectedImage):
