@@ -205,6 +205,83 @@ def run_phase(subject: str, phase_number: int, skip_if_exists: bool = False) -> 
         return 1
 
 
+def convert_script(markdown_path: str, output_dir: Optional[str] = None) -> int:
+    """
+    マークダウン台本をJSON形式に変換
+
+    Args:
+        markdown_path: 入力MDファイルパス
+        output_dir: 出力ディレクトリ（オプション）
+
+    Returns:
+        終了コード (0: 成功, 1: 失敗)
+    """
+    from src.generators.script_converter import ScriptConverter
+
+    # 設定を読み込み
+    config = ConfigManager()
+
+    # ロガーを設定
+    logger = setup_logger(
+        name="cli_convert_script",
+        log_dir=config.get_path("logs_dir"),
+        level="INFO"
+    )
+
+    try:
+        logger.info("="*60)
+        logger.info("Converting Markdown Script to JSON")
+        logger.info("="*60)
+        logger.info(f"Input: {markdown_path}")
+
+        # APIキーを取得（オプション）
+        api_key = None
+        try:
+            api_key = config.get_api_key("CLAUDE_API_KEY")
+        except ValueError:
+            logger.info("Claude API key not found - using simple mode")
+
+        # コンバータを作成
+        converter = ScriptConverter(
+            api_key=api_key,
+            logger=logger
+        )
+
+        # 変換実行
+        result = converter.convert(
+            markdown_path=Path(markdown_path),
+            output_dir=Path(output_dir) if output_dir else None
+        )
+
+        # 結果を表示
+        logger.info("")
+        logger.info("="*60)
+        logger.info("Conversion Completed!")
+        logger.info("="*60)
+        logger.info(f"✓ script.json: {result['script_path']}")
+        logger.info(f"✓ metadata.json: {result['metadata_path']}")
+        logger.info("")
+        logger.info(f"Subject: {result['script_data']['subject']}")
+        logger.info(f"Sections: {len(result['script_data']['sections'])}")
+        logger.info(f"Duration: {result['script_data']['total_estimated_duration']:.1f}s")
+
+        print("\n" + "="*60)
+        print("✓ Script converted successfully!")
+        print("="*60)
+        print(f"script.json: {result['script_path']}")
+        print(f"metadata.json: {result['metadata_path']}")
+        print("")
+        print("Next step: Run Phase 2 to generate audio")
+        print(f"  python -m src.cli run-phase \"{result['script_data']['subject']}\" --phase 2")
+
+        return 0
+
+    except Exception as e:
+        logger.error(f"Conversion error: {e}", exc_info=True)
+        print(f"\n❌ Error during conversion: {type(e).__name__}: {str(e)}")
+        return 1
+
+
 def main():
     """メインエントリーポイント"""
     parser = argparse.ArgumentParser(
@@ -212,6 +289,9 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  # Convert markdown script to JSON (Phase 1 alternative)
+  python -m src.cli convert-script data/scripts/織田信長.md
+
   # Generate script (Phase 1)
   python -m src.cli run-phase "織田信長" --phase 1
 
@@ -239,6 +319,24 @@ Examples:
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
+
+    # convert-script コマンド
+    convert_parser = subparsers.add_parser(
+        "convert-script",
+        help="Convert markdown script to Phase 1 JSON format"
+    )
+    convert_parser.add_argument(
+        "markdown_path",
+        type=str,
+        help="Path to markdown script file (e.g., data/scripts/織田信長.md)"
+    )
+    convert_parser.add_argument(
+        "--output-dir",
+        "-o",
+        type=str,
+        default=None,
+        help="Output directory (default: data/working/{subject}/01_script)"
+    )
 
     # run-phase コマンド
     run_parser = subparsers.add_parser(
@@ -270,6 +368,13 @@ Examples:
     if not args.command:
         parser.print_help()
         return 1
+
+    # convert-script コマンド
+    if args.command == "convert-script":
+        return convert_script(
+            markdown_path=args.markdown_path,
+            output_dir=args.output_dir
+        )
 
     # run-phase コマンド
     if args.command == "run-phase":
