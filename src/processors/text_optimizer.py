@@ -104,6 +104,9 @@ class TextOptimizer:
                         f"tts_text={result['tts_text'][:50]}..., "
                         f"display_text={result['display_text'][:50]}..."
                     )
+                    # 追加の詳細ログ
+                    self.logger.info(f"TTS text: {result['tts_text'][:100]}...")
+                    self.logger.info(f"Display text: {result['display_text'][:100]}...")
                     return result
                 else:
                     self.logger.warning("Response missing required fields (tts_text or display_text)")

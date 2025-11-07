@@ -70,10 +70,11 @@ git pull origin main
 
 ```powershell
 # 1. そのブランチに移動
-git checkout ブランチ名
+git checkout claude/improve-tts-quality-011CUrSFn3birv2CmgbX4iPk
+
 
 # 2. リモートから最新を取得
-git pull origin ブランチ名
+git pull origin claude/improve-tts-quality-011CUrSFn3birv2CmgbX4iPk
 
 # 3. 変更内容を確認
 git log --oneline -3
