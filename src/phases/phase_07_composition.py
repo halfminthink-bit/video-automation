@@ -21,8 +21,6 @@ try:
         ImageClip,
         afx,
     )
-    from moviepy.audio.fx.audio_fadein import audio_fadein
-    from moviepy.audio.fx.audio_fadeout import audio_fadeout
     
     MOVIEPY_AVAILABLE = True
     MOVIEPY_IMPORT_ERROR = None
