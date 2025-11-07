@@ -68,9 +68,10 @@ class Phase07Composition(PhaseBase):
 
         # BGM設定
         bgm_config = self.phase_config.get("bgm", {})
-        self.bgm_volume = bgm_config.get("volume", 0.3)
-        self.bgm_fade_in = bgm_config.get("fade_in", 2.0)
-        self.bgm_fade_out = bgm_config.get("fade_out", 2.0)
+        self.bgm_volume = bgm_config.get("volume", 0.2)  # 20%に下げる（従来は30%）
+        self.bgm_fade_in = bgm_config.get("fade_in", 3.0)  # フェードイン3秒
+        self.bgm_fade_out = bgm_config.get("fade_out", 3.0)  # フェードアウト3秒
+        self.bgm_crossfade = bgm_config.get("crossfade", 2.0)  # セグメント間クロスフェード2秒
 
         # 字幕設定
         subtitle_config = self.phase_config.get("subtitle", {})
@@ -486,17 +487,20 @@ class Phase07Composition(PhaseBase):
 
             # BGMセグメントごとにクリップを作成
             bgm_clips = []
-            
-            for segment in bgm_segments:
+            total_segments = len(bgm_segments)
+
+            for idx, segment in enumerate(bgm_segments):
                 bgm_path = Path(segment.get("file_path", ""))
-                
+
                 if not bgm_path.exists():
                     self.logger.warning(f"BGM file not found: {bgm_path}")
                     continue
-                
+
                 start_time = segment.get("start_time", 0.0)
                 duration = segment.get("duration", 0.0)
-                
+                is_first = (idx == 0)
+                is_last = (idx == total_segments - 1)
+
                 # BGMファイルを読み込み
                 bgm_clip = AudioFileClip(str(bgm_path))
                 original_duration = bgm_clip.duration
@@ -513,14 +517,30 @@ class Phase07Composition(PhaseBase):
                 # 音量調整 (MoviePy 2.x)
                 bgm_clip = bgm_clip.with_volume_scaled(self.bgm_volume)
                 self.logger.debug(f"  Volume set to: {self.bgm_volume:.0%}")
-                
+
+                # フェード処理を適用
+                if is_first:
+                    # 最初のセグメント: フェードインのみ
+                    bgm_clip = bgm_clip.audio_fadein(self.bgm_fade_in)
+                    self.logger.debug(f"  Applied fade-in: {self.bgm_fade_in:.1f}s")
+
+                if is_last:
+                    # 最後のセグメント: フェードアウト
+                    bgm_clip = bgm_clip.audio_fadeout(self.bgm_fade_out)
+                    self.logger.debug(f"  Applied fade-out: {self.bgm_fade_out:.1f}s")
+                elif not is_first:
+                    # 中間セグメント: クロスフェード用にフェードイン/アウト
+                    bgm_clip = bgm_clip.audio_fadein(self.bgm_crossfade)
+                    bgm_clip = bgm_clip.audio_fadeout(self.bgm_crossfade)
+                    self.logger.debug(f"  Applied crossfade: {self.bgm_crossfade:.1f}s")
+
                 # 開始時間を設定
                 bgm_clip = bgm_clip.with_start(start_time)
-                
+
                 bgm_clips.append(bgm_clip)
 
                 self.logger.info(
-                    f"  ✓ Added BGM segment: {segment.get('bgm_type')} "
+                    f"  ✓ Added BGM segment {idx+1}/{total_segments}: {segment.get('bgm_type')} "
                     f"({start_time:.1f}s - {start_time + duration:.1f}s) - {bgm_path.name}"
                 )
             
@@ -557,35 +577,9 @@ class Phase07Composition(PhaseBase):
         from moviepy import ImageClip
         
         subtitle_clips = []
-        
-        # フォントの準備
-        try:
-            # 日本語フォントを試す（Windowsの場合）
-            font_paths = [
-                "C:/Windows/Fonts/msgothic.ttc",  # MSゴシック
-                "C:/Windows/Fonts/meiryo.ttc",     # メイリオ
-                "C:/Windows/Fonts/yugothm.ttc",    # 游ゴシック
-                "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",  # Linux
-                "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",  # macOS
-            ]
-            
-            font = None
-            for font_path in font_paths:
-                try:
-                    font = ImageFont.truetype(font_path, self.subtitle_size)
-                    self.logger.info(f"Using font: {font_path}")
-                    break
-                except:
-                    continue
-            
-            if font is None:
-                # フォントが見つからない場合はデフォルト
-                font = ImageFont.load_default()
-                self.logger.warning("Japanese font not found, using default font")
-        
-        except Exception as e:
-            font = ImageFont.load_default()
-            self.logger.warning(f"Font loading failed: {e}, using default")
+
+        # フォントの準備（明朝体）
+        font = self._load_japanese_font(self.subtitle_size)
         
         for subtitle in subtitles:
             try:
@@ -993,14 +987,24 @@ class Phase07Composition(PhaseBase):
         return img
 
     def _load_japanese_font(self, size: int):
-        """日本語フォントを読み込む"""
+        """日本語フォントを読み込む（明朝体優先）"""
         from PIL import ImageFont
 
-        # フォントパスのリスト
+        # フォントパスのリスト（明朝体を優先）
         font_paths = [
+            # Windows 明朝体
+            "C:/Windows/Fonts/msmincho.ttc",  # MS明朝
+            "C:/Windows/Fonts/yumin.ttf",     # 游明朝
+            "C:/Windows/Fonts/BIZ-UDMinchoM.ttc",  # BIZ UD明朝
+            # Linux 明朝体
+            "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",  # Noto Serif CJK
+            "/usr/share/fonts/truetype/fonts-japanese-mincho.ttf",  # 日本語明朝
+            # macOS 明朝体
+            "/System/Library/Fonts/ヒラギノ明朝 ProN.ttc",  # ヒラギノ明朝
+            "/Library/Fonts/ヒラギノ明朝 ProN W3.ttc",
+            # フォールバック: ゴシック体
             "C:/Windows/Fonts/msgothic.ttc",  # MSゴシック
             "C:/Windows/Fonts/meiryo.ttc",     # メイリオ
-            "C:/Windows/Fonts/yugothm.ttc",    # 游ゴシック
             "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",  # Linux
             "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",  # macOS
         ]
@@ -1008,7 +1012,7 @@ class Phase07Composition(PhaseBase):
         for font_path in font_paths:
             try:
                 font = ImageFont.truetype(font_path, size)
-                self.logger.debug(f"Using font: {font_path}")
+                self.logger.info(f"Using font: {font_path}")
                 return font
             except:
                 continue
