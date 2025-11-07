@@ -20,6 +20,7 @@ try:
         ColorClip,
         ImageClip,
     )
+    from moviepy.audio.fx import audio_fadein, audio_fadeout
     MOVIEPY_AVAILABLE = True
     MOVIEPY_IMPORT_ERROR = None
 except ImportError as e:
@@ -521,17 +522,17 @@ class Phase07Composition(PhaseBase):
                 # フェード処理を適用
                 if is_first:
                     # 最初のセグメント: フェードインのみ
-                    bgm_clip = bgm_clip.audio_fadein(self.bgm_fade_in)
+                    bgm_clip = audio_fadein(bgm_clip, self.bgm_fade_in)
                     self.logger.debug(f"  Applied fade-in: {self.bgm_fade_in:.1f}s")
 
                 if is_last:
                     # 最後のセグメント: フェードアウト
-                    bgm_clip = bgm_clip.audio_fadeout(self.bgm_fade_out)
+                    bgm_clip = audio_fadeout(bgm_clip, self.bgm_fade_out)
                     self.logger.debug(f"  Applied fade-out: {self.bgm_fade_out:.1f}s")
                 elif not is_first:
                     # 中間セグメント: クロスフェード用にフェードイン/アウト
-                    bgm_clip = bgm_clip.audio_fadein(self.bgm_crossfade)
-                    bgm_clip = bgm_clip.audio_fadeout(self.bgm_crossfade)
+                    bgm_clip = audio_fadein(bgm_clip, self.bgm_crossfade)
+                    bgm_clip = audio_fadeout(bgm_clip, self.bgm_crossfade)
                     self.logger.debug(f"  Applied crossfade: {self.bgm_crossfade:.1f}s")
 
                 # 開始時間を設定
@@ -624,20 +625,22 @@ class Phase07Composition(PhaseBase):
                 )
                 
                 # テキストを描画（中央揃え）
+                stroke_width = self.phase_config.get('subtitle', {}).get('stroke_width', 3)
                 current_y = (img_height - total_height) // 2
                 for i, line in enumerate(lines):
                     line_width = line_widths[i]
                     line_x = (img_width - line_width) // 2
-                    
+
                     # 影を描画（エッジ効果）
-                    for dx, dy in [(-2, -2), (-2, 2), (2, -2), (2, 2)]:
-                        draw.text((line_x + dx, current_y + dy), line, 
+                    for dx, dy in [(-stroke_width, -stroke_width), (-stroke_width, stroke_width),
+                                   (stroke_width, -stroke_width), (stroke_width, stroke_width)]:
+                        draw.text((line_x + dx, current_y + dy), line,
                                  font=font, fill=(0, 0, 0, 255))
-                    
+
                     # メインテキストを描画
-                    draw.text((line_x, current_y), line, 
+                    draw.text((line_x, current_y), line,
                              font=font, fill=(255, 255, 255, 255))
-                    
+
                     current_y += line_heights[i] + 10
                 
                 # PILImageをnumpy配列に変換
@@ -966,7 +969,7 @@ class Phase07Composition(PhaseBase):
 
         # 各行を描画
         current_y = start_y
-        stroke_width = self.phase_config.get('subtitle', {}).get('stroke_width', 2)
+        stroke_width = self.phase_config.get('subtitle', {}).get('stroke_width', 3)
 
         for i, line in enumerate(lines):
             line_width = line_widths[i]
