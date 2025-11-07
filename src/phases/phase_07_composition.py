@@ -20,7 +20,9 @@ try:
         ColorClip,
         ImageClip,
     )
-    from moviepy.audio.fx import audio_fadein, audio_fadeout
+    from moviepy.audio.fx.audio_fadein import audio_fadein
+    from moviepy.audio.fx.audio_fadeout import audio_fadeout
+    
     MOVIEPY_AVAILABLE = True
     MOVIEPY_IMPORT_ERROR = None
 except ImportError as e:
