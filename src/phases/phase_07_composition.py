@@ -19,6 +19,7 @@ try:
         CompositeAudioClip,
         ColorClip,
         ImageClip,
+        afx,
     )
     from moviepy.audio.fx.audio_fadein import audio_fadein
     from moviepy.audio.fx.audio_fadeout import audio_fadeout
@@ -521,20 +522,22 @@ class Phase07Composition(PhaseBase):
                 bgm_clip = bgm_clip.with_volume_scaled(self.bgm_volume)
                 self.logger.debug(f"  Volume set to: {self.bgm_volume:.0%}")
 
-                # フェード処理を適用
+                # フェード処理を適用（MoviePy 2.0）
                 if is_first:
                     # 最初のセグメント: フェードインのみ
-                    bgm_clip = bgm_clip.audio_fadein(self.bgm_fade_in)
+                    bgm_clip = bgm_clip.with_effects([afx.AudioFadeIn(self.bgm_fade_in)])
                     self.logger.debug(f"  Applied fade-in: {self.bgm_fade_in:.1f}s")
 
                 if is_last:
                     # 最後のセグメント: フェードアウト
-                    bgm_clip = bgm_clip.audio_fadeout(self.bgm_fade_out)
+                    bgm_clip = bgm_clip.with_effects([afx.AudioFadeOut(self.bgm_fade_out)])
                     self.logger.debug(f"  Applied fade-out: {self.bgm_fade_out:.1f}s")
                 elif not is_first:
-                    # 中間セグメント: クロスフェード用にフェードイン/アウト
-                    bgm_clip = bgm_clip.audio_fadein(self.bgm_crossfade)
-                    bgm_clip = bgm_clip.audio_fadeout(self.bgm_crossfade)
+                    # 中間セグメント: クロスフェード用にフェードイン/アウト（両方適用）
+                    bgm_clip = bgm_clip.with_effects([
+                        afx.AudioFadeIn(self.bgm_crossfade),
+                        afx.AudioFadeOut(self.bgm_crossfade)
+                    ])
                     self.logger.debug(f"  Applied crossfade: {self.bgm_crossfade:.1f}s")
 
                 # 開始時間を設定
