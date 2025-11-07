@@ -21,7 +21,7 @@ try:
         ImageClip,
         afx,
     )
-
+    
     MOVIEPY_AVAILABLE = True
     MOVIEPY_IMPORT_ERROR = None
 except ImportError as e:
