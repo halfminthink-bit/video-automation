@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import List, Dict
 from datetime import datetime
 
+from src.core.phase_base import PhaseBase
 from src.core.models import (
     ImageCollection,
     CollectedImage,
@@ -25,7 +26,7 @@ from src.core.config_manager import ConfigManager
 from src.generators.image_generator import ImageGenerator
 
 
-class Phase03Images:
+class Phase03Images(PhaseBase):
     """
     Phase 3: AI画像生成（Stable Diffusion）
     
@@ -41,18 +42,11 @@ class Phase03Images:
     def __init__(
         self,
         subject: str,
-        working_dir: Path,
         config: ConfigManager,
         logger: logging.Logger
     ):
-        self.subject = subject
-        self.working_dir = working_dir
-        self.config = config
-        self.logger = logger
-        
-        # Phase 3固有のディレクトリ
-        self.phase_dir = self.get_phase_directory()
-        self.phase_dir.mkdir(parents=True, exist_ok=True)
+        # PhaseBaseの初期化（working_dir, phase_dirなどを自動設定）
+        super().__init__(subject, config, logger)
         
         # Phase設定を読み込み
         self.phase_config = self._load_phase_config()
@@ -62,10 +56,6 @@ class Phase03Images:
     
     def get_phase_name(self) -> str:
         return "AI Image Generation"
-    
-    def get_phase_directory(self) -> Path:
-        """フェーズのワーキングディレクトリを返す"""
-        return self.working_dir / f"{self.get_phase_number():02d}_images"
     
     def _load_phase_config(self) -> dict:
         """Phase 3の設定を読み込み"""
@@ -90,7 +80,7 @@ class Phase03Images:
     
     def check_inputs_exist(self) -> bool:
         """Phase 1の台本が必要"""
-        script_path = self.working_dir / "01_script" / "script.json"
+        script_path = self.config.get_phase_dir(self.subject, 1) / "script.json"
         return script_path.exists()
     
     def check_outputs_exist(self) -> bool:
@@ -122,7 +112,7 @@ class Phase03Images:
     def get_input_paths(self) -> List[Path]:
         """入力ファイルパスのリスト"""
         return [
-            self.working_dir / "01_script" / "script.json"
+            self.config.get_phase_dir(self.subject, 1) / "script.json"
         ]
     
     def get_output_paths(self) -> List[Path]:
@@ -227,7 +217,7 @@ class Phase03Images:
     
     def _load_script(self) -> VideoScript:
         """台本を読み込み"""
-        script_path = self.working_dir / "01_script" / "script.json"
+        script_path = self.config.get_phase_dir(self.subject, 1) / "script.json"
         
         with open(script_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
