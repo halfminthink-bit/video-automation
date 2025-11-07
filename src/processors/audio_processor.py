@@ -167,16 +167,45 @@ class AudioProcessor:
                     self.logger.error(f"Concat list content:\n{concat_content}")
 
                     raise
-                
-                # 長さを取得
-                duration = self.get_duration(output_path)
+
+                # Windows環境でのファイル書き込み完了を待つ
+                import time
+                time.sleep(0.5)
+
+                # 長さを取得（フォールバック付き）
+                try:
+                    duration = self.get_duration(output_path)
+                except Exception as e:
+                    # ffprobe が失敗した場合、セグメントの長さから計算
+                    self.logger.warning(f"get_duration failed for combined audio: {e}")
+                    self.logger.info("Calculating duration from segment lengths...")
+
+                    # 各セグメントの長さを足し合わせる
+                    duration = 0.0
+                    for i, audio_path in enumerate(audio_paths):
+                        try:
+                            seg_duration = self.get_duration(audio_path)
+                            duration += seg_duration
+                            # 最後以外は無音を追加
+                            if i < len(audio_paths) - 1:
+                                duration += silence_duration
+                        except Exception as seg_err:
+                            self.logger.error(f"Failed to get duration for {audio_path}: {seg_err}")
+                            # セグメントの長さが取得できない場合は推定値を使う
+                            # 通常の音声は 5-30秒程度なので、中間値 15秒を使用
+                            duration += 15.0
+                            if i < len(audio_paths) - 1:
+                                duration += silence_duration
+
+                    self.logger.info(f"Calculated duration from segments: {duration:.1f}s")
+
                 file_size = output_path.stat().st_size / (1024 * 1024)
-                
+
                 self.logger.info(
                     f"Combined audio saved: {output_path} "
                     f"({duration:.1f}s, {file_size:.1f}MB)"
                 )
-                
+
                 return duration
                 
             finally:
