@@ -143,9 +143,33 @@ class Phase03Images(PhaseBase):
         
         images_per_section = self.phase_config.get("images_per_section", 3)
         
+        # 画像枚数の動的調整設定
+        dynamic_count_config = self.phase_config.get("dynamic_image_count", {})
+        dynamic_count_enabled = dynamic_count_config.get("enabled", False)
+        
         for section_idx, section in enumerate(script.sections):
             # section.section_idを使う（1-based indexing from JSON）
             self.logger.info(f"Generating images for Section {section.section_id}: {section.title}")
+            
+            # セクションの長さに応じて画像枚数を調整
+            target_count = images_per_section
+            if dynamic_count_enabled:
+                thresholds = dynamic_count_config.get("thresholds", {})
+                long_threshold = thresholds.get("long", 500)
+                medium_threshold = thresholds.get("medium", 300)
+                
+                narration_length = len(section.narration)
+                if narration_length > long_threshold:
+                    target_count = 5
+                elif narration_length > medium_threshold:
+                    target_count = 4
+                else:
+                    target_count = 3
+                
+                self.logger.info(
+                    f"Dynamic image count: {target_count} images "
+                    f"(narration length: {narration_length} chars)"
+                )
             
             # セクションの画像を生成
             # 最初のセクションの最初の画像には is_first_image=True を渡す
@@ -154,7 +178,7 @@ class Phase03Images(PhaseBase):
                 generator=generator,
                 section=section,
                 section_id=section.section_id,  # Use 1-based section_id for filename
-                target_count=images_per_section,
+                target_count=target_count,
                 is_first_section=is_first_section
             )
             
@@ -312,12 +336,24 @@ class Phase03Images(PhaseBase):
                     f"(type={image_type}, style={style})"
                 )
                 
+                # デバッグモード: セクション情報をログ出力
+                debug_config = self.phase_config.get("debug", {})
+                if debug_config.get("enabled", False):
+                    if debug_config.get("log_section_context", False):
+                        self.logger.debug(f"Section context: {section.title}")
+                        self.logger.debug(f"Narration: {section.narration[:100]}...")
+                        self.logger.debug(f"Keywords: {section.image_keywords}")
+                        self.logger.debug(f"Atmosphere: {section.atmosphere}")
+                
+                # セクションの本文も文脈として使用（最初の200文字）
+                section_context_with_narration = f"{section.title}: {section.narration[:200]}"
+                
                 # 画像生成（最初の画像のみ is_first_image=True）
                 is_first_image = is_first_section and idx == 0
                 image = generator.generate_image(
                     keyword=keyword,
                     atmosphere=section.atmosphere,
-                    section_context=section.title,
+                    section_context=section_context_with_narration,
                     image_type=image_type,
                     style=style,
                     section_id=section_id,

@@ -5,6 +5,14 @@
 # セクションごとの画像生成数
 images_per_section: 3
 
+# 画像枚数の動的調整（セクションの長さに応じて自動調整）
+dynamic_image_count:
+  enabled: false  # デフォルトは無効（既存の動作を維持）
+  thresholds:
+    long: 500    # 500文字以上の場合5枚
+    medium: 300  # 300文字以上の場合4枚
+    short: 0     # それ以下は3枚
+
 # AI画像生成設定
 ai_generation:
   enabled: true
@@ -55,3 +63,10 @@ generation:
   
   # タイムアウト
   timeout_per_image_seconds: 60  # 1枚あたりのタイムアウト
+
+# デバッグモード
+debug:
+  enabled: false  # デフォルトは無効
+  log_prompts: true  # プロンプトをログ出力
+  log_section_context: true  # セクション情報をログ出力
+  save_metadata: true  # メタデータをJSONで保存
