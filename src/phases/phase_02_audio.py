@@ -420,13 +420,18 @@ class Phase02Audio(PhaseBase):
                     self.logger.warning("Using original text")
 
             # 前後のテキストを取得（文脈用）
-            # 重要: 空の場合は None を渡すことで、ElevenLabs API が正しく処理する
-            previous_text = None
-            next_text = None
+            previous_text = ""  # 空文字列で初期化
+            next_text = ""      # 同様に空文字列で初期化
 
-            if use_previous and i > 1:
-                previous_text = script.sections[i-2].narration
-                self.logger.debug(f"Section {i}: Using previous_text from section {i-1}")
+            if use_previous:
+                if i > 1:
+                    # Section 2以降: 前のセクションのナレーションを使用
+                    previous_text = script.sections[i-2].narration
+                    self.logger.debug(f"Section {i}: Using previous_text from section {i-1}")
+                elif i == 1:
+                    # Section 1: ダミーの文脈を追加して音声の一貫性を保つ
+                    previous_text = f"これから{script.subject}についてお話しします。"
+                    self.logger.info(f"Section 1: Using dummy context: {previous_text}")
 
             if use_next and i < total_sections:
                 next_text = script.sections[i].narration

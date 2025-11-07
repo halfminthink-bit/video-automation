@@ -173,12 +173,12 @@ class AudioGenerator:
         if previous_text:
             self.logger.debug(f"Using previous_text for context: {previous_text[:30]}...")
         else:
-            self.logger.debug("No previous_text (first section)")
+            self.logger.debug("No previous_text provided")
 
         if next_text:
             self.logger.debug(f"Using next_text for context: {next_text[:30]}...")
         else:
-            self.logger.debug("No next_text (last section)")
+            self.logger.debug("No next_text provided")
 
         try:
             # VoiceSettingsを作成
