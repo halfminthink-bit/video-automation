@@ -50,10 +50,10 @@ git log --oneline -5
 git fetch origin
 
 # 2. Claude Codeが作ったブランチを確認
-git branch -r | findstr claude/
+git branch -r | findstr claude/verify-image-section-order-011CUsrqfH4DNMJRJjwRiK1U
 
 # 3. そのブランチをローカルにチェックアウト
-git checkout -b ブランチ名 origin/ブランチ名
+git checkout -b claude/articlebot-v4-mvp-011CUrqdyXiGvVJPsAfwXby6 origin/claude/articlebot-v4-mvp-011CUrqdyXiGvVJPsAfwXby6
 
 # 例:
 git checkout -b claude/fix-something-123 origin/claude/fix-something-123
@@ -74,7 +74,7 @@ git checkout claude/improve-tts-quality-011CUrSFn3birv2CmgbX4iPk
 
 
 # 2. リモートから最新を取得
-git pull origin claude/improve-tts-quality-011CUrSFn3birv2CmgbX4iPk
+git pull origin claude/fix-json-parse-debug-011CUrSFn3birv2CmgbX4iPk
 
 # 3. 変更内容を確認
 git log --oneline -3
