@@ -420,8 +420,8 @@ class Phase02Audio(PhaseBase):
                     self.logger.warning("Using original text")
 
             # 前後のテキストを取得（文脈用）
-            previous_text = None
-            next_text = None
+            previous_text = ""  # 空文字列で初期化（Noneだと音声が変わる可能性があるため）
+            next_text = ""      # 同様に空文字列で初期化
 
             if use_previous and i > 1:
                 previous_text = script.sections[i-2].narration
