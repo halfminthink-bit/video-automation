@@ -420,14 +420,29 @@ class Phase02Audio(PhaseBase):
                     self.logger.warning("Using original text")
 
             # 前後のテキストを取得（文脈用）
-            previous_text = ""  # 空文字列で初期化（Noneだと音声が変わる可能性があるため）
+            previous_text = ""  # 空文字列で初期化
             next_text = ""      # 同様に空文字列で初期化
 
-            if use_previous and i > 1:
-                previous_text = script.sections[i-2].narration
+            if use_previous:
+                if i > 1:
+                    # Section 2以降: 前のセクションのナレーションを使用
+                    previous_text = script.sections[i-2].narration
+                    self.logger.debug(f"Section {i}: Using previous_text from section {i-1}")
+                elif i == 1:
+                    # Section 1: ダミーの文脈を追加して音声の一貫性を保つ
+                    previous_text = f"これから{script.subject}についてお話しします。"
+                    self.logger.info(f"Section 1: Using dummy context: {previous_text}")
 
             if use_next and i < total_sections:
                 next_text = script.sections[i].narration
+                self.logger.debug(f"Section {i}: Using next_text from section {i+1}")
+
+            # デバッグログ: セクションごとのパラメータを確認
+            self.logger.info(
+                f"Section {i} generation params: "
+                f"has_previous={previous_text is not None}, "
+                f"has_next={next_text is not None}"
+            )
 
             # 音声ファイルパス
             audio_path = sections_dir / f"section_{section.section_id:02d}.mp3"
