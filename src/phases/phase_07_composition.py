@@ -263,11 +263,37 @@ class Phase07Composition(PhaseBase):
         return self.working_dir / "02_audio" / "narration_full.mp3"
     
     def _load_animated_clips(self) -> List[Path]:
-        """アニメ化動画クリップを読み込み"""
+        """アニメ化動画クリップを読み込み（セクション順を保持）"""
         animated_dir = self.working_dir / "04_animated"
+        plan_path = animated_dir / "animation_plan.json"
+
+        # animation_plan.jsonが存在する場合は、そこに記録された順序（= セクション順）を使用
+        if plan_path.exists():
+            try:
+                with open(plan_path, 'r', encoding='utf-8') as f:
+                    plan = json.load(f)
+
+                clips = [Path(clip['output_path']) for clip in plan.get('animated_clips', [])]
+
+                # ファイルの存在確認
+                missing_clips = [clip for clip in clips if not clip.exists()]
+                if missing_clips:
+                    self.logger.warning(f"{len(missing_clips)} clips not found, falling back to file scan")
+                    raise FileNotFoundError("Some clips are missing")
+
+                self.logger.info(f"Loaded {len(clips)} clips from animation_plan.json (section order preserved)")
+                return clips
+
+            except Exception as e:
+                self.logger.warning(f"Failed to load animation_plan.json: {e}")
+                self.logger.warning("Falling back to filename sort (may not preserve section order)")
+        else:
+            self.logger.warning("animation_plan.json not found")
+            self.logger.warning("Falling back to filename sort (may not preserve section order)")
+
+        # フォールバック: 従来のファイル名順ソート
         clips = sorted(animated_dir.glob("*.mp4"))
-        
-        self.logger.info(f"Found {len(clips)} animated clips")
+        self.logger.info(f"Found {len(clips)} animated clips (sorted by filename)")
         return clips
     
     def _load_subtitles(self) -> List[SubtitleEntry]:
