@@ -4,17 +4,12 @@ Replicate経由でKling AIを使用する正しい実装
 """
 
 import json
-import random
 import time
 import os
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 import logging
-import numpy as np
-from PIL import Image
 import requests
-
-from moviepy import VideoClip
 
 from ..core.phase_base import PhaseBase
 from ..core.config_manager import ConfigManager
@@ -135,7 +130,7 @@ class Phase04Animation(PhaseBase):
             # セクション情報を取得
             section_info = self._get_section_for_image(img_data)
             
-            # AI動画を試みる（有効な場合）
+            # AI動画生成（セクションの最初の画像のみ）
             clip = None
             if self.use_ai_video and self._should_use_ai_video(img_data, section_info):
                 try:
@@ -143,12 +138,12 @@ class Phase04Animation(PhaseBase):
                     clip = self._create_ai_video_replicate(img_data, section_info)
                 except Exception as e:
                     self.logger.warning(f"→ AI video generation failed: {e}")
-                    self.logger.info("→ Falling back to simple animation")
-            
-            # AI動画失敗または無効な場合は簡易アニメーション
+                    self.logger.info("→ Falling back to static clip")
+
+            # AI動画でない場合は静止画
             if clip is None:
-                self.logger.info("→ Creating simple pan animation...")
-                clip = self._create_simple_animation(img_data, section_info)
+                self.logger.info("→ Creating static clip (no animation)...")
+                clip = self._create_static_clip(img_data, section_info)
             
             animated_clips.append(clip)
         
@@ -164,39 +159,31 @@ class Phase04Animation(PhaseBase):
         
         # 統計情報
         ai_count = sum(1 for c in animated_clips if c.clip_id.startswith('ai_'))
-        simple_count = len(animated_clips) - ai_count
-        
+        static_count = len(animated_clips) - ai_count
+
         self.logger.info("\n" + "=" * 60)
         self.logger.info("Phase 4 Completed!")
         self.logger.info("=" * 60)
         self.logger.info(f"Total clips: {len(animated_clips)}")
         self.logger.info(f"  - AI videos (Replicate): {ai_count}")
-        self.logger.info(f"  - Simple animations: {simple_count}")
+        self.logger.info(f"  - Static clips: {static_count}")
         
         return result
     
     def _should_use_ai_video(self, img_data: Dict[str, Any], section_info: Dict[str, Any]) -> bool:
-        """AI動画を使用すべきか判定"""
-        classification = img_data.get('classification', '').lower()
-        atmosphere = section_info.get('atmosphere', '').lower()
-        
-        # 重要なシーン（battle分類）
-        if classification == 'battle':
-            self.logger.debug("→ Battle scene detected, using AI video")
+        """AI動画を使用すべきか判定 - セクションの最初の画像のみ"""
+
+        # 画像がセクションの最初かどうかを判定
+        section_id = section_info.get('section_id')
+        filename = Path(img_data['file_path']).stem
+
+        # ファイル名から画像番号を抽出（例: section_1_img_0.png → 0番目）
+        # セクションの最初の画像（img_0）のみTrueを返す
+        if f"section_{section_id}_img_0" in filename:
+            self.logger.info(f"→ First image of section {section_id}, using AI video")
             return True
-        
-        # セクションの雰囲気が劇的（日本語・英語両対応）
-        dramatic_keywords = ['劇的', '悲劇的', 'dramatic', 'tragic', 'intense', 'tense']
-        if any(keyword in atmosphere for keyword in dramatic_keywords):
-            self.logger.debug(f"→ Dramatic atmosphere '{atmosphere}', using AI video")
-            return True
-        
-        # ランダムで20%の確率
-        use_random = random.random() < 0.2
-        if use_random:
-            self.logger.debug("→ Randomly selected for AI video (20% chance)")
-        
-        return use_random
+
+        return False
     
     def _create_ai_video_replicate(
         self,
@@ -341,7 +328,55 @@ class Phase04Animation(PhaseBase):
             motion_parts.append(classification_prompts[classification])
         
         return ', '.join(motion_parts) if motion_parts else 'cinematic motion'
-    
+
+    def _create_static_clip(
+        self,
+        img_data: Dict[str, Any],
+        section_info: Dict[str, Any]
+    ) -> AnimatedClip:
+        """完全な静止画を動画クリップとして作成（アニメーション効果なし）"""
+
+        from moviepy import ImageClip
+
+        img_path = Path(img_data['file_path'])
+        image_id = img_data['image_id']
+
+        # 設定から長さを取得
+        duration = self.phase_config.get('default_clip_duration', 8)
+        fps = self.phase_config.get('output', {}).get('fps', 30)
+
+        # 静止画クリップ作成（アニメーション効果なし）
+        video_clip = ImageClip(str(img_path))
+        video_clip = video_clip.with_duration(duration)
+        video_clip = video_clip.with_fps(fps)
+
+        # 出力
+        output_filename = f"static_{image_id}.mp4"
+        output_path = self.output_dir / output_filename
+
+        codec = self.phase_config.get('output', {}).get('codec', 'libx264')
+
+        video_clip.write_videofile(
+            str(output_path),
+            codec=codec,
+            fps=fps,
+            logger=None
+        )
+
+        # AnimatedClipオブジェクト作成
+        animated_clip = AnimatedClip(
+            clip_id=f"static_{image_id}",
+            source_image_id=image_id,
+            output_path=str(output_path),
+            animation_type=AnimationType.STATIC,
+            duration=duration,
+            resolution=(video_clip.w, video_clip.h)
+        )
+
+        self.logger.info(f"→ ✓ Static clip created: {output_filename}")
+
+        return animated_clip
+
     def _get_section_for_image(self, img_data: Dict[str, Any]) -> Dict[str, Any]:
         """画像が属するセクション情報を取得"""
         filename = Path(img_data['file_path']).stem
@@ -364,133 +399,6 @@ class Phase04Animation(PhaseBase):
             'atmosphere': '壮大',
             'narration': ''
         }
-    
-    def _create_simple_animation(
-        self,
-        img_data: Dict[str, Any],
-        section_info: Dict[str, Any]
-    ) -> AnimatedClip:
-        """簡易アニメーション（パンのみ）を作成"""
-        
-        img_path = Path(img_data['file_path'])
-        image_id = img_data['image_id']
-        classification = img_data.get('classification', 'general')
-        
-        img = Image.open(img_path)
-        img_array = np.array(img)
-        
-        animation_type = self._select_animation_type(classification, img_data)
-        duration = self.phase_config.get('default_clip_duration', 8)
-        fps = self.phase_config.get('output', {}).get('fps', 30)
-        
-        def make_frame(t):
-            progress = t / duration
-            
-            if animation_type == AnimationType.PAN_RIGHT:
-                return self._apply_pan_right(img_array, progress)
-            elif animation_type == AnimationType.PAN_LEFT:
-                return self._apply_pan_left(img_array, progress)
-            elif animation_type == AnimationType.TILT_CORRECT:
-                return self._apply_tilt_correct(img_array, progress)
-            else:
-                return img_array
-        
-        video_clip = VideoClip(make_frame, duration=duration)
-        video_clip = video_clip.with_fps(fps)
-        
-        output_filename = f"simple_{image_id}.mp4"
-        output_path = self.output_dir / output_filename
-        
-        codec = self.phase_config.get('output', {}).get('codec', 'libx264')
-        
-        video_clip.write_videofile(
-            str(output_path),
-            codec=codec,
-            fps=fps,
-            logger=None
-        )
-        
-        animated_clip = AnimatedClip(
-            clip_id=f"simple_{image_id}",
-            source_image_id=image_id,
-            output_path=str(output_path),
-            animation_type=animation_type,
-            duration=duration,
-            resolution=tuple(img_array.shape[1::-1])
-        )
-        
-        self.logger.info(f"→ ✓ Simple animation created: {output_filename} ({animation_type.value})")
-        
-        return animated_clip
-    
-    def _select_animation_type(self, classification: str, img_data: Dict[str, Any]) -> AnimationType:
-        """アニメーションタイプを選択"""
-        aspect_ratio = img_data.get('aspect_ratio', 1.0)
-        
-        if aspect_ratio > 1.5:
-            return AnimationType.TILT_CORRECT
-        
-        type_mapping = {
-            'portrait': AnimationType.PAN_RIGHT,
-            'landscape': AnimationType.PAN_LEFT,
-            'architecture': AnimationType.TILT_CORRECT,
-            'battle': AnimationType.PAN_LEFT,
-            'daily_life': AnimationType.PAN_LEFT,
-            'document': AnimationType.STATIC
-        }
-        
-        base_type = type_mapping.get(classification, AnimationType.PAN_LEFT)
-        
-        if base_type == AnimationType.PAN_LEFT and random.random() < 0.5:
-            return AnimationType.PAN_RIGHT
-        elif base_type == AnimationType.PAN_RIGHT and random.random() < 0.5:
-            return AnimationType.PAN_LEFT
-        
-        return base_type
-    
-    def _apply_pan_right(self, img_array: np.ndarray, progress: float) -> np.ndarray:
-        """右パン"""
-        h, w = img_array.shape[:2]
-        distance_percent = self.phase_config.get('animation_patterns', {}).get('pan_right', {}).get('distance_percent', 10)
-        max_offset = int(w * (distance_percent / 100))
-        offset = int(max_offset * progress)
-        
-        if offset > 0:
-            result = np.zeros_like(img_array)
-            result[:, offset:] = img_array[:, :w-offset]
-            result[:, :offset] = img_array[:, :1]
-            return result
-        
-        return img_array
-    
-    def _apply_pan_left(self, img_array: np.ndarray, progress: float) -> np.ndarray:
-        """左パン"""
-        h, w = img_array.shape[:2]
-        distance_percent = self.phase_config.get('animation_patterns', {}).get('pan_left', {}).get('distance_percent', 10)
-        max_offset = int(w * (distance_percent / 100))
-        offset = int(max_offset * progress)
-        
-        if offset > 0:
-            result = np.zeros_like(img_array)
-            result[:, :w-offset] = img_array[:, offset:]
-            result[:, w-offset:] = img_array[:, -1:]
-            return result
-        
-        return img_array
-    
-    def _apply_tilt_correct(self, img_array: np.ndarray, progress: float) -> np.ndarray:
-        """傾き補正風"""
-        h, w = img_array.shape[:2]
-        max_offset = int(h * 0.05)
-        offset = int(max_offset * progress)
-        
-        if offset > 0:
-            result = np.zeros_like(img_array)
-            result[offset:, :] = img_array[:h-offset, :]
-            result[:offset, :] = img_array[:1, :]
-            return result
-        
-        return img_array
     
     def _save_animation_plan(self, result: ImageAnimationResult):
         """アニメーション計画を保存"""
