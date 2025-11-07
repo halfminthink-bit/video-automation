@@ -673,11 +673,21 @@ class Phase07Composition(PhaseBase):
     
     def _render_video(self, video: 'VideoFileClip') -> Path:
         """動画をレンダリング"""
+        import multiprocessing
+        
         output_dir = Path(self.config.get("paths", {}).get("output_dir", "data/output"))
         video_dir = output_dir / "videos"
         video_dir.mkdir(parents=True, exist_ok=True)
         
         output_path = video_dir / f"{self.subject}.mp4"
+        
+        # CPUコア数を取得（最適化）
+        threads = multiprocessing.cpu_count()
+        
+        # エンコード設定を取得（preset追加）
+        preset = self.phase_config.get('output', {}).get('preset', 'fast')
+        
+        self.logger.info(f"Encoding with {threads} threads, preset={preset}")
         
         video.write_videofile(
             str(output_path),
@@ -685,8 +695,9 @@ class Phase07Composition(PhaseBase):
             fps=self.fps,
             bitrate=self.bitrate,
             audio_codec="aac",
-            threads=4,
-            logger="bar"  # 進捗バーを表示
+            threads=threads,  # 全CPUコアを使用
+            preset=preset,    # エンコード速度を最適化
+            logger="bar"      # 進捗バーを表示
         )
         
         return output_path
