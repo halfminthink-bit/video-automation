@@ -5,6 +5,8 @@ OpenAI gpt-image-1で背景画像を生成し、Pillowで日本語テキスト�
 """
 
 import logging
+import os
+import tempfile
 import requests
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -143,11 +145,12 @@ class GPTImageThumbnailGenerator:
             # 画像URLを取得
             image_url = response.data[0].url
             self.logger.info(f"Image generated: {image_url}")
-            
-            # 画像をダウンロード
-            background_path = "/tmp/thumbnail_background.png"
+
+            # 画像をダウンロード（クロスプラットフォーム対応の一時ディレクトリを使用）
+            temp_dir = tempfile.gettempdir()
+            background_path = os.path.join(temp_dir, "thumbnail_background.png")
             self._download_image(image_url, background_path)
-            
+
             return background_path
             
         except Exception as e:
