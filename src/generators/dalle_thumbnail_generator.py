@@ -13,6 +13,20 @@ import requests
 from PIL import Image
 from io import BytesIO
 
+# .envファイルを読み込む
+try:
+    from dotenv import load_dotenv, find_dotenv
+    # config/.envを最優先、無ければfind_dotenvで探索
+    dotenv_path = Path(__file__).parent.parent.parent / "config" / ".env"
+    if dotenv_path.exists():
+        load_dotenv(dotenv_path, override=False)
+    else:
+        found = find_dotenv(usecwd=True)
+        if found:
+            load_dotenv(found, override=False)
+except ImportError:
+    pass  # python-dotenvがインストールされていない場合はスキップ
+
 logger = logging.getLogger(__name__)
 
 
