@@ -19,11 +19,11 @@ try:
     # config/.envを最優先、無ければfind_dotenvで探索
     dotenv_path = Path(__file__).parent.parent.parent / "config" / ".env"
     if dotenv_path.exists():
-        load_dotenv(dotenv_path, override=False)
+        load_dotenv(dotenv_path, override=True)  # .envファイルを優先
     else:
         found = find_dotenv(usecwd=True)
         if found:
-            load_dotenv(found, override=False)
+            load_dotenv(found, override=True)  # .envファイルを優先
 except ImportError:
     pass  # python-dotenvがインストールされていない場合はスキップ
 

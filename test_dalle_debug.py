@@ -15,12 +15,12 @@ try:
     dotenv_path = Path(__file__).parent / "config" / ".env"
     if dotenv_path.exists():
         print(f"✓ Loading .env from: {dotenv_path}")
-        load_dotenv(dotenv_path, override=False)
+        load_dotenv(dotenv_path, override=True)  # .envファイルを優先
     else:
         found = find_dotenv(usecwd=True)
         if found:
             print(f"✓ Loading .env from: {found}")
-            load_dotenv(found, override=False)
+            load_dotenv(found, override=True)  # .envファイルを優先
         else:
             print("⚠ .env file not found")
 except ImportError:
