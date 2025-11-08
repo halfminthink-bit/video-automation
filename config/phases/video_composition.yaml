@@ -43,7 +43,7 @@ transitions:
 
 # BGM設定
 bgm:
-  volume: 0.3               # BGM音量（0.0-1.0）
+  volume: 0.24              # BGM音量（0.0-1.0） - 20%削減
   fade_in: 2.0              # フェードイン時間（秒）
   fade_out: 2.0             # フェードアウト時間（秒）
   crossfade: 3.0            # BGM切り替え時のクロスフェード（秒）
