@@ -3,14 +3,33 @@
 
 # 生成方法選択
 # - false: Pillowで画像に文字をオーバーレイ（5枚生成、無料）
-# - true: DALL-E 3でAI生成（1枚生成、高品質、$0.040/枚）
+# - true: DALL-E 3 / GPT Image 1でAI生成（1枚生成、高品質、$0.040/枚）
 use_dalle: true
 
-# DALL-E 3設定（use_dalle: trueの場合）
+# DALL-E 3 / GPT Image 1設定（use_dalle: trueの場合）
 dalle:
   size: "1024x1024"        # 画像サイズ（1024x1024, 1024x1792, 1792x1024）
   quality: "standard"       # 画質（standard or hd）
   style: "dramatic"         # スタイル（dramatic, elegant, energetic, mysterious）
+
+# GPT Image 1 + Pillow + Claude設定
+gptimage:
+  model: "dall-e-3"         # 画像生成モデル（dall-e-3 または gpt-image-1）
+  width: 1280               # サムネイル幅
+  height: 720               # サムネイル高さ
+  style: "dramatic"         # 画像スタイル（dramatic, professional, minimalist, vibrant）
+  quality: "medium"         # 画像品質（low, medium, high）
+  layout: "center"          # テキストレイアウト（center, left, right）
+
+# Claudeキャッチコピー生成設定
+catchcopy:
+  enabled: true             # キャッチコピー生成を有効化
+  model: "gpt-4.1-mini"     # 使用するモデル
+  tone: "dramatic"          # トーン（dramatic, professional, casual, mysterious）
+  target_audience: "一般"   # ターゲット層
+  main_title_length: 20     # メインタイトルの最大文字数
+  sub_title_length: 10      # サブタイトルの最大文字数
+  num_candidates: 5         # 生成する候補数
 
 # サムネイル基本設定（Pillowのみ）
 output:
