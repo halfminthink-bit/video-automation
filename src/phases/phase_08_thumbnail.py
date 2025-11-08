@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 from typing import List, Optional, Any, Dict
 from datetime import datetime
+import logging
 
 # プロジェクトルートをパスに追加
 if __name__ == "__main__":
@@ -24,6 +25,8 @@ from src.core.exceptions import (
 )
 from src.generators.thumbnail_generator import create_thumbnail_generator
 from src.generators.pillow_thumbnail_generator import PillowThumbnailGenerator
+from src.generators.gptimage_thumbnail_generator import GPTImageThumbnailGenerator
+from src.generators.catchcopy_generator import CatchcopyGenerator
 
 
 class Phase08Thumbnail(PhaseBase):
@@ -221,7 +224,7 @@ class Phase08Thumbnail(PhaseBase):
     
     def _generate_with_dalle(self, script_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Pillow（改善版）を使用してサムネイルを生成
+        gpt-image-1 + Pillow + Claudeでサムネイルを生成
         
         Args:
             script_data: 台本データ
@@ -229,52 +232,43 @@ class Phase08Thumbnail(PhaseBase):
         Returns:
             生成結果
         """
-        self.logger.info("🎨 Using Pillow (Enhanced) for thumbnail generation")
+        self.logger.info("🌟 Using GPT Image 1 + Pillow + Claude for thumbnail generation")
         
         # 出力ディレクトリを作成
         thumbnail_dir = self.phase_dir / "thumbnails"
         thumbnail_dir.mkdir(parents=True, exist_ok=True)
         
-        # Pillow設定を取得
-        pillow_config = self.phase_config.get("pillow", {})
+        # 設定を取得
+        gptimage_config = self.phase_config.get("gptimage", {})
+        catchcopy_config = self.phase_config.get("catchcopy", {})
         
-        # Pillowジェネレーターを作成
-        pillow_generator = PillowThumbnailGenerator(
-            width=pillow_config.get("width", 1280),
-            height=pillow_config.get("height", 720),
+        # 1. Claudeでキャッチコピーを生成
+        title, subtitle = self._generate_catchcopy(script_data, catchcopy_config)
+        
+        # 2. GPT Image 1 + Pillowでサムネイルを生成
+        generator = GPTImageThumbnailGenerator(
+            width=gptimage_config.get("width", 1280),
+            height=gptimage_config.get("height", 720),
+            logger=self.logger
         )
         
-        # タイトルを取得
-        title = script_data.get("subject", self.subject)
-        
-        # 背景画像を探す（Phase 3で生成された最初の画像）
-        background_image = None
-        images_dir = self.config.get_phase_dir(self.subject, 3) / "images"
-        if images_dir.exists():
-            images = sorted(images_dir.glob("section_*_sd_*.png"))
-            if images:
-                background_image = str(images[0])
-                self.logger.info(f"Found background image: {images[0].name}")
-        
-        # レイアウトを選択
-        layout = pillow_config.get("layout", "background" if background_image else "center")
-        
-        # サムネイルを生成
         output_path = thumbnail_dir / f"{self.subject}_thumbnail.png"
         self.logger.info(f"Generating thumbnail: {title}")
         
-        thumbnail_path = pillow_generator.generate_thumbnail(
+        thumbnail_path = generator.generate_thumbnail(
             title=title,
-            subtitle=None,
-            background_image=background_image,
-            layout=layout,
+            subject=self.subject,
+            subtitle=subtitle,
+            style=gptimage_config.get("style", "dramatic"),
+            quality=gptimage_config.get("quality", "medium"),
+            layout=gptimage_config.get("layout", "center"),
             output_path=str(output_path),
         )
         
         if not thumbnail_path:
             raise PhaseExecutionError(
                 self.get_phase_number(),
-                "Failed to generate thumbnail with Pillow"
+                "Failed to generate thumbnail with GPT Image 1"
             )
         
         # 結果を作成
@@ -282,23 +276,85 @@ class Phase08Thumbnail(PhaseBase):
         result = {
             "subject": self.subject,
             "generated_at": timestamp,
-            "method": "pillow-enhanced",
+            "method": "gptimage-1-pillow-claude",
             "thumbnails": [{
                 "pattern_index": 1,
                 "title": title,
+                "subtitle": subtitle,
                 "file_path": str(thumbnail_path),
                 "file_name": Path(thumbnail_path).name,
-                "layout": layout,
-                "background_image": background_image,
+                "style": gptimage_config.get("style", "dramatic"),
+                "quality": gptimage_config.get("quality", "medium"),
             }],
             "total_count": 1
         }
         
         self._save_metadata(result)
         
-        self.logger.info(f"✓ Pillow thumbnail generated: {Path(thumbnail_path).name}")
+        self.logger.info(f"✓ GPT Image 1 thumbnail generated: {Path(thumbnail_path).name}")
         
         return result
+    
+    def _generate_catchcopy(
+        self,
+        script_data: Dict[str, Any],
+        catchcopy_config: Dict[str, Any]
+    ) -> tuple:
+        """
+        Claudeでキャッチコピーを生成
+        
+        Args:
+            script_data: 台本データ
+            catchcopy_config: キャッチコピー設定
+            
+        Returns:
+            (title, subtitle) のタプル
+        """
+        if not catchcopy_config.get("enabled", True):
+            # キャッチコピー生成が無効の場合はデフォルトを返す
+            self.logger.info("Catchcopy generation disabled, using default title")
+            return (self.subject, None)
+        
+        # キャッチコピージェネレーターを作成
+        generator = CatchcopyGenerator(
+            model=catchcopy_config.get("model", "gpt-4.1-mini"),
+            logger=self.logger
+        )
+        
+        # キャッチコピーを生成
+        candidates = generator.generate_catchcopy(
+            subject=self.subject,
+            script_data=script_data,
+            tone=catchcopy_config.get("tone", "dramatic"),
+            target_audience=catchcopy_config.get("target_audience", "一般"),
+            main_length=catchcopy_config.get("main_title_length", 20),
+            sub_length=catchcopy_config.get("sub_title_length", 10),
+            num_candidates=catchcopy_config.get("num_candidates", 5)
+        )
+        
+        # 候補を保存
+        self._save_catchcopy_candidates(candidates)
+        
+        # 最初の候補を選択
+        selected = candidates[0] if candidates else {"main_title": self.subject, "sub_title": None}
+        
+        self.logger.info(f"Selected catchcopy: {selected.get('main_title')} / {selected.get('sub_title')}")
+        
+        return (selected.get("main_title"), selected.get("sub_title"))
+    
+    def _save_catchcopy_candidates(self, candidates: List[Dict[str, str]]) -> None:
+        """
+        キャッチコピーの候補を保存
+        
+        Args:
+            candidates: キャッチコピーの候補リスト
+        """
+        candidates_path = self.phase_dir / "catchcopy_candidates.json"
+        
+        with open(candidates_path, 'w', encoding='utf-8') as f:
+            json.dump({"candidates": candidates}, f, ensure_ascii=False, indent=2)
+        
+        self.logger.info(f"Saved {len(candidates)} catchcopy candidates to {candidates_path}")
     
     def _generate_with_pillow(
         self,
