@@ -1,5 +1,5 @@
-﻿# Phase 8: Thumbnail Generation
-# YouTubeサムネイル生成の設定
+﻿# Phase 8: Thumbnail Generation（改善版）
+# YouTubeサムネイル生成の設定 - 超インパクト版
 
 # 生成方法選択
 # - false: Pillowで画像に文字をオーバーレイ（5枚生成、無料）
@@ -27,11 +27,11 @@ catchcopy:
   model: "gpt-4.1-mini"     # 使用するモデル
   tone: "dramatic"          # トーン（dramatic, professional, casual, mysterious）
   target_audience: "一般"   # ターゲット層
-  main_title_length: 20     # メインタイトルの最大文字数
-  sub_title_length: 10      # サブタイトルの最大文字数
+  main_title_length: 15     # メインタイトルの最大文字数（短くしてインパクト重視）
+  sub_title_length: 8       # サブタイトルの最大文字数
   num_candidates: 5         # 生成する候補数
 
-# サムネイル基本設定（Pillowのみ）
+# サムネイル基本設定
 output:
   resolution: [1280, 720]    # YouTubeサムネイル標準解像度（16:9）
   format: "png"              # PNG形式（高品質）
@@ -40,31 +40,23 @@ output:
 
 # 画像選択設定
 image_selection:
-  # Phase 3の画像から最適な1枚を選択する基準
   criteria:
     - "人物の顔が含まれている"
     - "インパクトのある構図"
     - "明るさとコントラストが適切"
     - "中央に被写体がある"
     - "劇的なシーンや象徴的な要素"
-  
-  # フォールバック: 基準に合わない場合の選択方法
-  fallback_method: "first_image"  # first_image / random / largest_file
+  fallback_method: "first_image"
 
 # テキスト生成設定
 text_generation:
-  # LLMを使用してキャッチーなタイトルを生成
   llm_enabled: true
-  
-  # 生成するタイトルのパターン
   title_patterns:
-    - "short_impactful"      # 短くインパクトのある（例：「医療を変えた男」）
-    - "question_form"        # 疑問形（例：「なぜ彼は嫌われたのか？」）
-    - "dramatic_statement"   # 劇的な表現（例：「19世紀の革命」）
-    - "number_fact"          # 数字を使った事実（例：「1847年の発見」）
-    - "contrast_phrase"      # 対比表現（例：「無名から英雄へ」）
-
-  # フォールバック: LLM使用不可の場合
+    - "short_impactful"
+    - "question_form"
+    - "dramatic_statement"
+    - "number_fact"
+    - "contrast_phrase"
   fallback_titles:
     - "{subject}の物語"
     - "{subject}とは何者か"
@@ -72,123 +64,134 @@ text_generation:
     - "{subject}の真実"
     - "知られざる{subject}"
 
-# フォント設定
+# フォント設定（改善版）
 fonts:
-  # メインタイトル用フォント
   main_title:
-    family: "Noto Sans CJK JP"  # 日本語対応
-    weight: "Bold"               # 太字
-    size_base: 72                # 基本サイズ（ピクセル）
-    size_range: [60, 84]         # サイズ範囲（自動調整）
-    
-  # サブタイトル用フォント（必要に応じて）
+    family: "GenEi Kiwami Gothic"  # 源暎きわみゴシック
+    weight: "Bold"
+    size_base: 90                   # より大きく（72→90）
+    size_range: [75, 105]           # サイズ範囲拡大
   subtitle:
-    family: "Noto Sans CJK JP"
+    family: "GenEi Kiwami Gothic"
     weight: "Medium"
-    size_base: 36
-    size_range: [28, 44]
+    size_base: 45                   # より大きく
+    size_range: [35, 55]
 
-# テキストスタイル設定
+# テキストスタイル設定（改善版）
 text_style:
-  # 文字色パターン
-  colors:
-    - "#FFFFFF"  # 白（基本）
-    - "#FFD700"  # 金色（豪華）
-    - "#FF4444"  # 赤（インパクト）
-    - "#44AAFF"  # 青（信頼感）
-    - "#44FF44"  # 緑（希望）
+  # グラデーション色パターン（コード内で定義）
+  # パターン1: 赤→黄（ホット）
+  # パターン2: オレンジ→黄（エネルギッシュ）
+  # パターン3: 白→青（クール）
+  # パターン4: ピンク→紫（ドラマチック）
+  # パターン5: 緑→黄（フレッシュ）
   
-  # 縁取り設定
+  # 縁取り設定（強化版）
   stroke:
     enabled: true
-    width: 3                     # 縁取り幅（ピクセル）
-    color: "#000000"             # 黒縁取り
+    # 多重縁取り：
+    # 1. 黒縁18px（最外）
+    # 2. 白縁12px
+    # 3. カラー縁6px（グラデーションと調和）
+    width: 18                    # 最大幅（強化: 3→18）
+    colors:
+      outer: "#000000"           # 外側: 黒
+      middle: "#FFFFFF"          # 中間: 白
+      inner_auto: true           # 内側: グラデーション開始色
     
-  # 影設定
+  # 影設定（立体感強化）
   shadow:
     enabled: true
-    offset_x: 2                  # X方向オフセット
-    offset_y: 2                  # Y方向オフセット
-    blur_radius: 4               # ぼかし半径
+    # 複数レイヤーの影で立体感を演出
+    layers: 8                    # 影のレイヤー数（増加）
+    offset_max_x: 8              # X方向最大オフセット（増加）
+    offset_max_y: 8              # Y方向最大オフセット（増加）
+    blur_radius: 3               # ぼかし半径
     color: "#000000"             # 影色
-    opacity: 0.7                 # 透明度
+    opacity_range: [0.2, 0.7]    # 透明度範囲
+  
+  # グロー効果（追加）
+  glow:
+    enabled: true
+    radius: 20                   # グローの範囲
+    iterations: 7                # グローの重ね回数（20→0で徐々に）
+    opacity_start: 0.6           # 開始透明度
+    blur_radius: 3               # ぼかし半径
+  
+  # ハイライト（追加）
+  highlight:
+    enabled: true
+    offset_y: -3                 # 上方向にずらす
+    opacity: 0.3                 # 半透明
+    color: "#FFFFFF"             # 白
 
-# レイアウト設定
+# レイアウト設定（改善版）
 layout:
-  # テキスト配置パターン
   text_positions:
+    - "bottom_center"   # 下部中央（最もインパクト）
     - "top_center"      # 上部中央
     - "center_center"   # 中央
-    - "bottom_center"   # 下部中央
     - "top_left"        # 上部左
     - "bottom_right"    # 下部右
   
-  # マージン設定
   margins:
-    top: 40
-    bottom: 40
-    left: 60
-    right: 60
+    top: 60                      # 増加（40→60）
+    bottom: 60                   # 増加（40→60）
+    left: 80                     # 増加（60→80）
+    right: 80                    # 増加（60→80）
   
-  # テキストエリア設定
   text_area:
-    max_width_percent: 80        # 画面幅の80%まで
-    line_height_multiplier: 1.2  # 行間
-    max_lines: 3                 # 最大行数
+    max_width_percent: 85        # 画面幅の85%まで（80%→85%）
+    line_height_multiplier: 1.3  # 行間（1.2→1.3）
+    max_lines: 2                 # 最大行数（3→2、短くしてインパクト）
 
-# 画像処理設定
+# 画像処理設定（コントラスト強化）
 image_processing:
-  # 明度・コントラスト調整
   brightness_adjustment: true
-  brightness_range: [0.9, 1.1]    # 90%-110%
+  brightness_range: [0.95, 1.05]   # 若干暗め
   
   contrast_adjustment: true
-  contrast_range: [1.0, 1.3]      # 100%-130%
+  contrast_range: [1.1, 1.4]       # コントラスト強化（1.0-1.3→1.1-1.4）
   
-  # 彩度調整
   saturation_adjustment: true
-  saturation_range: [1.0, 1.2]    # 100%-120%
+  saturation_range: [1.1, 1.3]     # 彩度強化（1.0-1.2→1.1-1.3）
   
-  # ガウシアンブラー（背景用）
   background_blur:
-    enabled: false               # 背景ぼかし（オプション）
+    enabled: false
     radius: 5
     
-  # ビネット効果
   vignette:
-    enabled: true                # 周辺を暗くする効果
-    strength: 0.3                # 強度（0.0-1.0）
+    enabled: true
+    strength: 0.4                  # ビネット強化（0.3→0.4）
 
 # 出力設定
 output_settings:
-  # ファイル名パターン
-  filename_pattern: "{subject}_thumbnail_{pattern}_{timestamp}.png"
-  
-  # 保存先
-  output_dir: "thumbnails"       # phase_dir内のサブディレクトリ
-  
-  # メタデータ保存
-  save_metadata: true            # 生成情報をJSONで保存
-  
-  # プレビュー生成
-  generate_preview: true         # 一覧プレビュー画像を生成
+  filename_pattern: "{subject}_impact_thumbnail_{pattern}_{timestamp}.png"
+  output_dir: "thumbnails"
+  save_metadata: true
+  generate_preview: true
 
 # 品質管理
 quality_control:
-  # 最小文字サイズ
-  min_font_size: 24
-  
-  # 最大文字数
-  max_title_length: 30
-  
-  # コントラスト比チェック
-  min_contrast_ratio: 4.5        # WCAG AA準拠
-  
-  # 画像品質チェック
-  min_image_resolution: [800, 600]  # 最小解像度
+  min_font_size: 45              # 最小フォントサイズ増加（24→45）
+  max_title_length: 20           # 最大文字数減少（30→20、短くインパクト）
+  min_contrast_ratio: 5.0        # コントラスト比強化（4.5→5.0）
+  min_image_resolution: [1024, 576]
 
 # デバッグ設定
 debug:
-  save_intermediate_steps: false  # 中間ステップを保存
-  show_text_bounds: false         # テキスト境界を表示
-  verbose_logging: true           # 詳細ログ
+  save_intermediate_steps: false
+  show_text_bounds: false
+  verbose_logging: true
+
+# インパクト重視の推奨設定
+# ================================
+# ✅ フォント: 源暎きわみゴシック、キルゴU
+# ✅ フォントサイズ: 90px以上
+# ✅ グラデーション: 縦方向、3色
+# ✅ 多重縁取り: 黒→白→カラー
+# ✅ 立体感: 8レイヤーの影
+# ✅ グロー: 20pxの外側発光
+# ✅ ハイライト: 上部に白い光沢
+# ✅ 文字数: 15文字以内推奨
+# ✅ レイアウト: 下部中央が最強
