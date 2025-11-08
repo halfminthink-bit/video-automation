@@ -6,6 +6,7 @@ OpenAI gpt-image-1で背景画像を生成し、Pillowで日本語テキスト�
 
 import logging
 import os
+import sys
 import tempfile
 import requests
 from pathlib import Path
@@ -255,21 +256,59 @@ class GPTImageThumbnailGenerator:
         # 描画オブジェクトを作成
         draw = ImageDraw.Draw(img, 'RGBA')
         
-        # フォントを読み込み
-        try:
-            # Noto Sans CJK JP Bold（TrueType Collection形式）
-            title_font = ImageFont.truetype(
-                "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc", 80, index=0
-            )
-            subtitle_font = ImageFont.truetype(
-                "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc", 40, index=0
-            )
-            self.logger.info("日本語フォント（Noto Sans CJK Bold）を読み込みました")
-        except Exception as e:
-            self.logger.warning(f"日本語フォントの読み込みに失敗: {e}")
-            self.logger.warning("デフォルトフォントを使用します")
-            title_font = ImageFont.load_default()
-            subtitle_font = ImageFont.load_default()
+        # フォントを読み込み（大きいサイズで、複数のパスを試す）
+        title_font_size = 120  # より大きく
+        subtitle_font_size = 60  # より大きく
+
+        # Windows/Linux両対応の日本語フォントパスリスト
+        japanese_font_paths = [
+            # Windows
+            "C:\\Windows\\Fonts\\msgothic.ttc",  # MS Gothic
+            "C:\\Windows\\Fonts\\meiryo.ttc",  # Meiryo
+            "C:\\Windows\\Fonts\\YuGothB.ttc",  # Yu Gothic Bold
+            "C:\\Windows\\Fonts\\YuGothM.ttc",  # Yu Gothic Medium
+            # Linux
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            # macOS
+            "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc",
+            "/Library/Fonts/Arial Unicode.ttf",
+        ]
+
+        font_loaded = False
+        font_name = "default"
+
+        for font_path in japanese_font_paths:
+            try:
+                if os.path.exists(font_path):
+                    self.logger.info(f"Trying font: {font_path}")
+                    # .ttc ファイルの場合は index=0 を指定
+                    if font_path.endswith('.ttc'):
+                        title_font = ImageFont.truetype(font_path, title_font_size, index=0)
+                        subtitle_font = ImageFont.truetype(font_path, subtitle_font_size, index=0)
+                    else:
+                        title_font = ImageFont.truetype(font_path, title_font_size)
+                        subtitle_font = ImageFont.truetype(font_path, subtitle_font_size)
+
+                    font_name = os.path.basename(font_path)
+                    font_loaded = True
+                    self.logger.info(f"✓ 日本語フォントを読み込みました: {font_name}")
+                    break
+            except Exception as e:
+                self.logger.debug(f"Failed to load font {font_path}: {e}")
+                continue
+
+        if not font_loaded:
+            self.logger.warning("日本語フォントの読み込みに失敗しました")
+            self.logger.warning("デフォルトフォントを使用します（日本語が正しく表示されない可能性があります）")
+            # デフォルトフォントを大きめのサイズで試す
+            try:
+                title_font = ImageFont.load_default()
+                subtitle_font = ImageFont.load_default()
+            except:
+                title_font = ImageFont.load_default()
+                subtitle_font = ImageFont.load_default()
         
         # テキストを描画
         if layout == "center":
@@ -335,31 +374,35 @@ class GPTImageThumbnailGenerator:
         title_font: ImageFont.FreeTypeFont,
         subtitle_font: ImageFont.FreeTypeFont
     ) -> None:
-        """中央配置でテキストを描画"""
+        """中央配置でテキストを描画（下の方に配置）"""
         # タイトルのバウンディングボックスを取得
         title_bbox = draw.textbbox((0, 0), title, font=title_font)
         title_width = title_bbox[2] - title_bbox[0]
         title_height = title_bbox[3] - title_bbox[1]
-        
-        # タイトルの位置を計算
+
+        # タイトルの位置を計算（下の方に配置）
         title_x = (self.width - title_width) // 2
-        title_y = (self.height - title_height) // 2
-        
-        # サブタイトルがある場合は上にずらす
+        # 下の方に配置（下から150pxの位置）
         if subtitle:
-            title_y -= 30
-        
-        # 影付きテキストを描画
-        self._add_text_with_shadow(draw, title, (title_x, title_y), title_font, (255, 255, 255, 255))
-        
+            # サブタイトルがある場合は、さらに上にずらす
+            subtitle_bbox = draw.textbbox((0, 0), subtitle, font=subtitle_font)
+            subtitle_height = subtitle_bbox[3] - subtitle_bbox[1]
+            total_height = title_height + subtitle_height + 30  # 30pxの間隔
+            title_y = self.height - total_height - 80  # 下から80pxのマージン
+        else:
+            title_y = self.height - title_height - 100  # 下から100pxのマージン
+
+        # 影付きテキストを描画（より強い影）
+        self._add_text_with_shadow(draw, title, (title_x, title_y), title_font, (255, 255, 255, 255), shadow_offset=6)
+
         # サブタイトルを描画
         if subtitle:
             subtitle_bbox = draw.textbbox((0, 0), subtitle, font=subtitle_font)
             subtitle_width = subtitle_bbox[2] - subtitle_bbox[0]
             subtitle_x = (self.width - subtitle_width) // 2
-            subtitle_y = title_y + title_height + 20
-            
-            self._add_text_with_shadow(draw, subtitle, (subtitle_x, subtitle_y), subtitle_font, (200, 200, 200, 255))
+            subtitle_y = title_y + title_height + 30
+
+            self._add_text_with_shadow(draw, subtitle, (subtitle_x, subtitle_y), subtitle_font, (255, 255, 255, 255), shadow_offset=4)
     
     def _draw_text_left(
         self,
@@ -369,30 +412,32 @@ class GPTImageThumbnailGenerator:
         title_font: ImageFont.FreeTypeFont,
         subtitle_font: ImageFont.FreeTypeFont
     ) -> None:
-        """左寄せでテキストを描画"""
+        """左寄せでテキストを描画（下の方に配置）"""
         margin = 80
-        
+
         # タイトルのバウンディングボックスを取得
         title_bbox = draw.textbbox((0, 0), title, font=title_font)
         title_height = title_bbox[3] - title_bbox[1]
-        
-        # タイトルの位置を計算
+
+        # タイトルの位置を計算（下の方に配置）
         title_x = margin
-        title_y = (self.height - title_height) // 2
-        
-        # サブタイトルがある場合は上にずらす
         if subtitle:
-            title_y -= 30
-        
-        # 影付きテキストを描画
-        self._add_text_with_shadow(draw, title, (title_x, title_y), title_font, (255, 255, 255, 255))
-        
+            subtitle_bbox = draw.textbbox((0, 0), subtitle, font=subtitle_font)
+            subtitle_height = subtitle_bbox[3] - subtitle_bbox[1]
+            total_height = title_height + subtitle_height + 30
+            title_y = self.height - total_height - 80
+        else:
+            title_y = self.height - title_height - 100
+
+        # 影付きテキストを描画（より強い影）
+        self._add_text_with_shadow(draw, title, (title_x, title_y), title_font, (255, 255, 255, 255), shadow_offset=6)
+
         # サブタイトルを描画
         if subtitle:
             subtitle_x = margin
-            subtitle_y = title_y + title_height + 20
-            
-            self._add_text_with_shadow(draw, subtitle, (subtitle_x, subtitle_y), subtitle_font, (200, 200, 200, 255))
+            subtitle_y = title_y + title_height + 30
+
+            self._add_text_with_shadow(draw, subtitle, (subtitle_x, subtitle_y), subtitle_font, (255, 255, 255, 255), shadow_offset=4)
     
     def _draw_text_right(
         self,
@@ -402,33 +447,35 @@ class GPTImageThumbnailGenerator:
         title_font: ImageFont.FreeTypeFont,
         subtitle_font: ImageFont.FreeTypeFont
     ) -> None:
-        """右寄せでテキストを描画"""
+        """右寄せでテキストを描画（下の方に配置）"""
         margin = 80
-        
+
         # タイトルのバウンディングボックスを取得
         title_bbox = draw.textbbox((0, 0), title, font=title_font)
         title_width = title_bbox[2] - title_bbox[0]
         title_height = title_bbox[3] - title_bbox[1]
-        
-        # タイトルの位置を計算
+
+        # タイトルの位置を計算（下の方に配置）
         title_x = self.width - title_width - margin
-        title_y = (self.height - title_height) // 2
-        
-        # サブタイトルがある場合は上にずらす
         if subtitle:
-            title_y -= 30
-        
-        # 影付きテキストを描画
-        self._add_text_with_shadow(draw, title, (title_x, title_y), title_font, (255, 255, 255, 255))
-        
+            subtitle_bbox = draw.textbbox((0, 0), subtitle, font=subtitle_font)
+            subtitle_height = subtitle_bbox[3] - subtitle_bbox[1]
+            total_height = title_height + subtitle_height + 30
+            title_y = self.height - total_height - 80
+        else:
+            title_y = self.height - title_height - 100
+
+        # 影付きテキストを描画（より強い影）
+        self._add_text_with_shadow(draw, title, (title_x, title_y), title_font, (255, 255, 255, 255), shadow_offset=6)
+
         # サブタイトルを描画
         if subtitle:
             subtitle_bbox = draw.textbbox((0, 0), subtitle, font=subtitle_font)
             subtitle_width = subtitle_bbox[2] - subtitle_bbox[0]
             subtitle_x = self.width - subtitle_width - margin
-            subtitle_y = title_y + title_height + 20
-            
-            self._add_text_with_shadow(draw, subtitle, (subtitle_x, subtitle_y), subtitle_font, (200, 200, 200, 255))
+            subtitle_y = title_y + title_height + 30
+
+            self._add_text_with_shadow(draw, subtitle, (subtitle_x, subtitle_y), subtitle_font, (255, 255, 255, 255), shadow_offset=4)
     
     def _add_text_with_shadow(
         self,
