@@ -305,6 +305,64 @@ class ThumbnailGenerator:
         
         return result
     
+    def _load_japanese_font(self, size: int) -> ImageFont.FreeTypeFont:
+        """
+        YouTubeサムネイルに最適な日本語フォントを読み込む
+        
+        優先順位:
+        1. assets/fonts/内のフォント（源暎きわみゴ、キルゴUなど）
+        2. システムフォント（Noto Sans CJK JP Bold）
+        3. デフォルトフォント
+        
+        Args:
+            size: フォントサイズ
+            
+        Returns:
+            フォントオブジェクト
+        """
+        # YouTubeサムネイル向けフォントの優先順位リスト
+        font_candidates = [
+            # assets/fonts/内のフォント
+            "assets/fonts/GenEiKiwamiGothic-EB.ttf",  # 源暎きわみゴ
+            "assets/fonts/GN-KillGothic-U-KanaNB.ttf",  # キルゴU
+            "assets/fonts/Corporate-Logo-ver3.otf",  # コーポレートロゴ
+            "assets/fonts/DelaGothicOne-Regular.ttf",  # デラゴシック
+            "assets/fonts/ReiGothic-Regular.ttf",  # 零ゴシック
+            
+            # システムフォント（太字を優先）
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansJP-Bold.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansJP-Bold.otf",
+            
+            # 通常ウェイトのフォント
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansJP-Regular.ttf",
+        ]
+        
+        # プロジェクトルートからの相対パスを解決
+        project_root = Path(__file__).parent.parent.parent
+        
+        for font_path_str in font_candidates:
+            font_path = Path(font_path_str)
+            
+            # 相対パスの場合はプロジェクトルートから解決
+            if not font_path.is_absolute():
+                font_path = project_root / font_path
+            
+            if font_path.exists():
+                try:
+                    font = ImageFont.truetype(str(font_path), size)
+                    self.logger.info(f"✓ Loaded font: {font_path.name}")
+                    return font
+                except Exception as e:
+                    self.logger.debug(f"Failed to load font {font_path}: {e}")
+                    continue
+        
+        # すべて失敗した場合はデフォルトフォント
+        self.logger.warning("⚠ Japanese font not found, using default font. Consider installing Noto Sans CJK JP or downloading recommended fonts.")
+        return ImageFont.load_default()
+    
     def _add_text_to_image(self, img: Image.Image, title: str, pattern_index: int) -> Image.Image:
         """
         画像にテキストを追加
@@ -324,18 +382,8 @@ class ThumbnailGenerator:
         main_font_config = self.font_config.get("main_title", {})
         font_size = main_font_config.get("size_base", 72)
         
-        # フォントを読み込み（システムフォントまたはデフォルト）
-        try:
-            # Noto Sans CJK JPを試す
-            font = ImageFont.truetype("/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc", font_size)
-        except:
-            try:
-                # フォールバック: Noto Sans JP
-                font = ImageFont.truetype("/usr/share/fonts/truetype/noto/NotoSansJP-Bold.ttf", font_size)
-            except:
-                # 最終フォールバック: デフォルトフォント
-                self.logger.warning("Japanese font not found, using default font")
-                font = ImageFont.load_default()
+        # フォントを読み込み（YouTubeサムネイル向けフォントを優先）
+        font = self._load_japanese_font(font_size)
         
         # テキスト位置を取得
         text_positions = self.layout_config.get("text_positions", ["bottom_center"])
