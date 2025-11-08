@@ -1,7 +1,18 @@
 ﻿# Phase 8: Thumbnail Generation
 # YouTubeサムネイル生成の設定
 
-# サムネイル基本設定
+# 生成方法選択
+# - false: Pillowで画像に文字をオーバーレイ（5枚生成、無料）
+# - true: DALL-E 3でAI生成（1枚生成、高品質、$0.040/枚）
+use_dalle: false
+
+# DALL-E 3設定（use_dalle: trueの場合）
+dalle:
+  size: "1024x1024"        # 画像サイズ（1024x1024, 1024x1792, 1792x1024）
+  quality: "standard"       # 画質（standard or hd）
+  style: "dramatic"         # スタイル（dramatic, elegant, energetic, mysterious）
+
+# サムネイル基本設定（Pillowのみ）
 output:
   resolution: [1280, 720]    # YouTubeサムネイル標準解像度（16:9）
   format: "png"              # PNG形式（高品質）

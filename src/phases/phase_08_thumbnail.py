@@ -23,6 +23,7 @@ from src.core.exceptions import (
     PhaseInputMissingError
 )
 from src.generators.thumbnail_generator import create_thumbnail_generator
+from src.generators.dalle_thumbnail_generator import DallEThumbnailGenerator
 
 
 class Phase08Thumbnail(PhaseBase):
@@ -102,85 +103,15 @@ class Phase08Thumbnail(PhaseBase):
                     "No images available for thumbnail generation"
                 )
             
-            # 3. サムネイル生成器を作成
-            generator = create_thumbnail_generator(
-                config=self.phase_config,
-                logger=self.logger
-            )
+            # 3. サムネイル生成方法を確認
+            use_dalle = self.phase_config.get("use_dalle", False)
             
-            # 4. 最適な画像を選択
-            best_image = generator.select_best_image(images)
-            
-            if not best_image:
-                raise PhaseExecutionError(
-                    self.get_phase_number(),
-                    "Failed to select best image for thumbnail"
-                )
-            
-            base_image_path = Path(best_image["file_path"])
-            self.logger.info(f"Selected base image: {base_image_path.name}")
-            
-            # 5. タイトルを生成
-            titles = generator.generate_titles(self.subject, script_data)
-            self.logger.info(f"Generated {len(titles)} title variations")
-            
-            # 6. 出力ディレクトリを作成
-            thumbnail_dir = self.phase_dir / "thumbnails"
-            thumbnail_dir.mkdir(parents=True, exist_ok=True)
-            
-            # 7. サムネイルを生成
-            generated_thumbnails = []
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            
-            for i, title in enumerate(titles):
-                output_filename = f"{self.subject}_thumbnail_{i+1}_{timestamp}.png"
-                output_path = thumbnail_dir / output_filename
-                
-                self.logger.info(f"Generating thumbnail {i+1}/{len(titles)}: {title}")
-                
-                success = generator.create_thumbnail(
-                    base_image_path=base_image_path,
-                    title=title,
-                    output_path=output_path,
-                    pattern_index=i
-                )
-                
-                if success:
-                    generated_thumbnails.append({
-                        "pattern_index": i + 1,
-                        "title": title,
-                        "file_path": str(output_path),
-                        "file_name": output_filename,
-                        "base_image": str(base_image_path)
-                    })
-            
-            if not generated_thumbnails:
-                raise PhaseExecutionError(
-                    self.get_phase_number(),
-                    "Failed to generate any thumbnails"
-                )
-            
-            # 8. メタデータを保存
-            result = {
-                "subject": self.subject,
-                "generated_at": timestamp,
-                "base_image": {
-                    "file_path": str(base_image_path),
-                    "section_id": best_image.get("section_id"),
-                    "classification": best_image.get("classification")
-                },
-                "thumbnails": generated_thumbnails,
-                "total_count": len(generated_thumbnails)
-            }
-            
-            self._save_metadata(result)
-            
-            self.logger.info(
-                f"✓ Thumbnail generation complete: "
-                f"{len(generated_thumbnails)} thumbnails created"
-            )
-            
-            return result
+            if use_dalle:
+                # DALL-E 3を使用してサムネイルを生成
+                return self._generate_with_dalle(script_data)
+            else:
+                # 従来の方法（Pillow）でサムネイルを生成
+                return self._generate_with_pillow(script_data, images)
             
         except Exception as e:
             self.logger.error(f"Thumbnail generation failed: {e}", exc_info=True)
@@ -287,6 +218,174 @@ class Phase08Thumbnail(PhaseBase):
         images = classified_data.get("images", [])
         
         return images
+    
+    def _generate_with_dalle(self, script_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        DALL-E 3を使用してサムネイルを生成
+        
+        Args:
+            script_data: 台本データ
+            
+        Returns:
+            生成結果
+        """
+        self.logger.info("⚡ Using DALL-E 3 for thumbnail generation")
+        
+        # 出力ディレクトリを作成
+        thumbnail_dir = self.phase_dir / "thumbnails"
+        thumbnail_dir.mkdir(parents=True, exist_ok=True)
+        
+        # DALL-E 3設定を取得
+        dalle_config = self.phase_config.get("dalle", {})
+        
+        # DALL-E 3ジェネレーターを作成
+        dalle_generator = DallEThumbnailGenerator(
+            output_dir=thumbnail_dir,
+            size=dalle_config.get("size", "1024x1024"),
+            quality=dalle_config.get("quality", "standard"),
+        )
+        
+        # タイトルを生成
+        title = f"{self.subject}の真実"  # デフォルトタイトル
+        subject_desc = script_data.get("subject", self.subject)
+        
+        # スタイルを取得
+        style = dalle_config.get("style", "dramatic")
+        
+        # サムネイルを生成（1枚のみ）
+        self.logger.info(f"Generating thumbnail with DALL-E 3: {title}")
+        thumbnail_path = dalle_generator.generate_thumbnail(
+            title=title,
+            subject=subject_desc,
+            base_filename=self.subject,
+            style=style,
+        )
+        
+        if not thumbnail_path:
+            raise PhaseExecutionError(
+                self.get_phase_number(),
+                "Failed to generate thumbnail with DALL-E 3"
+            )
+        
+        # 結果を作成
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        result = {
+            "subject": self.subject,
+            "generated_at": timestamp,
+            "method": "dalle-3",
+            "thumbnails": [{
+                "pattern_index": 1,
+                "title": title,
+                "file_path": str(thumbnail_path),
+                "file_name": thumbnail_path.name,
+                "style": style,
+            }],
+            "total_count": 1
+        }
+        
+        self._save_metadata(result)
+        
+        self.logger.info(f"✓ DALL-E 3 thumbnail generated: {thumbnail_path.name}")
+        
+        return result
+    
+    def _generate_with_pillow(
+        self,
+        script_data: Dict[str, Any],
+        images: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Pillowを使用してサムネイルを生成（従来の方法）
+        
+        Args:
+            script_data: 台本データ
+            images: 画像リスト
+            
+        Returns:
+            生成結果
+        """
+        self.logger.info("🖼️ Using Pillow for thumbnail generation")
+        
+        # サムネイル生成器を作成
+        generator = create_thumbnail_generator(
+            config=self.phase_config,
+            logger=self.logger
+        )
+        
+        # 最適な画像を選択
+        best_image = generator.select_best_image(images)
+        
+        if not best_image:
+            raise PhaseExecutionError(
+                self.get_phase_number(),
+                "Failed to select best image for thumbnail"
+            )
+        
+        base_image_path = Path(best_image["file_path"])
+        self.logger.info(f"Selected base image: {base_image_path.name}")
+        
+        # タイトルを生成
+        titles = generator.generate_titles(self.subject, script_data)
+        self.logger.info(f"Generated {len(titles)} title variations")
+        
+        # 出力ディレクトリを作成
+        thumbnail_dir = self.phase_dir / "thumbnails"
+        thumbnail_dir.mkdir(parents=True, exist_ok=True)
+        
+        # サムネイルを生成
+        generated_thumbnails = []
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        for i, title in enumerate(titles):
+            output_filename = f"{self.subject}_thumbnail_{i+1}_{timestamp}.png"
+            output_path = thumbnail_dir / output_filename
+            
+            self.logger.info(f"Generating thumbnail {i+1}/{len(titles)}: {title}")
+            
+            success = generator.create_thumbnail(
+                base_image_path=base_image_path,
+                title=title,
+                output_path=output_path,
+                pattern_index=i
+            )
+            
+            if success:
+                generated_thumbnails.append({
+                    "pattern_index": i + 1,
+                    "title": title,
+                    "file_path": str(output_path),
+                    "file_name": output_filename,
+                    "base_image": str(base_image_path)
+                })
+        
+        if not generated_thumbnails:
+            raise PhaseExecutionError(
+                self.get_phase_number(),
+                "Failed to generate any thumbnails"
+            )
+        
+        # 結果を作成
+        result = {
+            "subject": self.subject,
+            "generated_at": timestamp,
+            "method": "pillow",
+            "base_image": {
+                "file_path": str(base_image_path),
+                "section_id": best_image.get("section_id"),
+                "classification": best_image.get("classification")
+            },
+            "thumbnails": generated_thumbnails,
+            "total_count": len(generated_thumbnails)
+        }
+        
+        self._save_metadata(result)
+        
+        self.logger.info(
+            f"✓ Thumbnail generation complete: "
+            f"{len(generated_thumbnails)} thumbnails created"
+        )
+        
+        return result
     
     def _save_metadata(self, result: Dict[str, Any]) -> None:
         """
