@@ -1,0 +1,164 @@
+﻿# Phase 8: Thumbnail Generation
+# YouTubeサムネイル生成の設定
+
+# サムネイル基本設定
+output:
+  resolution: [1280, 720]    # YouTubeサムネイル標準解像度（16:9）
+  format: "png"              # PNG形式（高品質）
+  quality: 95                # 品質（0-100）
+  patterns: 5                # 生成するパターン数
+
+# 画像選択設定
+image_selection:
+  # Phase 3の画像から最適な1枚を選択する基準
+  criteria:
+    - "人物の顔が含まれている"
+    - "インパクトのある構図"
+    - "明るさとコントラストが適切"
+    - "中央に被写体がある"
+    - "劇的なシーンや象徴的な要素"
+  
+  # フォールバック: 基準に合わない場合の選択方法
+  fallback_method: "first_image"  # first_image / random / largest_file
+
+# テキスト生成設定
+text_generation:
+  # LLMを使用してキャッチーなタイトルを生成
+  llm_enabled: true
+  
+  # 生成するタイトルのパターン
+  title_patterns:
+    - "short_impactful"      # 短くインパクトのある（例：「医療を変えた男」）
+    - "question_form"        # 疑問形（例：「なぜ彼は嫌われたのか？」）
+    - "dramatic_statement"   # 劇的な表現（例：「19世紀の革命」）
+    - "number_fact"          # 数字を使った事実（例：「1847年の発見」）
+    - "contrast_phrase"      # 対比表現（例：「無名から英雄へ」）
+
+  # フォールバック: LLM使用不可の場合
+  fallback_titles:
+    - "{subject}の物語"
+    - "{subject}とは何者か"
+    - "歴史に残る{subject}"
+    - "{subject}の真実"
+    - "知られざる{subject}"
+
+# フォント設定
+fonts:
+  # メインタイトル用フォント
+  main_title:
+    family: "Noto Sans CJK JP"  # 日本語対応
+    weight: "Bold"               # 太字
+    size_base: 72                # 基本サイズ（ピクセル）
+    size_range: [60, 84]         # サイズ範囲（自動調整）
+    
+  # サブタイトル用フォント（必要に応じて）
+  subtitle:
+    family: "Noto Sans CJK JP"
+    weight: "Medium"
+    size_base: 36
+    size_range: [28, 44]
+
+# テキストスタイル設定
+text_style:
+  # 文字色パターン
+  colors:
+    - "#FFFFFF"  # 白（基本）
+    - "#FFD700"  # 金色（豪華）
+    - "#FF4444"  # 赤（インパクト）
+    - "#44AAFF"  # 青（信頼感）
+    - "#44FF44"  # 緑（希望）
+  
+  # 縁取り設定
+  stroke:
+    enabled: true
+    width: 3                     # 縁取り幅（ピクセル）
+    color: "#000000"             # 黒縁取り
+    
+  # 影設定
+  shadow:
+    enabled: true
+    offset_x: 2                  # X方向オフセット
+    offset_y: 2                  # Y方向オフセット
+    blur_radius: 4               # ぼかし半径
+    color: "#000000"             # 影色
+    opacity: 0.7                 # 透明度
+
+# レイアウト設定
+layout:
+  # テキスト配置パターン
+  text_positions:
+    - "top_center"      # 上部中央
+    - "center_center"   # 中央
+    - "bottom_center"   # 下部中央
+    - "top_left"        # 上部左
+    - "bottom_right"    # 下部右
+  
+  # マージン設定
+  margins:
+    top: 40
+    bottom: 40
+    left: 60
+    right: 60
+  
+  # テキストエリア設定
+  text_area:
+    max_width_percent: 80        # 画面幅の80%まで
+    line_height_multiplier: 1.2  # 行間
+    max_lines: 3                 # 最大行数
+
+# 画像処理設定
+image_processing:
+  # 明度・コントラスト調整
+  brightness_adjustment: true
+  brightness_range: [0.9, 1.1]    # 90%-110%
+  
+  contrast_adjustment: true
+  contrast_range: [1.0, 1.3]      # 100%-130%
+  
+  # 彩度調整
+  saturation_adjustment: true
+  saturation_range: [1.0, 1.2]    # 100%-120%
+  
+  # ガウシアンブラー（背景用）
+  background_blur:
+    enabled: false               # 背景ぼかし（オプション）
+    radius: 5
+    
+  # ビネット効果
+  vignette:
+    enabled: true                # 周辺を暗くする効果
+    strength: 0.3                # 強度（0.0-1.0）
+
+# 出力設定
+output_settings:
+  # ファイル名パターン
+  filename_pattern: "{subject}_thumbnail_{pattern}_{timestamp}.png"
+  
+  # 保存先
+  output_dir: "thumbnails"       # phase_dir内のサブディレクトリ
+  
+  # メタデータ保存
+  save_metadata: true            # 生成情報をJSONで保存
+  
+  # プレビュー生成
+  generate_preview: true         # 一覧プレビュー画像を生成
+
+# 品質管理
+quality_control:
+  # 最小文字サイズ
+  min_font_size: 24
+  
+  # 最大文字数
+  max_title_length: 30
+  
+  # コントラスト比チェック
+  min_contrast_ratio: 4.5        # WCAG AA準拠
+  
+  # 画像品質チェック
+  min_image_resolution: [800, 600]  # 最小解像度
+
+# デバッグ設定
+debug:
+  save_intermediate_steps: false  # 中間ステップを保存
+  show_text_bounds: false         # テキスト境界を表示
+  verbose_logging: true           # 詳細ログ

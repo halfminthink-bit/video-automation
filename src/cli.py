@@ -35,6 +35,7 @@ from src.phases.phase_04_animation import Phase04Animation
 from src.phases.phase_05_bgm import Phase05BGM
 from src.phases.phase_06_subtitles import Phase06Subtitles
 from src.phases.phase_07_composition import Phase07Composition
+from src.phases.phase_08_thumbnail import Phase08Thumbnail
 
 
 def write_error_log(config: ConfigManager, subject: str, phase_number: int, error: Exception) -> Path:
@@ -114,10 +115,11 @@ def run_phase(subject: str, phase_number: int, skip_if_exists: bool = False) -> 
         5: Phase05BGM,
         6: Phase06Subtitles,
         7: Phase07Composition,
+        8: Phase08Thumbnail,
     }
 
     if phase_number not in phase_classes:
-        logger.error(f"Invalid phase number: {phase_number}. Must be 1-7.")
+        logger.error(f"Invalid phase number: {phase_number}. Must be 1-8.")
         return 1
 
     # フェーズを実行
