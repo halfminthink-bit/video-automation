@@ -27,6 +27,7 @@ from src.generators.thumbnail_generator import create_thumbnail_generator
 from src.generators.pillow_thumbnail_generator import PillowThumbnailGenerator
 from src.generators.gptimage_thumbnail_generator import GPTImageThumbnailGenerator
 from src.generators.catchcopy_generator import CatchcopyGenerator
+from src.generators.final_thumbnail_generator import FinalThumbnailGenerator
 
 
 class Phase08Thumbnail(PhaseBase):
@@ -224,21 +225,86 @@ class Phase08Thumbnail(PhaseBase):
     
     def _generate_with_dalle(self, script_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        DALL-E 3 / gpt-image-1 + Pillow + Claudeでサムネイルを生成
-        
+        DALL-E 3 + FinalThumbnailGenerator（V3.0 - 赤文字上部＋白文字下部）でサムネイルを生成
+
         Args:
             script_data: 台本データ
-            
+
+        Returns:
+            生成結果
+        """
+        self.logger.info("🌟 Using DALL-E 3 + FinalThumbnailGenerator (V3.0 - Red Top / White Bottom)")
+
+        # 出力ディレクトリを作成
+        thumbnail_dir = self.phase_dir / "thumbnails"
+        thumbnail_dir.mkdir(parents=True, exist_ok=True)
+
+        # FinalThumbnailGeneratorを作成
+        generator = FinalThumbnailGenerator(
+            config=self.phase_config,
+            logger=self.logger
+        )
+
+        # サムネイルを生成（内部でDALL-E 3呼び出し + インパクトテキスト生成）
+        num_variations = self.phase_config.get("catchcopy", {}).get("num_candidates", 5)
+
+        thumbnail_paths = generator.generate_thumbnails(
+            subject=self.subject,
+            script_data=script_data,
+            output_dir=thumbnail_dir,
+            num_variations=num_variations
+        )
+
+        if not thumbnail_paths:
+            raise PhaseExecutionError(
+                self.get_phase_number(),
+                "Failed to generate any thumbnails with FinalThumbnailGenerator"
+            )
+
+        # 結果を作成
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        generated_thumbnails = []
+
+        for i, path in enumerate(thumbnail_paths, 1):
+            generated_thumbnails.append({
+                "pattern_index": i,
+                "file_path": str(path),
+                "file_name": path.name,
+                "layout": "v3-red-white",
+                "style": self.phase_config.get("dalle", {}).get("style", "dramatic")
+            })
+
+        result = {
+            "subject": self.subject,
+            "generated_at": timestamp,
+            "method": "dall-e-3-v3-final",
+            "thumbnails": generated_thumbnails,
+            "total_count": len(generated_thumbnails)
+        }
+
+        self._save_metadata(result)
+
+        self.logger.info(f"✓ {len(generated_thumbnails)} V3.0 thumbnails generated")
+
+        return result
+
+    def _generate_with_dalle_legacy(self, script_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        レガシー: DALL-E 3 / gpt-image-1 + Pillow + Claudeでサムネイルを生成
+
+        Args:
+            script_data: 台本データ
+
         Returns:
             生成結果
         """
         model_name = self.phase_config.get("gptimage", {}).get("model", "dall-e-3")
         self.logger.info(f"🌟 Using {model_name} + Pillow + Claude for thumbnail generation")
-        
+
         # 出力ディレクトリを作成
         thumbnail_dir = self.phase_dir / "thumbnails"
         thumbnail_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # 設定を取得
         gptimage_config = self.phase_config.get("gptimage", {})
         catchcopy_config = self.phase_config.get("catchcopy", {})
