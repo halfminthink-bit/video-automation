@@ -126,10 +126,11 @@ class GPTImageThumbnailGenerator:
             # 画像を生成
             if self.model == "dall-e-3":
                 # DALL-E 3は quality パラメータをサポート
+                # YouTube用に1792x1024（横長）で生成
                 response = self.client.images.generate(
                     model="dall-e-3",
                     prompt=prompt,
-                    size="1024x1024",
+                    size="1792x1024",
                     quality="standard" if quality == "low" or quality == "medium" else "hd",
                     n=1
                 )
@@ -138,7 +139,7 @@ class GPTImageThumbnailGenerator:
                 response = self.client.images.generate(
                     model="gpt-image-1",
                     prompt=prompt,
-                    size="1024x1024",
+                    size="1792x1024",
                     quality=quality,
                     n=1
                 )
@@ -255,10 +256,21 @@ class GPTImageThumbnailGenerator:
         
         # 描画オブジェクトを作成
         draw = ImageDraw.Draw(img, 'RGBA')
-        
-        # フォントを読み込み（大きいサイズで、複数のパスを試す）
-        title_font_size = 120  # より大きく
-        subtitle_font_size = 60  # より大きく
+
+        # フォントサイズを文字数に応じて動的に決定
+        # 超インパクト重視：5文字以下=180px, 6-10文字=150px, 11文字以上=120px
+        title_length = len(title)
+        if title_length <= 5:
+            title_font_size = 180
+        elif title_length <= 10:
+            title_font_size = 150
+        else:
+            title_font_size = 120
+
+        # サブタイトルは固定で60px
+        subtitle_font_size = 60
+
+        self.logger.info(f"Title length: {title_length} chars, Font size: {title_font_size}px")
 
         # Windows/Linux両対応の日本語フォントパスリスト
         japanese_font_paths = [

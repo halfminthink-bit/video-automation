@@ -8,7 +8,7 @@ use_dalle: true
 
 # DALL-E 3 / GPT Image 1設定（use_dalle: trueの場合）
 dalle:
-  size: "1024x1024"        # 画像サイズ（1024x1024, 1024x1792, 1792x1024）
+  size: "1792x1024"        # 画像サイズ（YouTube最適: 1792x1024横長）
   quality: "standard"       # 画質（standard or hd）
   style: "dramatic"         # スタイル（dramatic, elegant, energetic, mysterious）
 
@@ -27,7 +27,7 @@ catchcopy:
   model: "gpt-4.1-mini"     # 使用するモデル
   tone: "dramatic"          # トーン（dramatic, professional, casual, mysterious）
   target_audience: "一般"   # ターゲット層
-  main_title_length: 15     # メインタイトルの最大文字数（短くしてインパクト重視）
+  main_title_length: 10     # メインタイトルの最大文字数（超短文・超インパクト）
   sub_title_length: 8       # サブタイトルの最大文字数
   num_candidates: 5         # 生成する候補数
 
@@ -64,36 +64,36 @@ text_generation:
     - "{subject}の真実"
     - "知られざる{subject}"
 
-# フォント設定（改善版）
+# フォント設定（超インパクト版）
 fonts:
   main_title:
     family: "GenEi Kiwami Gothic"  # 源暎きわみゴシック
     weight: "Bold"
-    size_base: 90                   # より大きく（72→90）
-    size_range: [75, 105]           # サイズ範囲拡大
+    size_base: 150                  # 超大幅拡大（90→150）
+    size_range: [120, 180]          # サイズ範囲：文字数に応じて自動調整
   subtitle:
     family: "GenEi Kiwami Gothic"
     weight: "Medium"
-    size_base: 45                   # より大きく
-    size_range: [35, 55]
+    size_base: 60                   # より大きく（45→60）
+    size_range: [50, 70]
 
-# テキストスタイル設定（改善版）
+# テキストスタイル設定（超インパクト版）
 text_style:
   # グラデーション色パターン（コード内で定義）
-  # パターン1: 赤→黄（ホット）
-  # パターン2: オレンジ→黄（エネルギッシュ）
-  # パターン3: 白→青（クール）
-  # パターン4: ピンク→紫（ドラマチック）
-  # パターン5: 緑→黄（フレッシュ）
+  # パターン1: 白→赤→黄（ホット）
+  # パターン2: 赤→橙→黄（エネルギッシュ）
+  # パターン3: シアン→青（クール）
+  # パターン4: 白→ピンク→紫（ドラマチック）
+  # パターン5: 緑→黄→赤（フレッシュ）
   
-  # 縁取り設定（強化版）
+  # 縁取り設定（超強化版）
   stroke:
     enabled: true
     # 多重縁取り：
-    # 1. 黒縁18px（最外）
-    # 2. 白縁12px
-    # 3. カラー縁6px（グラデーションと調和）
-    width: 18                    # 最大幅（強化: 3→18）
+    # 1. 黒縁25px（最外）
+    # 2. 白縁15px
+    # 3. カラー縁8px（グラデーションと調和）
+    width: 25                    # 最大幅（超強化: 18→25）
     colors:
       outer: "#000000"           # 外側: 黒
       middle: "#FFFFFF"          # 中間: 白
@@ -162,7 +162,7 @@ image_processing:
     
   vignette:
     enabled: true
-    strength: 0.4                  # ビネット強化（0.3→0.4）
+    strength: 0.6                  # ビネット超強化（0.4→0.6、文字を際立たせる）
 
 # 出力設定
 output_settings:
@@ -184,14 +184,16 @@ debug:
   show_text_bounds: false
   verbose_logging: true
 
-# インパクト重視の推奨設定
+# 超インパクト重視の推奨設定（v2.0）
 # ================================
+# ✅ 画像生成: DALL-E 3で1792x1024（横長）→ 1280x720リサイズ
 # ✅ フォント: 源暎きわみゴシック、キルゴU
-# ✅ フォントサイズ: 90px以上
-# ✅ グラデーション: 縦方向、3色
-# ✅ 多重縁取り: 黒→白→カラー
+# ✅ フォントサイズ: 150px基準（文字数で自動調整: 120-180px）
+# ✅ グラデーション: 縦方向、3色（白→赤→黄など）
+# ✅ 多重縁取り: 黒25px → 白15px → カラー8px
 # ✅ 立体感: 8レイヤーの影
 # ✅ グロー: 20pxの外側発光
 # ✅ ハイライト: 上部に白い光沢
-# ✅ 文字数: 15文字以内推奨
+# ✅ 文字数: 10文字以内厳守（理想5-7文字）
 # ✅ レイアウト: 下部中央が最強
+# ✅ 背景処理: 彩度0.7倍、明度0.6倍、ビネット0.6
