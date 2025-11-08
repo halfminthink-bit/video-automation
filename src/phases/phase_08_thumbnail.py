@@ -224,7 +224,7 @@ class Phase08Thumbnail(PhaseBase):
     
     def _generate_with_dalle(self, script_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        gpt-image-1 + Pillow + Claudeでサムネイルを生成
+        DALL-E 3 / gpt-image-1 + Pillow + Claudeでサムネイルを生成
         
         Args:
             script_data: 台本データ
@@ -232,7 +232,8 @@ class Phase08Thumbnail(PhaseBase):
         Returns:
             生成結果
         """
-        self.logger.info("🌟 Using GPT Image 1 + Pillow + Claude for thumbnail generation")
+        model_name = self.phase_config.get("gptimage", {}).get("model", "dall-e-3")
+        self.logger.info(f"🌟 Using {model_name} + Pillow + Claude for thumbnail generation")
         
         # 出力ディレクトリを作成
         thumbnail_dir = self.phase_dir / "thumbnails"
@@ -245,10 +246,11 @@ class Phase08Thumbnail(PhaseBase):
         # 1. Claudeでキャッチコピーを生成
         title, subtitle = self._generate_catchcopy(script_data, catchcopy_config)
         
-        # 2. GPT Image 1 + Pillowでサムネイルを生成
+        # 2. DALL-E 3 / GPT Image 1 + Pillowでサムネイルを生成
         generator = GPTImageThumbnailGenerator(
             width=gptimage_config.get("width", 1280),
             height=gptimage_config.get("height", 720),
+            model=gptimage_config.get("model", "dall-e-3"),
             logger=self.logger
         )
         
@@ -266,9 +268,10 @@ class Phase08Thumbnail(PhaseBase):
         )
         
         if not thumbnail_path:
+            model_name = gptimage_config.get("model", "dall-e-3")
             raise PhaseExecutionError(
                 self.get_phase_number(),
-                "Failed to generate thumbnail with GPT Image 1"
+                f"Failed to generate thumbnail with {model_name}"
             )
         
         # 結果を作成
@@ -276,7 +279,7 @@ class Phase08Thumbnail(PhaseBase):
         result = {
             "subject": self.subject,
             "generated_at": timestamp,
-            "method": "gptimage-1-pillow-claude",
+            "method": f"{gptimage_config.get('model', 'dall-e-3')}-pillow-claude",
             "thumbnails": [{
                 "pattern_index": 1,
                 "title": title,
@@ -291,7 +294,8 @@ class Phase08Thumbnail(PhaseBase):
         
         self._save_metadata(result)
         
-        self.logger.info(f"✓ GPT Image 1 thumbnail generated: {Path(thumbnail_path).name}")
+        model_name = gptimage_config.get("model", "dall-e-3")
+        self.logger.info(f"✓ {model_name} thumbnail generated: {Path(thumbnail_path).name}")
         
         return result
     

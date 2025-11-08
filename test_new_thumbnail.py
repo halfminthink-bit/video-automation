@@ -69,15 +69,14 @@ def test_catchcopy_generation():
 
 
 def test_gptimage_generation(title: str, subtitle: str):
-    """gpt-image-1 + Pillowサムネイル生成のテスト"""
-    logger.info("=" * 60)
-    logger.info("テスト2: gpt-image-1 + Pillow サムネイル生成")
-    logger.info("=" * 60)
-    
+    """DALL-E 3 + Pillowサムネイル生成    logger.info("===" + "="*57)
+    logger.info("テスト2: DALL-E 3 + Pillow サムネイル生成")
+    logger.info("===" + "="*57) 
     # GPTImageThumbnailGeneratorを作成
     generator = GPTImageThumbnailGenerator(
         width=1280,
         height=720,
+        model="dall-e-3",  # DALL-E 3を使用
         logger=logger
     )
     
@@ -86,7 +85,7 @@ def test_gptimage_generation(title: str, subtitle: str):
     
     logger.info(f"タイトル: {title}")
     logger.info(f"サブタイトル: {subtitle}")
-    logger.info("背景画像を生成中... (約2分かかります)")
+    logger.info("背景画像を生成中... (DALL-E 3で約30秒かかります)")
     
     thumbnail_path = generator.generate_thumbnail(
         title=title,
@@ -118,7 +117,7 @@ def main():
             logger.error("キャッチコピー生成に失敗しました")
             return
         
-        # テスト2: gpt-image-1 + Pillow サムネイル生成
+        # テスト2: DALL-E 3 + Pillow サムネイル生成
         title = selected.get("main_title", "イグナーツ・ゼンメルワイス")
         subtitle = selected.get("sub_title")
         
