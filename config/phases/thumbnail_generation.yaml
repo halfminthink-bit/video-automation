@@ -21,15 +21,33 @@ gptimage:
   quality: "medium"         # 画像品質（low, medium, high）
   layout: "center"          # テキストレイアウト（center, left, right）
 
-# Claudeキャッチコピー生成設定（超短文特化）
+# Claudeキャッチコピー生成設定（3ゾーンレイアウト用・2段テキスト）
 catchcopy:
   enabled: true             # キャッチコピー生成を有効化
   model: "gpt-4.1-mini"     # 使用するモデル
-  tone: "dramatic"          # トーン（dramatic, professional, casual, mysterious）
+  tone: "dramatic"          # トーン（dramatic, shocking, educational, casual）
   target_audience: "一般"   # ターゲット層
-  main_title_length: 7      # メインタイトルの最大文字数（7文字厳守・理想5文字）
-  sub_title_length: 8       # サブタイトルの最大文字数
+  main_title_length: 7      # メインキャッチの最大文字数（5-7文字厳守）
+  sub_title_length: 20      # サブ説明文の最大文字数（15-20文字推奨）
   num_candidates: 5         # 生成する候補数
+
+# 3ゾーンレイアウト設定（新システム）
+three_zone_layout:
+  enabled: true             # 3ゾーンレイアウトを使用
+  zones:
+    main_text:              # 上部30%: メインキャッチ
+      height_percent: 0.30
+      font_size_range: [120, 180]  # 文字数で自動調整
+      stroke_widths: [35, 20]      # 黒35px, 白20px
+    image_area:             # 中央40%: 人物画像
+      height_percent: 0.40
+      preserve_brightness: true     # 明るさを維持
+      darken_strength: 0.7          # 上下の暗さ強度
+    sub_text:               # 下部30%: サブ説明文
+      height_percent: 0.30
+      font_size: 50                 # 固定サイズ
+      stroke_widths: [12, 6]        # 黒12px, 白6px
+      background_band: true         # 半透明背景帯を追加
 
 # サムネイル基本設定
 output:
@@ -231,3 +249,36 @@ debug:
 # ✅ 文字数: 10文字以内厳守（理想5-7文字）
 # ✅ レイアウト: 下部中央が最強
 # ✅ 背景処理: 彩度0.7倍、明度0.6倍、ビネット0.6
+
+# ================================
+# 3ゾーンレイアウトシステム（v3.0 - 最新）
+# ================================
+# 【概要】
+# 人物中央配置 + 2段テキスト（上下）の新レイアウト
+#
+# 【構成】
+# ┌─────────────────────┐
+# │  上部30%: メインキャッチ   │ 5-7文字、超インパクト
+# │  （例: "手を洗え！"）      │ フォント: 150-180px
+# ├─────────────────────┤
+# │  中央40%: 人物画像        │ 明るさ維持
+# │  （DALL-E 3生成）         │ 周辺は暗く処理
+# ├─────────────────────┤
+# │  下部30%: サブ説明文      │ 15-20文字
+# │  （例: "今では当たり前の） │ フォント: 50px
+# │   常識を生んだ男"）       │ 半透明背景帯付き
+# └─────────────────────┘
+#
+# 【配色スキーム】（5種類自動選択）
+# - fire: 炎・情熱系（白→黄→赤）
+# - ocean: 海・清潔系（白→シアン→青）
+# - royal: 王室・高貴系（金→赤→紫）
+# - nature: 自然・生命系（緑→黄→赤）
+# - electric: 電気・未来系（白→ピンク→シアン）
+#
+# 【使用クラス】
+# - ThreeZoneThumbnailGenerator: メイン統合クラス
+# - DualTextSystem: メイン+サブのテキストペア生成
+# - ThreeZoneLayoutManager: 3分割レイアウト管理
+# - PersonFocusedBackground: 人物エリア保護背景処理
+# - EnhancedTextRenderer: 2段テキスト描画

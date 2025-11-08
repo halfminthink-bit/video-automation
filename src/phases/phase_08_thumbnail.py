@@ -28,6 +28,7 @@ from src.generators.pillow_thumbnail_generator import PillowThumbnailGenerator
 from src.generators.gptimage_thumbnail_generator import GPTImageThumbnailGenerator
 from src.generators.catchcopy_generator import CatchcopyGenerator
 from src.generators.impact_thumbnail_generator import create_impact_thumbnail_generator
+from src.generators.three_zone_thumbnail_generator import ThreeZoneThumbnailGenerator
 
 
 class Phase08Thumbnail(PhaseBase):
@@ -225,7 +226,7 @@ class Phase08Thumbnail(PhaseBase):
     
     def _generate_with_dalle(self, script_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        DALL-E 3 + ImpactThumbnailGenerator + Claudeでサムネイルを生成
+        DALL-E 3 + ThreeZoneThumbnailGenerator（3ゾーンレイアウト）でサムネイルを生成
 
         Args:
             script_data: 台本データ
@@ -233,107 +234,58 @@ class Phase08Thumbnail(PhaseBase):
         Returns:
             生成結果
         """
-        model_name = self.phase_config.get("gptimage", {}).get("model", "dall-e-3")
-        self.logger.info(f"🌟 Using {model_name} + ImpactThumbnailGenerator + Claude")
+        self.logger.info("🌟 Using DALL-E 3 + ThreeZoneThumbnailGenerator (3-zone layout)")
 
         # 出力ディレクトリを作成
         thumbnail_dir = self.phase_dir / "thumbnails"
         thumbnail_dir.mkdir(parents=True, exist_ok=True)
 
-        # 設定を取得
-        gptimage_config = self.phase_config.get("gptimage", {})
-        catchcopy_config = self.phase_config.get("catchcopy", {})
-
-        # 1. Claudeでキャッチコピーを生成（複数候補）
-        catchcopy_candidates = self._generate_catchcopy_candidates(script_data, catchcopy_config)
-
-        # 2. DALL-E 3で背景画像を生成（1792x1024）
-        background_generator = GPTImageThumbnailGenerator(
-            width=1792,  # 横長で生成
-            height=1024,
-            model=gptimage_config.get("model", "dall-e-3"),
-            logger=self.logger
-        )
-
-        # 背景画像を生成（テキスト無し）
-        background_path = background_generator._generate_background(
-            subject=self.subject,
-            style=gptimage_config.get("style", "dramatic"),
-            quality=gptimage_config.get("quality", "medium")
-        )
-
-        if not background_path:
-            raise PhaseExecutionError(
-                self.get_phase_number(),
-                f"Failed to generate background with {model_name}"
-            )
-
-        # 背景画像を読み込み＆リサイズ
-        from PIL import Image
-        background = Image.open(background_path)
-        background = background.resize((1280, 720), Image.Resampling.LANCZOS)
-
-        # 3. ImpactThumbnailGeneratorでサムネイルを生成
-        impact_generator = create_impact_thumbnail_generator(
+        # ThreeZoneThumbnailGeneratorを作成
+        generator = ThreeZoneThumbnailGenerator(
             config=self.phase_config,
             logger=self.logger
         )
 
-        # 各キャッチコピー候補でサムネイルを生成
-        generated_thumbnails = []
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # サムネイルを生成（内部でDALL-E 3呼び出し + 2段テキスト生成）
+        num_variations = self.phase_config.get("catchcopy", {}).get("num_candidates", 5)
 
-        for i, candidate in enumerate(catchcopy_candidates):
-            main_title = candidate.get("main_title", self.subject)
-            emotion = candidate.get("emotion", "dramatic")
+        thumbnail_paths = generator.generate_thumbnails(
+            subject=self.subject,
+            script_data=script_data,
+            output_dir=thumbnail_dir,
+            num_variations=num_variations
+        )
 
-            output_filename = f"{self.subject}_impact_thumbnail_{i+1}_{timestamp}.png"
-            output_path = thumbnail_dir / output_filename
-
-            self.logger.info(f"Generating thumbnail {i+1}/{len(catchcopy_candidates)}: {main_title} ({emotion})")
-
-            try:
-                thumbnail = impact_generator.generate_thumbnail(
-                    background=background.copy(),
-                    text=main_title,
-                    emotion=emotion,
-                    output_path=str(output_path)
-                )
-
-                generated_thumbnails.append({
-                    "pattern_index": i + 1,
-                    "title": main_title,
-                    "emotion": emotion,
-                    "reasoning": candidate.get("reasoning", ""),
-                    "file_path": str(output_path),
-                    "file_name": output_filename,
-                    "style": gptimage_config.get("style", "dramatic"),
-                })
-
-                self.logger.info(f"✓ Thumbnail {i+1} generated: {output_filename}")
-
-            except Exception as e:
-                self.logger.error(f"Failed to generate thumbnail {i+1}: {e}")
-                continue
-
-        if not generated_thumbnails:
+        if not thumbnail_paths:
             raise PhaseExecutionError(
                 self.get_phase_number(),
-                "Failed to generate any thumbnails"
+                "Failed to generate any thumbnails with ThreeZoneThumbnailGenerator"
             )
 
         # 結果を作成
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        generated_thumbnails = []
+
+        for i, path in enumerate(thumbnail_paths, 1):
+            generated_thumbnails.append({
+                "pattern_index": i,
+                "file_path": str(path),
+                "file_name": path.name,
+                "layout": "three-zone",
+                "style": self.phase_config.get("dalle", {}).get("style", "dramatic")
+            })
+
         result = {
             "subject": self.subject,
             "generated_at": timestamp,
-            "method": f"{model_name}-impact-generator",
+            "method": "dall-e-3-three-zone",
             "thumbnails": generated_thumbnails,
             "total_count": len(generated_thumbnails)
         }
 
         self._save_metadata(result)
 
-        self.logger.info(f"✓ {len(generated_thumbnails)} impact thumbnails generated")
+        self.logger.info(f"✓ {len(generated_thumbnails)} three-zone thumbnails generated")
 
         return result
     
