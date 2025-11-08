@@ -8,10 +8,17 @@ import json
 import logging
 from typing import Dict, Any, List, Optional
 from openai import OpenAI
+from dotenv import load_dotenv
+
+# .envファイルを読み込み
+load_dotenv(override=True)
 
 
 class CatchcopyGenerator:
     """Claudeを使用してキャッチコピーを生成"""
+    
+    # .envファイルが読み込まれていることを確認
+    load_dotenv(override=True)
     
     def __init__(
         self,

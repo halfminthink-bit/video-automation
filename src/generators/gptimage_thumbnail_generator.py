@@ -10,10 +10,17 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 from openai import OpenAI
 from PIL import Image, ImageDraw, ImageFont
+from dotenv import load_dotenv
+
+# .envファイルを読み込み
+load_dotenv(override=True)
 
 
 class GPTImageThumbnailGenerator:
     """DALL-E 3 / gpt-image-1 + Pillowでサムネイルを生成"""
+    
+    # .envファイルが読み込まれていることを確認
+    load_dotenv(override=True)
     
     def __init__(
         self,
