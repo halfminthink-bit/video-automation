@@ -493,8 +493,8 @@ def main():
     )
     logger = logging.getLogger(__name__)
     
-    # 設定マネージャーを作成
-    config = ConfigManager()
+    # 設定マネージャーを作成（.envの値で環境変数を上書き）
+    config = ConfigManager(env_override=True)
     
     # Phase 8を実行
     phase = Phase08Thumbnail(
@@ -506,8 +506,20 @@ def main():
     try:
         result = phase.run()
         logger.info(f"Phase 8 completed successfully")
-        logger.info(f"Generated {result.get('total_count', 0)} thumbnails")
-        
+
+        # メタデータを読み込んで詳細を表示
+        if result.status.value == "completed":
+            try:
+                metadata_path = phase.phase_dir / "metadata.json"
+                if metadata_path.exists():
+                    import json
+                    with open(metadata_path, 'r', encoding='utf-8') as f:
+                        metadata = json.load(f)
+                    logger.info(f"Generated {metadata.get('total_count', 0)} thumbnail(s)")
+                    logger.info(f"Method: {metadata.get('method', 'unknown')}")
+            except Exception as e:
+                logger.debug(f"Could not read metadata: {e}")
+
     except Exception as e:
         logger.error(f"Phase 8 failed: {e}", exc_info=True)
         sys.exit(1)

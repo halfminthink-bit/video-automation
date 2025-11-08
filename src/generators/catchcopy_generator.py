@@ -25,12 +25,11 @@ class CatchcopyGenerator:
     ):
         """
         初期化
-        
+
         Args:
             model: 使用するモデル（デフォルト: gpt-4.1-mini）
             logger: ロガー
         """
-        load_dotenv(override=True)
         self.model = model
         self.client = OpenAI()
         self.logger = logger or logging.getLogger(__name__)

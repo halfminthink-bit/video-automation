@@ -29,14 +29,13 @@ class GPTImageThumbnailGenerator:
     ):
         """
         初期化
-        
+
         Args:
             width: サムネイルの幅（デフォルト: 1280）
             height: サムネイルの高さ（デフォルト: 720）
             model: 画像生成モデル（dall-e-3 または gpt-image-1）
             logger: ロガー
         """
-        load_dotenv(override=True)
         self.width = width
         self.height = height
         self.model = model
