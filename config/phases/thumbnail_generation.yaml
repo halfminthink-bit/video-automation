@@ -4,7 +4,7 @@
 # 生成方法選択
 # - false: Pillowで画像に文字をオーバーレイ（5枚生成、無料）
 # - true: DALL-E 3でAI生成（1枚生成、高品質、$0.040/枚）
-use_dalle: false
+use_dalle: true
 
 # DALL-E 3設定（use_dalle: trueの場合）
 dalle:
