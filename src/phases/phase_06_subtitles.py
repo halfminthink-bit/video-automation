@@ -417,7 +417,7 @@ class Phase06Subtitles(PhaseBase):
         audio_timing.json から字幕を生成（最終版）
 
         ルール:
-        1. 1行の推奨文字数: 15文字
+        1. 1行の推奨文字数: 16文字
         2. 1行の最大文字数: 18文字（絶対制限）
         3. 19文字以上: 字幕を分割すべき
         """
@@ -434,8 +434,8 @@ class Phase06Subtitles(PhaseBase):
         max_chars_per_line = self.phase_config.get("max_chars_per_line", 15)
         max_chars_per_subtitle = max_chars_per_line * 2  # 32文字
 
-        # 1行の絶対的な制限（厳格に15文字）
-        ABSOLUTE_MAX_CHARS_PER_LINE = 15  # これを超えたら必ず字幕を分割
+        # 1行の絶対的な制限（厳格に16文字）
+        ABSOLUTE_MAX_CHARS_PER_LINE = 16  # これを超えたら必ず字幕を分割
 
         # 複数の「、」がある文を分割する閾値
         MULTI_COMMA_THRESHOLD = 25
@@ -798,7 +798,7 @@ class Phase06Subtitles(PhaseBase):
         """
         複数の「、」がある長めの文を分割
         
-        各チャンクが1行（15文字程度）で収まるように細かく分割
+        各チャンクが1行（16文字程度）で収まるように細かく分割
 
         Args:
             sentence: 文のデータ（text, start_time, end_time, char_data）
@@ -1027,15 +1027,15 @@ class Phase06Subtitles(PhaseBase):
         5. 中央での強制分割
 
         ルール:
-        - 推奨: 各行15文字以内
-        - 最大: 各行15文字以内（厳格な制限）
+        - 推奨: 各行16文字以内
+        - 最大: 各行16文字以内（厳格な制限）
         - 繰り返し記号（々、ー等）の直前では分割しない
         - 句読点のみの行は作らない（句読点を削除）
 
         Args:
             text: 分割するテキスト
-            recommended_max: 推奨最大文字数（15文字）
-            absolute_max: 絶対的な最大文字数（15文字）
+            recommended_max: 推奨最大文字数（16文字）
+            absolute_max: 絶対的な最大文字数（16文字）
 
         Returns:
             (line1, line2) のタプル

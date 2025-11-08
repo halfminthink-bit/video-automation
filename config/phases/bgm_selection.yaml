@@ -36,7 +36,7 @@ timing:
 
 # デフォルト設定
 default_settings:
-  volume: 0.3  # ナレーションの30%の音量
+  volume: 0.24  # ナレーションの24%の音量 (20%削減)
   fade_in_duration: 2.0  # フェードイン時間（秒）
   fade_out_duration: 2.0  # フェードアウト時間（秒）
 
