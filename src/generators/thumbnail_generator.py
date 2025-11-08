@@ -199,23 +199,71 @@ class ThumbnailGenerator:
     ) -> Tuple[int, int, int]:
         """
         複数色を補間
-        
+
         Args:
             colors: 色のリスト [(R,G,B), ...]
             ratio: 補間比率（0.0〜1.0）
-            
+
         Returns:
             補間された色 (R, G, B)
         """
         if len(colors) < 2:
             return colors[0] if colors else (255, 255, 255)
-        
+
         # どの2色の間にあるかを計算
         segment_count = len(colors) - 1
         segment = min(int(ratio * segment_count), segment_count - 1)
         local_ratio = (ratio * segment_count) - segment
-        
+
         return self._interpolate_color(colors[segment], colors[segment + 1], local_ratio)
+
+    def _apply_vignette(self, img: Image.Image, strength: float = 0.6) -> Image.Image:
+        """
+        ビネット効果（周辺減光）を適用
+
+        Args:
+            img: 元画像
+            strength: ビネットの強さ（0.0〜1.0）
+
+        Returns:
+            ビネット効果適用後の画像
+        """
+        width, height = img.size
+
+        # 楕円形のマスクを作成
+        mask = Image.new('L', (width, height), 255)
+        mask_draw = ImageDraw.Draw(mask)
+
+        # 中心から周辺に向かって暗くなるグラデーション
+        for i in range(100):
+            # 中心から外側へ
+            ratio = i / 100.0
+            alpha = int(255 * (1 - strength * ratio))
+
+            # 楕円のサイズを計算
+            margin_x = int(width * ratio * 0.4)
+            margin_y = int(height * ratio * 0.4)
+
+            bbox = [
+                margin_x,
+                margin_y,
+                width - margin_x,
+                height - margin_y
+            ]
+
+            mask_draw.ellipse(bbox, fill=alpha)
+
+        # 元画像にマスクを適用
+        if img.mode == 'RGB':
+            img = img.convert('RGBA')
+
+        # 黒い背景を作成
+        black_bg = Image.new('RGBA', (width, height), (0, 0, 0, 255))
+
+        # ビネット効果を合成
+        result = Image.composite(img, black_bg, mask)
+
+        return result
     
     def _add_text_to_image_impact(
         self,
@@ -225,23 +273,45 @@ class ThumbnailGenerator:
     ) -> Image.Image:
         """
         超インパクトのあるグラデーションテキストを追加
-        
+
         Args:
             img: ベース画像
             title: タイトルテキスト
             pattern_index: パターンインデックス
-            
+
         Returns:
             テキスト追加後の画像
         """
+        # =========================================
+        # 背景処理の改善（文字を際立たせる）
+        # =========================================
+        # 1. 彩度を下げる（0.7倍）
+        enhancer_saturation = ImageEnhance.Color(img)
+        img = enhancer_saturation.enhance(0.7)
+
+        # 2. 明度を下げる（0.6倍）
+        enhancer_brightness = ImageEnhance.Brightness(img)
+        img = enhancer_brightness.enhance(0.6)
+
+        # 3. ビネット効果の強化（周辺減光）
+        img = self._apply_vignette(img, strength=0.6)
+
         # RGBA変換（透明度を扱うため）
         if img.mode != 'RGBA':
             img = img.convert('RGBA')
-        
-        # フォント設定を取得
-        main_font_config = self.font_config.get("main_title", {})
-        font_size = main_font_config.get("size_base", 80)  # より大きく
-        
+
+        # フォントサイズを文字数に応じて動的に決定
+        # 超インパクト重視：5文字以下=180px, 6-10文字=150px, 11文字以上=120px
+        title_length = len(title)
+        if title_length <= 5:
+            font_size = 180
+        elif title_length <= 10:
+            font_size = 150
+        else:
+            font_size = 120
+
+        self.logger.info(f"Title length: {title_length} chars, Font size: {font_size}px")
+
         # インパクトフォントを読み込み
         font = self._load_japanese_font(font_size)
         
@@ -278,18 +348,18 @@ class ThumbnailGenerator:
             x = (width - text_width) // 2
             y = height - text_height - margins.get("bottom", 60)
         
-        # パターン別のグラデーション色を定義
+        # パターン別のグラデーション色を定義（指示書準拠）
         gradient_patterns = [
-            # パターン1: 赤→黄（ホットな印象）
-            [(255, 80, 80), (255, 200, 60), (255, 255, 100)],
-            # パターン2: オレンジ→黄（エネルギッシュ）
-            [(255, 140, 0), (255, 200, 0), (255, 255, 80)],
-            # パターン3: 白→青（クール）
-            [(255, 255, 255), (100, 200, 255), (60, 150, 255)],
-            # パターン4: ピンク→紫（ドラマチック）
-            [(255, 100, 200), (200, 100, 255), (150, 80, 255)],
-            # パターン5: 緑→黄（フレッシュ）
-            [(100, 255, 100), (200, 255, 100), (255, 255, 100)],
+            # パターン1: 白→赤→黄（ホットな印象）
+            [(255, 255, 255), (255, 0, 0), (255, 255, 0)],
+            # パターン2: 赤→橙→黄（エネルギッシュ）
+            [(255, 0, 0), (255, 127, 0), (255, 255, 0)],
+            # パターン3: シアン→青（クール）
+            [(0, 255, 255), (0, 128, 255), (0, 0, 255)],
+            # パターン4: 白→ピンク→紫（ドラマチック）
+            [(255, 255, 255), (255, 20, 147), (148, 0, 211)],
+            # パターン5: 緑→黄→赤（フレッシュ）
+            [(0, 255, 0), (255, 255, 0), (255, 0, 0)],
         ]
         
         gradient_colors = gradient_patterns[pattern_index % len(gradient_patterns)]
@@ -336,31 +406,31 @@ class ThumbnailGenerator:
             text_layer = Image.alpha_composite(text_layer, shadow_draw._image)
         
         # =========================================
-        # 3. 黒い太縁（最も重要な輪郭）
+        # 3. 黒い太縁（最も重要な輪郭）- 25px
         # =========================================
         draw.text(
             (x, y),
             title,
             font=font,
             fill=(255, 255, 255, 0),  # 透明
-            stroke_width=18,
+            stroke_width=25,
             stroke_fill=(0, 0, 0, 255)
         )
-        
+
         # =========================================
-        # 4. 白い縁（黒縁の内側）
+        # 4. 白い縁（黒縁の内側）- 15px
         # =========================================
         draw.text(
             (x, y),
             title,
             font=font,
             fill=(255, 255, 255, 0),  # 透明
-            stroke_width=12,
+            stroke_width=15,
             stroke_fill=(255, 255, 255, 255)
         )
-        
+
         # =========================================
-        # 5. カラー縁（グラデーションと調和）
+        # 5. カラー縁（グラデーションと調和）- 8px
         # =========================================
         # グラデーションの開始色を使用
         accent_color = gradient_colors[0]
@@ -369,7 +439,7 @@ class ThumbnailGenerator:
             title,
             font=font,
             fill=(255, 255, 255, 0),  # 透明
-            stroke_width=6,
+            stroke_width=8,
             stroke_fill=accent_color + (255,)
         )
         
