@@ -13,12 +13,13 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 class GPTImageThumbnailGenerator:
-    """gpt-image-1 + Pillowでサムネイルを生成"""
+    """DALL-E 3 / gpt-image-1 + Pillowでサムネイルを生成"""
     
     def __init__(
         self,
         width: int = 1280,
         height: int = 720,
+        model: str = "dall-e-3",
         logger: Optional[logging.Logger] = None
     ):
         """
@@ -27,10 +28,12 @@ class GPTImageThumbnailGenerator:
         Args:
             width: サムネイルの幅（デフォルト: 1280）
             height: サムネイルの高さ（デフォルト: 720）
+            model: 画像生成モデル（dall-e-3 または gpt-image-1）
             logger: ロガー
         """
         self.width = width
         self.height = height
+        self.model = model
         self.client = OpenAI()
         self.logger = logger or logging.getLogger(__name__)
     
@@ -105,21 +108,32 @@ class GPTImageThumbnailGenerator:
         Returns:
             生成された背景画像のパス（失敗時はNone）
         """
-        self.logger.info("Generating background image with gpt-image-1...")
+        self.logger.info(f"Generating background image with {self.model}...")
         
         # プロンプトを構築
         prompt = self._build_image_prompt(subject, style)
         self.logger.debug(f"Image prompt: {prompt}")
         
         try:
-            # gpt-image-1で画像を生成
-            response = self.client.images.generate(
-                model="gpt-image-1",
-                prompt=prompt,
-                size="1024x1024",
-                quality=quality,
-                n=1
-            )
+            # 画像を生成
+            if self.model == "dall-e-3":
+                # DALL-E 3は quality パラメータをサポート
+                response = self.client.images.generate(
+                    model="dall-e-3",
+                    prompt=prompt,
+                    size="1024x1024",
+                    quality="standard" if quality == "low" or quality == "medium" else "hd",
+                    n=1
+                )
+            else:
+                # gpt-image-1
+                response = self.client.images.generate(
+                    model="gpt-image-1",
+                    prompt=prompt,
+                    size="1024x1024",
+                    quality=quality,
+                    n=1
+                )
             
             # 画像URLを取得
             image_url = response.data[0].url
