@@ -21,13 +21,13 @@ gptimage:
   quality: "medium"         # 画像品質（low, medium, high）
   layout: "center"          # テキストレイアウト（center, left, right）
 
-# Claudeキャッチコピー生成設定
+# Claudeキャッチコピー生成設定（超短文特化）
 catchcopy:
   enabled: true             # キャッチコピー生成を有効化
   model: "gpt-4.1-mini"     # 使用するモデル
   tone: "dramatic"          # トーン（dramatic, professional, casual, mysterious）
   target_audience: "一般"   # ターゲット層
-  main_title_length: 10     # メインタイトルの最大文字数（超短文・超インパクト）
+  main_title_length: 7      # メインタイトルの最大文字数（7文字厳守・理想5文字）
   sub_title_length: 8       # サブタイトルの最大文字数
   num_candidates: 5         # 生成する候補数
 
@@ -65,35 +65,69 @@ text_generation:
     - "知られざる{subject}"
 
 # フォント設定（超インパクト版）
+font:
+  # フォントパス（Windows/Linux対応・自動検出）
+  path: null  # nullの場合は自動検出（assets/fonts/, C:\Windows\Fonts, /usr/share/fonts）
+  target_coverage: 0.7  # 画面占有率（0.7 = 70%）
+
 fonts:
   main_title:
     family: "GenEi Kiwami Gothic"  # 源暎きわみゴシック
     weight: "Bold"
     size_base: 150                  # 超大幅拡大（90→150）
-    size_range: [120, 180]          # サイズ範囲：文字数に応じて自動調整
+    size_range: [120, 200]          # サイズ範囲：文字数に応じて自動調整（1文字=200px, 8文字=110px）
   subtitle:
     family: "GenEi Kiwami Gothic"
     weight: "Medium"
     size_base: 60                   # より大きく（45→60）
     size_range: [50, 70]
 
-# テキストスタイル設定（超インパクト版）
+# グラデーションパターン設定（ImpactThumbnailGenerator用）
+gradient_patterns:
+  fire: ["#FFFFFF", "#FF0000", "#FFFF00"]      # 白→赤→黄（ホット・劇的）
+  ocean: ["#FFFFFF", "#00FFFF", "#0080FF"]     # 白→シアン→青（クール・事実）
+  sunset: ["#FF0000", "#FF7F00", "#FFFF00"]    # 赤→橙→黄（エネルギッシュ・対立）
+  neon: ["#FFFFFF", "#FF1493", "#9400D3"]      # 白→ピンク→紫（ドラマチック・謎）
+  energy: ["#00FF00", "#FFFF00", "#FF0000"]    # 緑→黄→赤（フレッシュ・命令）
+
+# 多重縁取り設定（ImpactThumbnailGenerator用）
+multi_stroke:
+  layers:
+    - width: 30
+      color: "#000000"
+      opacity: 255
+    - width: 18
+      color: "#FFFFFF"
+      opacity: 255
+    - width: 8
+      color: "gradient_start"  # グラデーション開始色を使用
+      opacity: 255
+
+# エフェクト設定（ImpactThumbnailGenerator用）
+effects:
+  shadow:
+    layers: 10               # シャドウレイヤー数
+    max_offset: 20           # 最大オフセット（ピクセル）
+    blur_radius: 5           # ぼかし半径
+  glow:
+    radius: 30               # グローの範囲
+    intensity: 0.7           # グローの強度（0.0〜1.0）
+    color: "auto"            # "auto"の場合は黒
+  vignette:
+    strength: 0.6            # ビネットの強さ（0.0〜1.0）
+
+# 背景処理設定（ImpactThumbnailGenerator用）
+background:
+  darken_factor: 0.6         # 暗くする係数（0.6 = 60%）
+  saturation_factor: 0.7     # 彩度係数（0.7 = 70%）
+  brightness_factor: 0.6     # 明度係数（0.6 = 60%）
+
+# テキストスタイル設定（レガシー・互換性用）
 text_style:
-  # グラデーション色パターン（コード内で定義）
-  # パターン1: 白→赤→黄（ホット）
-  # パターン2: 赤→橙→黄（エネルギッシュ）
-  # パターン3: シアン→青（クール）
-  # パターン4: 白→ピンク→紫（ドラマチック）
-  # パターン5: 緑→黄→赤（フレッシュ）
-  
-  # 縁取り設定（超強化版）
+  # 縁取り設定
   stroke:
     enabled: true
-    # 多重縁取り：
-    # 1. 黒縁25px（最外）
-    # 2. 白縁15px
-    # 3. カラー縁8px（グラデーションと調和）
-    width: 25                    # 最大幅（超強化: 18→25）
+    width: 30                    # 最大幅（超強化: 25→30）
     colors:
       outer: "#000000"           # 外側: 黒
       middle: "#FFFFFF"          # 中間: 白

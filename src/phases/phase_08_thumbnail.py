@@ -27,6 +27,7 @@ from src.generators.thumbnail_generator import create_thumbnail_generator
 from src.generators.pillow_thumbnail_generator import PillowThumbnailGenerator
 from src.generators.gptimage_thumbnail_generator import GPTImageThumbnailGenerator
 from src.generators.catchcopy_generator import CatchcopyGenerator
+from src.generators.impact_thumbnail_generator import create_impact_thumbnail_generator
 
 
 class Phase08Thumbnail(PhaseBase):
@@ -224,126 +225,190 @@ class Phase08Thumbnail(PhaseBase):
     
     def _generate_with_dalle(self, script_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        DALL-E 3 / gpt-image-1 + Pillow + Claudeでサムネイルを生成
-        
+        DALL-E 3 + ImpactThumbnailGenerator + Claudeでサムネイルを生成
+
         Args:
             script_data: 台本データ
-            
+
         Returns:
             生成結果
         """
         model_name = self.phase_config.get("gptimage", {}).get("model", "dall-e-3")
-        self.logger.info(f"🌟 Using {model_name} + Pillow + Claude for thumbnail generation")
-        
+        self.logger.info(f"🌟 Using {model_name} + ImpactThumbnailGenerator + Claude")
+
         # 出力ディレクトリを作成
         thumbnail_dir = self.phase_dir / "thumbnails"
         thumbnail_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # 設定を取得
         gptimage_config = self.phase_config.get("gptimage", {})
         catchcopy_config = self.phase_config.get("catchcopy", {})
-        
-        # 1. Claudeでキャッチコピーを生成
-        title, subtitle = self._generate_catchcopy(script_data, catchcopy_config)
-        
-        # 2. DALL-E 3 / GPT Image 1 + Pillowでサムネイルを生成
-        generator = GPTImageThumbnailGenerator(
-            width=gptimage_config.get("width", 1280),
-            height=gptimage_config.get("height", 720),
+
+        # 1. Claudeでキャッチコピーを生成（複数候補）
+        catchcopy_candidates = self._generate_catchcopy_candidates(script_data, catchcopy_config)
+
+        # 2. DALL-E 3で背景画像を生成（1792x1024）
+        background_generator = GPTImageThumbnailGenerator(
+            width=1792,  # 横長で生成
+            height=1024,
             model=gptimage_config.get("model", "dall-e-3"),
             logger=self.logger
         )
-        
-        output_path = thumbnail_dir / f"{self.subject}_thumbnail.png"
-        self.logger.info(f"Generating thumbnail: {title}")
-        
-        thumbnail_path = generator.generate_thumbnail(
-            title=title,
+
+        # 背景画像を生成（テキスト無し）
+        background_path = background_generator._generate_background(
             subject=self.subject,
-            subtitle=subtitle,
             style=gptimage_config.get("style", "dramatic"),
-            quality=gptimage_config.get("quality", "medium"),
-            layout=gptimage_config.get("layout", "center"),
-            output_path=str(output_path),
+            quality=gptimage_config.get("quality", "medium")
         )
-        
-        if not thumbnail_path:
-            model_name = gptimage_config.get("model", "dall-e-3")
+
+        if not background_path:
             raise PhaseExecutionError(
                 self.get_phase_number(),
-                f"Failed to generate thumbnail with {model_name}"
+                f"Failed to generate background with {model_name}"
             )
-        
-        # 結果を作成
+
+        # 背景画像を読み込み＆リサイズ
+        from PIL import Image
+        background = Image.open(background_path)
+        background = background.resize((1280, 720), Image.Resampling.LANCZOS)
+
+        # 3. ImpactThumbnailGeneratorでサムネイルを生成
+        impact_generator = create_impact_thumbnail_generator(
+            config=self.phase_config,
+            logger=self.logger
+        )
+
+        # 各キャッチコピー候補でサムネイルを生成
+        generated_thumbnails = []
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        for i, candidate in enumerate(catchcopy_candidates):
+            main_title = candidate.get("main_title", self.subject)
+            emotion = candidate.get("emotion", "dramatic")
+
+            output_filename = f"{self.subject}_impact_thumbnail_{i+1}_{timestamp}.png"
+            output_path = thumbnail_dir / output_filename
+
+            self.logger.info(f"Generating thumbnail {i+1}/{len(catchcopy_candidates)}: {main_title} ({emotion})")
+
+            try:
+                thumbnail = impact_generator.generate_thumbnail(
+                    background=background.copy(),
+                    text=main_title,
+                    emotion=emotion,
+                    output_path=str(output_path)
+                )
+
+                generated_thumbnails.append({
+                    "pattern_index": i + 1,
+                    "title": main_title,
+                    "emotion": emotion,
+                    "reasoning": candidate.get("reasoning", ""),
+                    "file_path": str(output_path),
+                    "file_name": output_filename,
+                    "style": gptimage_config.get("style", "dramatic"),
+                })
+
+                self.logger.info(f"✓ Thumbnail {i+1} generated: {output_filename}")
+
+            except Exception as e:
+                self.logger.error(f"Failed to generate thumbnail {i+1}: {e}")
+                continue
+
+        if not generated_thumbnails:
+            raise PhaseExecutionError(
+                self.get_phase_number(),
+                "Failed to generate any thumbnails"
+            )
+
+        # 結果を作成
         result = {
             "subject": self.subject,
             "generated_at": timestamp,
-            "method": f"{gptimage_config.get('model', 'dall-e-3')}-pillow-claude",
-            "thumbnails": [{
-                "pattern_index": 1,
-                "title": title,
-                "subtitle": subtitle,
-                "file_path": str(thumbnail_path),
-                "file_name": Path(thumbnail_path).name,
-                "style": gptimage_config.get("style", "dramatic"),
-                "quality": gptimage_config.get("quality", "medium"),
-            }],
-            "total_count": 1
+            "method": f"{model_name}-impact-generator",
+            "thumbnails": generated_thumbnails,
+            "total_count": len(generated_thumbnails)
         }
-        
+
         self._save_metadata(result)
-        
-        model_name = gptimage_config.get("model", "dall-e-3")
-        self.logger.info(f"✓ {model_name} thumbnail generated: {Path(thumbnail_path).name}")
-        
+
+        self.logger.info(f"✓ {len(generated_thumbnails)} impact thumbnails generated")
+
         return result
     
-    def _generate_catchcopy(
+    def _generate_catchcopy_candidates(
         self,
         script_data: Dict[str, Any],
         catchcopy_config: Dict[str, Any]
-    ) -> tuple:
+    ) -> List[Dict[str, str]]:
         """
-        Claudeでキャッチコピーを生成
-        
+        Claudeでキャッチコピー候補を生成（複数）
+
         Args:
             script_data: 台本データ
             catchcopy_config: キャッチコピー設定
-            
+
         Returns:
-            (title, subtitle) のタプル
+            キャッチコピー候補のリスト
         """
         if not catchcopy_config.get("enabled", True):
             # キャッチコピー生成が無効の場合はデフォルトを返す
             self.logger.info("Catchcopy generation disabled, using default title")
-            return (self.subject, None)
-        
+            return [{
+                "main_title": self.subject,
+                "sub_title": None,
+                "emotion": "dramatic",
+                "reasoning": "Default (catchcopy generation disabled)"
+            }]
+
         # キャッチコピージェネレーターを作成
         generator = CatchcopyGenerator(
             model=catchcopy_config.get("model", "gpt-4.1-mini"),
             logger=self.logger
         )
-        
+
         # キャッチコピーを生成
         candidates = generator.generate_catchcopy(
             subject=self.subject,
             script_data=script_data,
             tone=catchcopy_config.get("tone", "dramatic"),
             target_audience=catchcopy_config.get("target_audience", "一般"),
-            main_length=catchcopy_config.get("main_title_length", 20),
+            main_length=catchcopy_config.get("main_title_length", 7),
             sub_length=catchcopy_config.get("sub_title_length", 10),
             num_candidates=catchcopy_config.get("num_candidates", 5)
         )
-        
+
         # 候補を保存
         self._save_catchcopy_candidates(candidates)
-        
+
+        self.logger.info(f"Generated {len(candidates)} catchcopy candidates")
+
+        return candidates
+
+    def _generate_catchcopy(
+        self,
+        script_data: Dict[str, Any],
+        catchcopy_config: Dict[str, Any]
+    ) -> tuple:
+        """
+        Claudeでキャッチコピーを生成（レガシーメソッド）
+
+        Args:
+            script_data: 台本データ
+            catchcopy_config: キャッチコピー設定
+
+        Returns:
+            (title, subtitle) のタプル
+        """
+        # 複数候補を生成
+        candidates = self._generate_catchcopy_candidates(script_data, catchcopy_config)
+
         # 最初の候補を選択
         selected = candidates[0] if candidates else {"main_title": self.subject, "sub_title": None}
-        
+
         self.logger.info(f"Selected catchcopy: {selected.get('main_title')} / {selected.get('sub_title')}")
-        
+
         return (selected.get("main_title"), selected.get("sub_title"))
     
     def _save_catchcopy_candidates(self, candidates: List[Dict[str, str]]) -> None:
