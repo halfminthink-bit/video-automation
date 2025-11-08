@@ -15,6 +15,7 @@ try:
         AudioFileClip,
         CompositeVideoClip,
         concatenate_videoclips,
+        concatenate_audioclips,
         TextClip,
         CompositeAudioClip,
         ColorClip,
@@ -336,10 +337,19 @@ class Phase07Composition(PhaseBase):
         try:
             with open(audio_timing_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            self.logger.info(f"✓ Loaded audio timing data with {len(data.get('sections', []))} sections")
+            
+            # Phase 2がリスト形式で保存している場合、辞書形式に変換
+            if isinstance(data, list):
+                self.logger.debug("Converting audio_timing.json from list to dict format")
+                data = {'sections': data}
+            
+            sections = data.get('sections', [])
+            self.logger.info(f"✓ Loaded audio timing data with {len(sections)} sections")
             return data
         except Exception as e:
             self.logger.error(f"Failed to load audio_timing.json: {e}")
+            import traceback
+            self.logger.debug(traceback.format_exc())
             return None
     
     def _get_section_duration(self, section_id: int, audio_timing: Optional[dict]) -> float:
@@ -568,7 +578,8 @@ class Phase07Composition(PhaseBase):
                 if bgm_clip.duration < duration:
                     loops_needed = int(duration / bgm_clip.duration) + 1
                     self.logger.debug(f"  Looping BGM {loops_needed} times (original: {original_duration:.1f}s, needed: {duration:.1f}s)")
-                    bgm_clip = bgm_clip.looped(loops_needed)
+                    # MoviePy 2.xではlooped()メソッドがないため、手動でループ
+                    bgm_clip = concatenate_audioclips([bgm_clip] * loops_needed)
 
                 # 必要な長さにトリミング
                 bgm_clip = bgm_clip.subclipped(0, min(duration, bgm_clip.duration))
