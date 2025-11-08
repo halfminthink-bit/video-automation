@@ -325,8 +325,54 @@ class Phase07Composition(PhaseBase):
         self.logger.info(f"Loaded {len(subtitles)} subtitles")
         return subtitles
     
+    def _load_audio_timing(self) -> Optional[dict]:
+        """Phase 2の音声タイミングデータを読み込み"""
+        audio_timing_path = self.working_dir / "02_audio" / "audio_timing.json"
+        
+        if not audio_timing_path.exists():
+            self.logger.warning(f"audio_timing.json not found: {audio_timing_path}")
+            return None
+        
+        try:
+            with open(audio_timing_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            self.logger.info(f"✓ Loaded audio timing data with {len(data.get('sections', []))} sections")
+            return data
+        except Exception as e:
+            self.logger.error(f"Failed to load audio_timing.json: {e}")
+            return None
+    
+    def _get_section_duration(self, section_id: int, audio_timing: Optional[dict]) -> float:
+        """セクションの実際の音声長を取得"""
+        if not audio_timing:
+            # フォールバック: 音声ファイルから直接取得
+            audio_file = self.working_dir / "02_audio" / f"section_{section_id:02d}.mp3"
+            if audio_file.exists():
+                try:
+                    audio_clip = AudioFileClip(str(audio_file))
+                    duration = audio_clip.duration
+                    audio_clip.close()
+                    self.logger.debug(f"Got duration from audio file: {duration:.2f}s")
+                    return duration
+                except Exception as e:
+                    self.logger.warning(f"Failed to get duration from {audio_file}: {e}")
+            
+            # 最後のフォールバック: デフォルト値
+            self.logger.warning(f"Using default duration for section {section_id}")
+            return 120.0
+        
+        # audio_timing.jsonから取得
+        for section in audio_timing.get('sections', []):
+            if section.get('section_id') == section_id:
+                duration = section.get('duration', 120.0)
+                self.logger.debug(f"Section {section_id} actual duration: {duration:.2f}s")
+                return duration
+        
+        self.logger.warning(f"Section {section_id} not found in audio_timing.json")
+        return 120.0
+    
     def _load_bgm(self) -> Optional[dict]:
-        """BGMデータを読み込み（台本ベース）"""
+        """BGMデータを読み込み（実際の音声長を使用）"""
         # BGMフォルダのパス（プロジェクトルートからの絶対パス）
         bgm_library_config = self.config.get("paths", {}).get("bgm_library", "assets/bgm")
         bgm_base_path = Path(bgm_library_config)
@@ -345,11 +391,15 @@ class Phase07Composition(PhaseBase):
         # 台本を読み込んでBGM情報を取得
         script = self._load_script()
         
+        # 音声タイミングデータを読み込み（実際の音声長を取得するため）
+        audio_timing = self._load_audio_timing()
+        
         bgm_segments = []
         current_time = 0.0
         
         # 辞書として扱う（script["sections"]）
         for section in script.get("sections", []):
+            section_id = section.get("section_id", 0)
             bgm_type = section.get("bgm_suggestion", "main")  # "opening", "main", "ending"
 
             # BGMフォルダからファイルを探す
@@ -368,17 +418,20 @@ class Phase07Composition(PhaseBase):
             bgm_file = bgm_files[0]  # 最初のファイルを使用
             self.logger.debug(f"Found BGM file: {bgm_file.name} for type '{bgm_type}'")
             
+            # 実際の音声長を取得（audio_timing.jsonまたは音声ファイルから）
+            actual_duration = self._get_section_duration(section_id, audio_timing)
+            
             segment = {
                 "bgm_type": bgm_type,
                 "file_path": str(bgm_file),
                 "start_time": current_time,
-                "duration": section.get("estimated_duration", 120),
-                "section_id": section.get("section_id", 0),
+                "duration": actual_duration,  # ← 実際の音声長を使用
+                "section_id": section_id,
                 "section_title": section.get("title", "")
             }
             
             bgm_segments.append(segment)
-            current_time += segment["duration"]
+            current_time += actual_duration  # ← 実際の長さで累積
             
             self.logger.debug(
                 f"BGM segment {segment['section_id']}: {bgm_type} "
@@ -389,9 +442,13 @@ class Phase07Composition(PhaseBase):
             self.logger.warning("No BGM segments created - check if BGM files exist in assets/bgm/{opening,main,ending}/")
             return None
 
-        self.logger.info(f"✓ Created {len(bgm_segments)} BGM segments from script:")
+        self.logger.info(f"✓ Created {len(bgm_segments)} BGM segments (using actual audio durations):")
         for seg in bgm_segments:
-            self.logger.info(f"  - {seg['bgm_type']}: {seg['section_title']} ({seg['duration']:.1f}s)")
+            self.logger.info(
+                f"  - Section {seg['section_id']}: {seg['bgm_type']} "
+                f"({seg['start_time']:.1f}s - {seg['start_time'] + seg['duration']:.1f}s, "
+                f"duration: {seg['duration']:.1f}s) - {seg['section_title']}"
+            )
         return {"segments": bgm_segments}
     
     def _create_video_clips(
