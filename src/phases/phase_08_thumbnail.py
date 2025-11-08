@@ -23,7 +23,7 @@ from src.core.exceptions import (
     PhaseInputMissingError
 )
 from src.generators.thumbnail_generator import create_thumbnail_generator
-from src.generators.dalle_thumbnail_generator import DallEThumbnailGenerator
+from src.generators.pillow_thumbnail_generator import PillowThumbnailGenerator
 
 
 class Phase08Thumbnail(PhaseBase):
@@ -221,7 +221,7 @@ class Phase08Thumbnail(PhaseBase):
     
     def _generate_with_dalle(self, script_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        DALL-E 3を使用してサムネイルを生成
+        Pillow（改善版）を使用してサムネイルを生成
         
         Args:
             script_data: 台本データ
@@ -229,42 +229,52 @@ class Phase08Thumbnail(PhaseBase):
         Returns:
             生成結果
         """
-        self.logger.info("⚡ Using DALL-E 3 for thumbnail generation")
+        self.logger.info("🎨 Using Pillow (Enhanced) for thumbnail generation")
         
         # 出力ディレクトリを作成
         thumbnail_dir = self.phase_dir / "thumbnails"
         thumbnail_dir.mkdir(parents=True, exist_ok=True)
         
-        # DALL-E 3設定を取得
-        dalle_config = self.phase_config.get("dalle", {})
+        # Pillow設定を取得
+        pillow_config = self.phase_config.get("pillow", {})
         
-        # DALL-E 3ジェネレーターを作成
-        dalle_generator = DallEThumbnailGenerator(
-            output_dir=thumbnail_dir,
-            size=dalle_config.get("size", "1024x1024"),
-            quality=dalle_config.get("quality", "standard"),
+        # Pillowジェネレーターを作成
+        pillow_generator = PillowThumbnailGenerator(
+            width=pillow_config.get("width", 1280),
+            height=pillow_config.get("height", 720),
         )
         
-        # タイトルを生成
-        title = f"{self.subject}の真実"  # デフォルトタイトル
-        subject_desc = script_data.get("subject", self.subject)
+        # タイトルを取得
+        title = script_data.get("subject", self.subject)
         
-        # スタイルを取得
-        style = dalle_config.get("style", "dramatic")
+        # 背景画像を探す（Phase 3で生成された最初の画像）
+        background_image = None
+        images_dir = self.config.get_phase_dir(self.subject, 3) / "images"
+        if images_dir.exists():
+            images = sorted(images_dir.glob("section_*_sd_*.png"))
+            if images:
+                background_image = str(images[0])
+                self.logger.info(f"Found background image: {images[0].name}")
         
-        # サムネイルを生成（1枚のみ）
-        self.logger.info(f"Generating thumbnail with DALL-E 3: {title}")
-        thumbnail_path = dalle_generator.generate_thumbnail(
+        # レイアウトを選択
+        layout = pillow_config.get("layout", "background" if background_image else "center")
+        
+        # サムネイルを生成
+        output_path = thumbnail_dir / f"{self.subject}_thumbnail.png"
+        self.logger.info(f"Generating thumbnail: {title}")
+        
+        thumbnail_path = pillow_generator.generate_thumbnail(
             title=title,
-            subject=subject_desc,
-            base_filename=self.subject,
-            style=style,
+            subtitle=None,
+            background_image=background_image,
+            layout=layout,
+            output_path=str(output_path),
         )
         
         if not thumbnail_path:
             raise PhaseExecutionError(
                 self.get_phase_number(),
-                "Failed to generate thumbnail with DALL-E 3"
+                "Failed to generate thumbnail with Pillow"
             )
         
         # 結果を作成
@@ -272,20 +282,21 @@ class Phase08Thumbnail(PhaseBase):
         result = {
             "subject": self.subject,
             "generated_at": timestamp,
-            "method": "dalle-3",
+            "method": "pillow-enhanced",
             "thumbnails": [{
                 "pattern_index": 1,
                 "title": title,
                 "file_path": str(thumbnail_path),
-                "file_name": thumbnail_path.name,
-                "style": style,
+                "file_name": Path(thumbnail_path).name,
+                "layout": layout,
+                "background_image": background_image,
             }],
             "total_count": 1
         }
         
         self._save_metadata(result)
         
-        self.logger.info(f"✓ DALL-E 3 thumbnail generated: {thumbnail_path.name}")
+        self.logger.info(f"✓ Pillow thumbnail generated: {Path(thumbnail_path).name}")
         
         return result
     
@@ -433,7 +444,7 @@ def main():
     )
     
     try:
-        result = phase.run(force=args.force)
+        result = phase.run()
         logger.info(f"Phase 8 completed successfully")
         logger.info(f"Generated {result.get('total_count', 0)} thumbnails")
         
