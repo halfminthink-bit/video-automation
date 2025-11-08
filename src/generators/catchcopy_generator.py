@@ -7,7 +7,12 @@ Claudeを使用してYouTubeサムネイル用のバズるキャッチコピー�
 import json
 import logging
 from typing import Dict, Any, List, Optional
+from dotenv import load_dotenv
 from openai import OpenAI
+
+
+# Ensure .env values override existing environment variables
+load_dotenv(override=True)
 
 
 class CatchcopyGenerator:
@@ -25,6 +30,7 @@ class CatchcopyGenerator:
             model: 使用するモデル（デフォルト: gpt-4.1-mini）
             logger: ロガー
         """
+        load_dotenv(override=True)
         self.model = model
         self.client = OpenAI()
         self.logger = logger or logging.getLogger(__name__)

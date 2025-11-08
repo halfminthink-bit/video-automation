@@ -8,8 +8,13 @@ import logging
 import requests
 from pathlib import Path
 from typing import Optional, Dict, Any
+from dotenv import load_dotenv
 from openai import OpenAI
 from PIL import Image, ImageDraw, ImageFont
+
+
+# Ensure .env values override existing environment variables
+load_dotenv(override=True)
 
 
 class GPTImageThumbnailGenerator:
@@ -31,6 +36,7 @@ class GPTImageThumbnailGenerator:
             model: 画像生成モデル（dall-e-3 または gpt-image-1）
             logger: ロガー
         """
+        load_dotenv(override=True)
         self.width = width
         self.height = height
         self.model = model
