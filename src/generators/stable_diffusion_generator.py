@@ -137,9 +137,13 @@ class StableDiffusionGenerator:
             
             # ファイル名を生成
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            section_prefix = f"section_{section_id:02d}_" if section_id else ""
+            # section_idがNoneの場合は1をデフォルトとする
+            section_id_value = section_id if section_id is not None else 1
+            section_prefix = f"section_{section_id_value:02d}_"
             filename = f"{section_prefix}sd_{cache_key[:8]}_{timestamp}.png"
             file_path = self.output_dir / filename
+            
+            self.logger.debug(f"Generating filename with section_id={section_id_value}: {filename}")
             
             # 保存
             with open(file_path, 'wb') as f:
@@ -396,13 +400,23 @@ class StableDiffusionGenerator:
             
             # ファイルが実際に存在するか確認
             if Path(data['file_path']).exists():
-                return CollectedImage(**data)
+                # CollectedImageの現在のフィールドのみを抽出（古いフィールドを除外）
+                valid_fields = {
+                    'image_id', 'file_path', 'source_url', 'source',
+                    'classification', 'keywords', 'resolution',
+                    'aspect_ratio', 'quality_score'
+                }
+                filtered_data = {k: v for k, v in data.items() if k in valid_fields}
+                return CollectedImage(**filtered_data)
             else:
                 cache_file.unlink()
                 return None
                 
         except Exception as e:
             self.logger.warning(f"Failed to load cache: {e}")
+            # キャッシュが破損している場合は削除
+            if cache_file.exists():
+                cache_file.unlink()
             return None
     
     def _save_to_cache(self, cache_key: str, image: CollectedImage):

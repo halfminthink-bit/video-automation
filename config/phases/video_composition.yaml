@@ -6,8 +6,8 @@ output:
   fps: 30                   # フレームレート
   codec: "libx264"          # ビデオコーデック
   audio_codec: "aac"        # オーディオコーデック
-  preset: "medium"          # エンコード速度 (ultrafast/fast/medium/slow)
-  bitrate: "5000k"          # ビットレート
+  preset: "fast"            # エンコード速度 (ultrafast/fast/medium/slow) - fastで高速化
+  bitrate: "3000k"          # ビットレート - 3000kで品質と速度のバランス
 
 # 二分割レイアウト設定
 split_layout:
