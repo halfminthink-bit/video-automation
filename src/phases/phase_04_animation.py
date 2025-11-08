@@ -171,18 +171,52 @@ class Phase04Animation(PhaseBase):
         return result
     
     def _should_use_ai_video(self, img_data: Dict[str, Any], section_info: Dict[str, Any]) -> bool:
-        """AI動画を使用すべきか判定 - セクションの最初の画像のみ"""
-
-        # 画像がセクションの最初かどうかを判定
+        """AI動画を使用すべきか判定 - 各セクションの最初の1-2枚"""
+        
+        # セクション別に画像をグループ化する必要があるため、
+        # ここではファイル名パターンで判定する
         section_id = section_info.get('section_id')
-        filename = Path(img_data['file_path']).stem
-
-        # ファイル名から画像番号を抽出（例: section_1_img_0.png → 0番目）
-        # セクションの最初の画像（img_0）のみTrueを返す
-        if f"section_{section_id}_img_0" in filename:
-            self.logger.info(f"→ First image of section {section_id}, using AI video")
-            return True
-
+        filename = Path(img_data['file_path']).name
+        
+        # 実際のファイル名パターン: section_01_sd_001df0ed_20251108_013726.png
+        # section_{section_id:02d}_sd_ で始まるか確認
+        section_prefix = f"section_{section_id:02d}_sd_"
+        
+        if not filename.startswith(section_prefix):
+            return False
+        
+        # このセクションの画像かどうかを確認
+        # classified.jsonから同じセクションの画像を取得
+        if not hasattr(self, '_section_image_cache'):
+            self._section_image_cache = {}
+        
+        if section_id not in self._section_image_cache:
+            # 同じセクションの画像を収集してソート
+            with open(self.classified_json, 'r', encoding='utf-8') as f:
+                images_data = json.load(f)
+            
+            section_images = [
+                img for img in images_data['images']
+                if Path(img['file_path']).name.startswith(section_prefix)
+            ]
+            # ファイル名でソート（タイムスタンプ順）
+            section_images.sort(key=lambda x: Path(x['file_path']).name)
+            self._section_image_cache[section_id] = section_images
+        
+        section_images = self._section_image_cache[section_id]
+        
+        # 現在の画像がセクション内で何番目かを確認
+        current_img_path = img_data['file_path']
+        for idx, img in enumerate(section_images):
+            if img['file_path'] == current_img_path:
+                # 最初の1-2枚をAI動画化
+                # セクションの画像数が1枚の場合1枚、それ以外は2枚
+                max_ai_images = 1 if len(section_images) == 1 else 2
+                if idx < max_ai_images:
+                    self.logger.info(f"→ Image {idx+1}/{len(section_images)} of section {section_id}, using AI video")
+                    return True
+                break
+        
         return False
     
     def _create_ai_video_replicate(
