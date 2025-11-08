@@ -186,11 +186,14 @@ The Japanese text "{title}" must be clearly readable and professionally integrat
             
             return output_path
             
-        except ImportError:
-            logger.error("OpenAI package is not installed. Please install it with: pip install openai")
+        except ImportError as e:
+            logger.error(f"OpenAI package is not installed: {e}")
+            logger.error("Please install it with: pip install openai")
             return None
         except Exception as e:
             logger.error(f"Failed to generate thumbnail with DALL-E 3: {e}")
+            logger.error(f"Error type: {type(e).__name__}")
+            logger.error(f"Error details: {str(e)}", exc_info=True)
             return None
     
     def generate_multiple_styles(
