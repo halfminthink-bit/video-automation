@@ -235,6 +235,9 @@ Examples:
   # Compose final video (Phase 7)
   python -m src.cli run-phase "織田信長" --phase 7
 
+  # Generate thumbnails (Phase 8)
+  python -m src.cli run-phase "織田信長" --phase 8
+
   # Skip if outputs exist
   python -m src.cli run-phase "織田信長" --phase 2 --skip-if-exists
         """
@@ -256,8 +259,8 @@ Examples:
         "--phase",
         type=int,
         required=True,
-        choices=[1, 2, 3, 4, 5, 6, 7],
-        help="Phase number (1-7)"
+        choices=[1, 2, 3, 4, 5, 6, 7, 8],
+        help="Phase number (1-8)"
     )
     run_parser.add_argument(
         "--skip-if-exists",
