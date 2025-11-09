@@ -53,6 +53,7 @@ gptimage:
   layout: "center"          # テキストレイアウト（center, left, right）
 
 # インパクトテキスト生成設定（V3.0 - 赤文字上部＋白文字下部）
+# Claudeキャッチコピー生成設定（3ゾーンレイアウト用・2段テキスト）
 catchcopy:
   enabled: true             # テキスト生成を有効化
   model: "gpt-4.1-mini"     # 使用するモデル
@@ -60,8 +61,30 @@ catchcopy:
   target_audience: "一般"   # ターゲット層
   main_title_length: 8      # 上部テキストの最大文字数（5-8文字厳守）
   sub_title_length: 25      # 下部テキストの最大文字数（15-25文字推奨）
+  tone: "dramatic"          # トーン（dramatic, shocking, educational, casual）
+  target_audience: "一般"   # ターゲット層
+  main_title_length: 7      # メインキャッチの最大文字数（5-7文字厳守）
+  sub_title_length: 20      # サブ説明文の最大文字数（15-20文字推奨）
   num_candidates: 5         # 生成する候補数
   avoid_technical_terms: true  # 専門用語を避ける
+
+# 3ゾーンレイアウト設定（新システム）
+three_zone_layout:
+  enabled: true             # 3ゾーンレイアウトを使用
+  zones:
+    main_text:              # 上部30%: メインキャッチ
+      height_percent: 0.30
+      font_size_range: [120, 180]  # 文字数で自動調整
+      stroke_widths: [35, 20]      # 黒35px, 白20px
+    image_area:             # 中央40%: 人物画像
+      height_percent: 0.40
+      preserve_brightness: true     # 明るさを維持
+      darken_strength: 0.7          # 上下の暗さ強度
+    sub_text:               # 下部30%: サブ説明文
+      height_percent: 0.30
+      font_size: 50                 # 固定サイズ
+      stroke_widths: [12, 6]        # 黒12px, 白6px
+      background_band: true         # 半透明背景帯を追加
 
 # サムネイル基本設定
 output:
@@ -130,35 +153,69 @@ text_generation:
     - "知られざる{subject}"
 
 # フォント設定（超インパクト版）
+font:
+  # フォントパス（Windows/Linux対応・自動検出）
+  path: null  # nullの場合は自動検出（assets/fonts/, C:\Windows\Fonts, /usr/share/fonts）
+  target_coverage: 0.7  # 画面占有率（0.7 = 70%）
+
 fonts:
   main_title:
     family: "GenEi Kiwami Gothic"  # 源暎きわみゴシック
     weight: "Bold"
     size_base: 150                  # 超大幅拡大（90→150）
-    size_range: [120, 180]          # サイズ範囲：文字数に応じて自動調整
+    size_range: [120, 200]          # サイズ範囲：文字数に応じて自動調整（1文字=200px, 8文字=110px）
   subtitle:
     family: "GenEi Kiwami Gothic"
     weight: "Medium"
     size_base: 60                   # より大きく（45→60）
     size_range: [50, 70]
 
-# テキストスタイル設定（超インパクト版）
+# グラデーションパターン設定（ImpactThumbnailGenerator用）
+gradient_patterns:
+  fire: ["#FFFFFF", "#FF0000", "#FFFF00"]      # 白→赤→黄（ホット・劇的）
+  ocean: ["#FFFFFF", "#00FFFF", "#0080FF"]     # 白→シアン→青（クール・事実）
+  sunset: ["#FF0000", "#FF7F00", "#FFFF00"]    # 赤→橙→黄（エネルギッシュ・対立）
+  neon: ["#FFFFFF", "#FF1493", "#9400D3"]      # 白→ピンク→紫（ドラマチック・謎）
+  energy: ["#00FF00", "#FFFF00", "#FF0000"]    # 緑→黄→赤（フレッシュ・命令）
+
+# 多重縁取り設定（ImpactThumbnailGenerator用）
+multi_stroke:
+  layers:
+    - width: 30
+      color: "#000000"
+      opacity: 255
+    - width: 18
+      color: "#FFFFFF"
+      opacity: 255
+    - width: 8
+      color: "gradient_start"  # グラデーション開始色を使用
+      opacity: 255
+
+# エフェクト設定（ImpactThumbnailGenerator用）
+effects:
+  shadow:
+    layers: 10               # シャドウレイヤー数
+    max_offset: 20           # 最大オフセット（ピクセル）
+    blur_radius: 5           # ぼかし半径
+  glow:
+    radius: 30               # グローの範囲
+    intensity: 0.7           # グローの強度（0.0〜1.0）
+    color: "auto"            # "auto"の場合は黒
+  vignette:
+    strength: 0.6            # ビネットの強さ（0.0〜1.0）
+
+# 背景処理設定（ImpactThumbnailGenerator用）
+background:
+  darken_factor: 0.6         # 暗くする係数（0.6 = 60%）
+  saturation_factor: 0.7     # 彩度係数（0.7 = 70%）
+  brightness_factor: 0.6     # 明度係数（0.6 = 60%）
+
+# テキストスタイル設定（レガシー・互換性用）
 text_style:
-  # グラデーション色パターン（コード内で定義）
-  # パターン1: 白→赤→黄（ホット）
-  # パターン2: 赤→橙→黄（エネルギッシュ）
-  # パターン3: シアン→青（クール）
-  # パターン4: 白→ピンク→紫（ドラマチック）
-  # パターン5: 緑→黄→赤（フレッシュ）
-  
-  # 縁取り設定（超強化版）
+  # 縁取り設定
   stroke:
     enabled: true
-    # 多重縁取り：
-    # 1. 黒縁25px（最外）
-    # 2. 白縁15px
-    # 3. カラー縁8px（グラデーションと調和）
-    width: 25                    # 最大幅（超強化: 18→25）
+    width: 30                    # 最大幅（超強化: 25→30）
     colors:
       outer: "#000000"           # 外側: 黒
       middle: "#FFFFFF"          # 中間: 白
@@ -262,3 +319,36 @@ debug:
 # ✅ 文字数: 10文字以内厳守（理想5-7文字）
 # ✅ レイアウト: 下部中央が最強
 # ✅ 背景処理: 彩度0.7倍、明度0.6倍、ビネット0.6
+
+# ================================
+# 3ゾーンレイアウトシステム（v3.0 - 最新）
+# ================================
+# 【概要】
+# 人物中央配置 + 2段テキスト（上下）の新レイアウト
+#
+# 【構成】
+# ┌─────────────────────┐
+# │  上部30%: メインキャッチ   │ 5-7文字、超インパクト
+# │  （例: "手を洗え！"）      │ フォント: 150-180px
+# ├─────────────────────┤
+# │  中央40%: 人物画像        │ 明るさ維持
+# │  （DALL-E 3生成）         │ 周辺は暗く処理
+# ├─────────────────────┤
+# │  下部30%: サブ説明文      │ 15-20文字
+# │  （例: "今では当たり前の） │ フォント: 50px
+# │   常識を生んだ男"）       │ 半透明背景帯付き
+# └─────────────────────┘
+#
+# 【配色スキーム】（5種類自動選択）
+# - fire: 炎・情熱系（白→黄→赤）
+# - ocean: 海・清潔系（白→シアン→青）
+# - royal: 王室・高貴系（金→赤→紫）
+# - nature: 自然・生命系（緑→黄→赤）
+# - electric: 電気・未来系（白→ピンク→シアン）
+#
+# 【使用クラス】
+# - ThreeZoneThumbnailGenerator: メイン統合クラス
+# - DualTextSystem: メイン+サブのテキストペア生成
+# - ThreeZoneLayoutManager: 3分割レイアウト管理
+# - PersonFocusedBackground: 人物エリア保護背景処理
+# - EnhancedTextRenderer: 2段テキスト描画
