@@ -80,7 +80,8 @@ styles:
 layout:
   top_area_height: 200
   middle_area_height: 340  # 画像用
-  bottom_area_height: 180
+  bottom_area_height: 180  # 旧仕様（現在は使用されていない）
+  bottom_text_layer_height: 240  # 実際の下部テキストレイヤー高さ（見切れ防止）
 
 # 背景処理設定（明るい写真モード）
 background:
