@@ -1,0 +1,118 @@
+# 「教科書には載せてくれない」シリーズサムネイル設定
+
+series:
+  name: "教科書には載せてくれない"
+  description: "歴史の裏側・謎・真実を示唆する知的好奇心を刺激するシリーズ"
+
+# 出力設定
+output:
+  resolution: [1280, 720]  # YouTubeサムネイル標準サイズ
+  format: "PNG"
+  quality: 95
+
+# テキスト生成設定
+text_generation:
+  model: "gpt-4o-mini"
+  num_candidates: 5  # 生成する候補数
+
+  # 上部テキスト（固定）
+  top_text:
+    content: "教科書には載せてくれない"
+    # スタイルはtextbook_text_renderer.pyで定義
+
+  # 下部テキスト（可変）
+  bottom_text:
+    min_length: 10
+    max_length: 15
+    categories:
+      - "謎"      # "〇〇の謎"
+      - "真実"    # "〇〇の真実"
+      - "秘密"    # "〇〇の秘密"
+      - "闇"      # "〇〇の闇"
+      - "事件"    # "〇〇事件の真相"
+
+# レイアウト設定
+layout:
+  top_zone: 0.20     # 上部20%
+  middle_zone: 0.60  # 中央60%（人物画像エリア、空ける）
+  bottom_zone: 0.20  # 下部20%
+
+# テキストスタイル設定
+text_style:
+  top:
+    font_size: 65
+    color: "#FFFFFF"  # 白
+    stroke:
+      - width: 25
+        color: "#000000"  # 黒
+        opacity: 0.8
+      - width: 12
+        color: "#333333"  # グレー
+        opacity: 0.6
+    shadow:
+      offset: [5, 5]
+      blur: 8
+      color: "#000000"
+
+  bottom:
+    font_size: 80
+    color: "#FFD700"  # 金色
+    stroke:
+      - width: 30
+        color: "#000000"  # 黒（極太）
+        opacity: 0.9
+      - width: 15
+        color: "#4B0000"  # 暗赤
+        opacity: 0.6
+    shadow:
+      offset: [6, 6]
+      blur: 10
+      color: "#000000"
+    glow:
+      enabled: true
+      radius: 15
+      color: "#FFD700"
+      opacity: 0.3
+
+# 背景処理設定
+background:
+  darkness: 0.7      # 70%の明るさ（0.0-1.0、低いほど暗い）
+  vignette: 0.6      # 強めのビネット（0.0-1.0）
+  edge_shadow: true  # 上下端の影を追加
+  texture:
+    enabled: false   # テクスチャオーバーレイ（オプション）
+    type: "parchment"  # parchment/grain/noise
+
+# DALL-E 3画像生成設定
+dalle:
+  model: "dall-e-3"
+  size: "1792x1024"  # 横長（16:9に近い）
+  quality: "standard"  # standard/hd
+
+# 画像スタイル設定
+image_style:
+  type: "historical"  # historical/professional/artistic
+  mood: "mysterious"  # mysterious/dramatic/serious
+  color_tone: "sepia_toned"  # sepia_toned/muted_colors/natural
+
+# フォント設定
+font:
+  # フォントパスは自動検索（textbook_text_renderer.pyで定義）
+  # 優先順位:
+  # 1. assets/fonts/GenEiKiwamiGothic-EB.ttf
+  # 2. assets/fonts/NotoSansJP-Bold.ttf
+  # 3. システムフォント
+
+# 使用例設定
+examples:
+  - subjects: ["織田信長", "豊臣秀吉", "徳川家康"]
+    bottom_text: "日本史の謎"
+
+  - subjects: "ナポレオン"
+    bottom_text: "世界史の闇"
+
+  - subjects: ["エジソン", "テスラ", "アインシュタイン"]
+    bottom_text: "天才たちの狂気"
+
+  - subjects: "レオナルド・ダ・ヴィンチ"
+    bottom_text: "隠された秘密"
