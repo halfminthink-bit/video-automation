@@ -183,16 +183,16 @@ class IntellectualCuriosityTextRenderer:
 
         draw = ImageDraw.Draw(layer)
 
-        # フォントサイズ（2行とも80pxで統一）
-        font_size_line1 = 80
-        font_size_line2 = 80
+        # フォントサイズ（2行とも76pxで統一）
+        font_size_line1 = 76
+        font_size_line2 = 76
 
         font1 = ImageFont.truetype(self.font_path, font_size_line1)
         font2 = ImageFont.truetype(self.font_path, font_size_line2)
 
         # 行間とベースライン設定（縁取りを考慮して十分な間隔を確保）
-        line_spacing = 120  # よりタイトな行間
-        base_y = 35  # 上部マージン
+        line_spacing = 110  # よりタイトな行間
+        base_y = 190  # 下寄せ配置（2行目を下端付近に）
 
         # 1行目を描画
         if line1:
