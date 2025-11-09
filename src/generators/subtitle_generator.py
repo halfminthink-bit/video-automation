@@ -37,7 +37,7 @@ class SubtitleGenerator:
         self.logger = logger or logging.getLogger(__name__)
         
         # 設定値の取得
-        self.max_lines = config.get("max_lines", 2)
+        self.max_lines = max(1, config.get("max_lines", 2))
         self.max_chars_per_line = config.get("max_chars_per_line", 20)
         
         timing = config.get("timing", {})
@@ -286,15 +286,16 @@ class SubtitleGenerator:
                 subtitle_start = max(0, sentence_start - self.lead_time)
                 
                 # 文を2行に分割
-                line1, line2 = self._split_text_to_lines(sentence)
+                lines = self._split_text_to_lines(sentence)
                 
                 # 字幕エントリを作成
                 subtitle = SubtitleEntry(
                     index=0,  # 後で割り当て
                     start_time=subtitle_start,
                     end_time=sentence_end,
-                    text_line1=line1,
-                    text_line2=line2
+                    text_line1=lines[0] if len(lines) > 0 else "",
+                    text_line2=lines[1] if len(lines) > 1 else "",
+                    text_line3=lines[2] if len(lines) > 2 else "",
                 )
                 subtitles.append(subtitle)
         else:
@@ -322,15 +323,16 @@ class SubtitleGenerator:
                 )
                 
                 # 文を2行に分割
-                line1, line2 = self._split_text_to_lines(sentence)
+                lines = self._split_text_to_lines(sentence)
                 
                 # 字幕エントリを作成
                 subtitle = SubtitleEntry(
                     index=0,  # 後で割り当て
                     start_time=current_time,
                     end_time=current_time + sentence_duration,
-                    text_line1=line1,
-                    text_line2=line2
+                    text_line1=lines[0] if len(lines) > 0 else "",
+                    text_line2=lines[1] if len(lines) > 1 else "",
+                    text_line3=lines[2] if len(lines) > 2 else "",
                 )
                 subtitles.append(subtitle)
                 
@@ -371,42 +373,53 @@ class SubtitleGenerator:
         
         return sentences if sentences else [text]
     
-    def _split_text_to_lines(self, text: str) -> tuple[str, str]:
+    def _split_text_to_lines(self, text: str) -> List[str]:
         """
-        テキストを2行に分割
+        テキストを行ごとに分割（最大 self.max_lines 行）
         
         Args:
             text: 入力テキスト
             
         Returns:
-            (line1, line2) のタプル。line2は空の場合もある
+            行のリスト（最大 self.max_lines 行）
         """
         text = text.strip()
-        
-        # 既に短い場合は1行で表示
-        if len(text) <= self.max_chars_per_line:
-            return text, ""
-        
-        # 2行に分割
-        # まず、中点（読点、句点）で分割を試みる
-        split_pos = self._find_best_split_position(text)
-        
-        if split_pos > 0:
-            line1 = text[:split_pos].strip()
-            line2 = text[split_pos:].strip()
-        else:
-            # 分割ポイントが見つからない場合、文字数で分割
-            line1 = text[:self.max_chars_per_line].strip()
-            line2 = text[self.max_chars_per_line:].strip()
-        
-        # 各行の長さを調整
-        if len(line1) > self.max_chars_per_line:
-            line1 = line1[:self.max_chars_per_line]
-        
-        if len(line2) > self.max_chars_per_line:
-            line2 = line2[:self.max_chars_per_line]
-        
-        return line1, line2
+        if not text:
+            return [""]
+
+        remaining = text
+        lines: List[str] = []
+
+        # 単行で収まる場合
+        if len(remaining) <= self.max_chars_per_line or self.max_lines == 1:
+            return [remaining[: self.max_chars_per_line]]
+
+        while remaining and len(lines) < self.max_lines:
+            # 最終行は残りをそのまま（必要であれば切り詰め）入れる
+            if len(lines) == self.max_lines - 1:
+                lines.append(remaining[: self.max_chars_per_line].strip())
+                remaining = remaining[self.max_chars_per_line:].strip()
+                break
+
+            # ベストな分割位置を探す
+            split_pos = self._find_best_split_position(remaining)
+            if split_pos <= 0 or split_pos > self.max_chars_per_line:
+                split_pos = min(self.max_chars_per_line, len(remaining))
+
+            chunk = remaining[:split_pos].strip()
+            lines.append(chunk)
+            remaining = remaining[split_pos:].strip()
+
+        # 残りがあり3行目を超える場合は最後の行に収まる範囲のみ残す
+        if remaining and lines:
+            lines[-1] = (lines[-1] + remaining)[: self.max_chars_per_line].strip()
+
+        # 空行を除外し、最大行数に揃える
+        lines = [line for line in lines if line]
+        if not lines:
+            lines = [text[: self.max_chars_per_line]]
+
+        return lines[: self.max_lines]
     
     def _find_best_split_position(self, text: str) -> int:
         """
