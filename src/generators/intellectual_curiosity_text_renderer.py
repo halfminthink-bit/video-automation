@@ -85,8 +85,8 @@ class IntellectualCuriosityTextRenderer:
         """
         self.logger.debug(f"Rendering top text: '{text}'")
 
-        # フォントサイズ（75px - 読みやすいサイズ）
-        font_size = 75
+        # フォントサイズ（105px - よりインパクトを持たせる）
+        font_size = 105
         font = ImageFont.truetype(self.font_path, font_size)
 
         # テキストサイズを取得
@@ -170,7 +170,7 @@ class IntellectualCuriosityTextRenderer:
 
         # レイヤーサイズ（行間調整に合わせて高さを拡大）
         layer_width = self.width
-        layer_height = 300  # 280 → 300に拡大（大きめフォントでも余裕を確保）
+        layer_height = 330  # 行間調整後も十分な余白を確保
         layer = Image.new('RGBA', (layer_width, layer_height), (0, 0, 0, 0))
 
         # 1. 半透明黒背景（オプション）
@@ -183,16 +183,16 @@ class IntellectualCuriosityTextRenderer:
 
         draw = ImageDraw.Draw(layer)
 
-        # フォントサイズ（2行とも70pxで統一）
-        font_size_line1 = 70
-        font_size_line2 = 70
+        # フォントサイズ（2行とも80pxで統一）
+        font_size_line1 = 80
+        font_size_line2 = 80
 
         font1 = ImageFont.truetype(self.font_path, font_size_line1)
         font2 = ImageFont.truetype(self.font_path, font_size_line2)
 
         # 行間とベースライン設定（縁取りを考慮して十分な間隔を確保）
-        line_spacing = 140  # 130 → 140に拡大
-        base_y = 40  # 上部マージンを少し調整
+        line_spacing = 120  # よりタイトな行間
+        base_y = 35  # 上部マージン
 
         # 1行目を描画
         if line1:
