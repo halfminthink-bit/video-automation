@@ -25,6 +25,7 @@ from src.core.models import (
     BGMSegment,
     BGMSelection,
     BGMType,
+    BGMCategory,
     VideoScript,
     ScriptSection
 )
@@ -74,10 +75,23 @@ class BGMManager:
                 self.logger.warning(f"Invalid BGM position: {position}")
                 continue
             
+            category_value = info.get("category")
+            if category_value:
+                try:
+                    bgm_category = BGMCategory(category_value)
+                except ValueError:
+                    self.logger.warning(
+                        f"Invalid BGM category '{category_value}' for {position}. "
+                        "Falling back to 'dramatic'."
+                    )
+                    bgm_category = BGMCategory.DRAMATIC
+            else:
+                bgm_category = BGMCategory.DRAMATIC
+
             track = BGMTrack(
                 track_id=position,
                 file_path=str(file_path),
-                category=position,  # 暫定的にpositionをcategoryとして使用
+                category=bgm_category,
                 duration=0.0,  # 実際の長さは後で取得可能
                 title=info["title"],
             )

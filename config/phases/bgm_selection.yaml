@@ -15,18 +15,21 @@ fixed_bgm_structure:
       title: "古の街道"
       description: "ぼんやりはじまる曲"
       usage: "オープニング～序盤"
+      category: "hopeful"
       
     main:
       file: "main/SPQR-メメントモリ-.mp3"
       title: "SPQR-メメントモリ-"
       description: "基本メインの曲"
       usage: "中盤（メインパート）"
+      category: "dramatic"
       
     ending:
       file: "ending/朝の訪れ.mp3"
       title: "朝の訪れ"
       description: "しっとりとした曲"
       usage: "終盤～エンディング"
+      category: "calm"
 
 # タイミング設定（動画全体の長さに基づいて自動計算）
 timing:
