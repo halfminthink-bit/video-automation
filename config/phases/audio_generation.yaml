@@ -19,8 +19,38 @@ context_awareness:
   use_previous_text: true                # 前のセクションを文脈に使用
   use_next_text: true                    # 次のセクションを文脈に使用
 
-# ElevenLabs API設定
-service: "elevenlabs"
+# ========================================
+# 音声生成サービス選択
+# ========================================
+# "kokoro": Kokoro TTS FastAPI（完全無料、タイムスタンプ対応）
+# "elevenlabs": ElevenLabs API（高品質、有料）
+service: "kokoro"
+
+# ========================================
+# Kokoro TTS 設定（service: "kokoro" の場合）
+# ========================================
+kokoro:
+  # APIのベースURL（環境変数 KOKORO_API_URL で上書き可能）
+  api_url: "http://localhost:8880"
+
+  # 使用する音声名
+  # 利用可能な女性の声（American Female）:
+  # - af_bella ⭐推奨（人気、安定）
+  # - af_sarah ⭐推奨（人気、自然）
+  # - af_sky （明るめ）
+  # - af_heart （落ち着き）
+  # - af_alloy, af_aoede, af_jessica, af_kore, af_nicole, af_nova, af_river
+  voice: "af_bella"
+
+  # 速度（0.5-2.0）
+  speed: 1.0
+
+  # 出力フォーマット
+  response_format: "mp3"  # mp3, wav, opus, flac
+
+# ========================================
+# ElevenLabs API設定（service: "elevenlabs" の場合）
+# ========================================
 # 日本語対応のvoice_id（以下から選択）:
 # - "pNInz6obpgDQGcFmaJgB": Adam (多言語対応、男性)
 # - "onwK4e9ZLuTAKqWW03F9": Daniel (多言語対応、男性)

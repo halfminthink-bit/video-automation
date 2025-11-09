@@ -1,0 +1,33 @@
+# Kokoro TTS FastAPI サーバー
+# 完全無料のTTSシステム、単語レベルのタイムスタンプを直接取得可能
+version: '3.8'
+
+services:
+  kokoro-tts:
+    # CPUバージョン（GPUがない環境でも動作）
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+
+    # GPUバージョンを使用する場合は以下に置き換え:
+    # image: ghcr.io/remsky/kokoro-fastapi-gpu:latest
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+    ports:
+      - "8880:8880"
+
+    restart: unless-stopped
+
+    container_name: kokoro-tts
+
+    # ヘルスチェック
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8880/v1/audio/voices"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
