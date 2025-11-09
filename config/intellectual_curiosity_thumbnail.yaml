@@ -56,13 +56,13 @@ styles:
   bottom_text:
     color: "#FFFFFF"  # 白
     line1:
-      font_size: 70  # 1行目: 衝撃的な事実
+      font_size: 65  # 1行目: 衝撃的な事実（統一サイズ）
       stroke_width: 20  # 適切な縁取り
     line2:
-      font_size: 60  # 2行目: 詳細説明
+      font_size: 65  # 2行目: 詳細説明（統一サイズ）
       stroke_width: 20  # 適切な縁取り
     stroke_color: "#000000"
-    line_spacing: 100  # 1行目と2行目の間隔（被らないように十分に広げる）
+    line_spacing: 130  # 1行目と2行目の間隔（縁取りが重ならないよう拡大）
     shadow:
       enabled: true
       layers: 5
@@ -74,14 +74,14 @@ styles:
       opacity: 140
     position:
       area: "bottom"
-      height: 180
+      height: 280  # レイヤー高さに合わせて拡大
 
 # レイアウト設定
 layout:
   top_area_height: 200
   middle_area_height: 340  # 画像用
   bottom_area_height: 180  # 旧仕様（現在は使用されていない）
-  bottom_text_layer_height: 240  # 実際の下部テキストレイヤー高さ（見切れ防止）
+  bottom_text_layer_height: 280  # 実際の下部テキストレイヤー高さ（行間調整後）
 
 # 背景処理設定（明るい写真モード）
 background:

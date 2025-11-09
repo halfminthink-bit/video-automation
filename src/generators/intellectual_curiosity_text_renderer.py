@@ -183,9 +183,9 @@ class IntellectualCuriosityTextRenderer:
 
         draw = ImageDraw.Draw(layer)
 
-        # フォントサイズ（1行目: 70px、2行目: 60px）
-        font_size_line1 = 70
-        font_size_line2 = 60
+        # フォントサイズ（2行とも65pxで統一）
+        font_size_line1 = 65
+        font_size_line2 = 65
 
         font1 = ImageFont.truetype(self.font_path, font_size_line1)
         font2 = ImageFont.truetype(self.font_path, font_size_line2)
