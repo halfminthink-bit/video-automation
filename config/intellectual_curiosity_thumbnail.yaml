@@ -1,7 +1,8 @@
 # 知的好奇心サムネイル自動生成システム設定
+# Phase 08統合版 - 明るい人物写真モード
 
 style: "intellectual_curiosity"
-description: "「えっ！？」と驚く知的好奇心を刺激するサムネイル"
+description: "「えっ！？」と驚く知的好奇心を刺激するサムネイル（明るい人物写真で顔がはっきり見える）"
 
 # 出力設定
 output:
@@ -77,11 +78,11 @@ layout:
   middle_area_height: 340  # 画像用
   bottom_area_height: 180
 
-# 背景処理設定
+# 背景処理設定（明るい写真モード）
 background:
-  darkness: 0.7      # 70%の明るさ（0.0-1.0、低いほど暗い）
-  vignette: 0.6      # 強めのビネット（0.0-1.0）
-  edge_shadow: true  # 上下端の影を追加
+  vignette: 0.2              # 軽いビネット（0.0-1.0）- 顔を明るく保つ
+  edge_shadow: true          # 上下端の軽い影を追加
+  enhance_brightness: true   # 明るさを強化（1.1倍）
 
 # DALL-E 3画像生成設定
 dalle:
@@ -89,10 +90,10 @@ dalle:
   size: "1792x1024"  # 横長（16:9に近い）
   quality: "standard"  # standard/hd
 
-# 画像スタイル設定
+# 画像スタイル設定（明るいプロフェッショナル写真）
 image_style:
-  type: "dramatic"  # dramatic/professional/artistic
-  mood: "mysterious"  # mysterious/dramatic/serious
+  type: "professional"  # プロフェッショナルな肖像写真
+  mood: "bright"        # 明るく、顔がはっきり見える
 
 # 生成例
 examples:

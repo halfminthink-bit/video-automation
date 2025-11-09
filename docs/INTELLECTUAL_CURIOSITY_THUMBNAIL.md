@@ -1,8 +1,20 @@
-# 知的好奇心サムネイル自動生成システム
+# 知的好奇心サムネイル自動生成システム（Phase 08統合版）
 
 ## 概要
 
 「えっ！？」と驚く知的好奇心を刺激するサムネイルを完全自動で生成するシステムです。
+
+**Phase 08に統合済み**: `python -m src.phases.phase_08_thumbnail "イグナーツゼンメルワイス"` で直接実行可能です。
+
+### 🌟 重要な変更点（明るい写真モード）
+
+**従来の問題**: 暗い雰囲気重視で人物の顔が見えにくかった
+
+**新しいアプローチ**:
+- ✨ **明るいプロフェッショナル写真**: 人物の顔がはっきり認識できる
+- 📸 **スタジオライティング風**: DALL-E 3に明るく撮影するよう指示
+- 🎨 **軽いビネット効果**: 暗くせず、軽く中央を強調する程度
+- 💡 **明るさ強化**: 自動的に明るさを1.1倍に調整
 
 ### デザイン仕様
 
@@ -38,11 +50,14 @@
 ## ファイル構成
 
 ```
+src/phases/
+└── phase_08_thumbnail.py                    # Phase 08統合（メイン実行）
+
 src/generators/
 ├── intellectual_curiosity_generator.py      # メインジェネレータ
 ├── intellectual_curiosity_text_generator.py # テキスト生成（Claude API）
 ├── intellectual_curiosity_text_renderer.py  # テキスト描画
-└── dark_vignette_processor.py               # 背景処理（再利用）
+└── bright_background_processor.py           # 明るい背景処理（NEW）
 
 config/
 └── intellectual_curiosity_thumbnail.yaml    # 設定ファイル
@@ -53,7 +68,24 @@ scripts/
 
 ## 使い方
 
-### 1. 基本的な使い方
+### 1. Phase 08から実行（推奨）
+
+```bash
+# .envファイルにOPENAI_API_KEYを設定してから実行
+python -m src.phases.phase_08_thumbnail "イグナーツゼンメルワイス"
+
+# 他の人物でも実行可能
+python -m src.phases.phase_08_thumbnail "織田信長"
+python -m src.phases.phase_08_thumbnail "ナポレオン"
+```
+
+**特徴**:
+- ✅ `.env`ファイルを自動的にオーバーライド読み込み
+- ✅ デフォルトで知的好奇心モードを使用
+- ✅ `data/subjects/<人物名>/phase_08_thumbnail/thumbnails/` に出力
+- ✅ 5つのバリエーションを自動生成
+
+### 2. プログラムから直接使用
 
 ```python
 from pathlib import Path
@@ -73,7 +105,7 @@ thumbnail_paths = generator.generate_thumbnails(
 print(f"Generated {len(thumbnail_paths)} thumbnails")
 ```
 
-### 2. コンテキストを指定
+### 3. コンテキストを指定
 
 ```python
 # 台本データを渡すとより適切なテキストが生成される
@@ -93,7 +125,7 @@ thumbnail_paths = generator.generate_thumbnails(
 )
 ```
 
-### 3. コマンドラインから実行
+### 4. テストスクリプトから実行
 
 ```bash
 # 指定主題でテスト
@@ -129,11 +161,11 @@ styles:
     font_size_1line: 55
     font_size_2lines: 45
 
-# 背景処理
+# 背景処理（明るい写真モード）
 background:
-  darkness: 0.7
-  vignette: 0.6
-  edge_shadow: true
+  vignette: 0.2              # 軽いビネット - 顔を明るく保つ
+  edge_shadow: true          # 軽い影のみ
+  enhance_brightness: true   # 明るさ強化（1.1倍）
 
 # DALL-E設定
 dalle:
@@ -243,11 +275,14 @@ Claude API（gpt-4o-mini）を使用して、以下を自動生成：
 
 各パターンで驚き度（curiosity_score 1-10）を評価し、最適な組み合わせを選択。
 
-### 背景処理
+### 背景処理（明るい写真モード）
 
-1. **暗化処理**: 全体を70%の明るさに
-2. **ビネット効果**: 強め（0.6）で中央を明るく保つ
-3. **エッジシャドウ**: 上下に影を追加してテキストを際立たせる
+1. **明るさ強化**: 全体を1.1倍に明るく（顔がはっきり見える）
+2. **コントラスト強化**: 1.1倍で顔の輪郭をくっきり
+3. **軽いビネット効果**: 弱め（0.2）で中央70%は明るさそのまま
+4. **軽いエッジシャドウ**: 上下に軽い影（最大80透明度）でテキストを際立たせる
+
+**重要**: 顔の認識性を最優先し、暗化処理は行いません
 
 ## 出力例
 
@@ -295,10 +330,11 @@ text_generation:
 
 ### コンポーネント
 
-1. **IntellectualCuriosityTextGenerator**: Claude APIで上下テキストを生成
-2. **IntellectualCuriosityTextRenderer**: 上部黄色、下部白でレンダリング
-3. **DarkVignetteProcessor**: 背景の暗化・ビネット処理（再利用）
-4. **IntellectualCuriosityGenerator**: 全てを統合
+1. **Phase08Thumbnail**: Phase 08統合層（`.env`読み込み、実行管理）
+2. **IntellectualCuriosityTextGenerator**: Claude APIで上下テキストを生成
+3. **IntellectualCuriosityTextRenderer**: 上部黄色、下部白でレンダリング
+4. **BrightBackgroundProcessor**: 明るい背景処理（顔を明るく保つ）
+5. **IntellectualCuriosityGenerator**: 全てを統合
 
 ### カスタマイズ
 

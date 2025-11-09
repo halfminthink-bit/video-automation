@@ -30,6 +30,12 @@ from src.generators.catchcopy_generator import CatchcopyGenerator
 from src.generators.final_thumbnail_generator import FinalThumbnailGenerator
 from src.generators.impact_thumbnail_generator import create_impact_thumbnail_generator
 from src.generators.three_zone_thumbnail_generator import ThreeZoneThumbnailGenerator
+from src.generators.intellectual_curiosity_generator import create_intellectual_curiosity_generator
+
+from dotenv import load_dotenv
+
+# .envをオーバーライドで読み込み
+load_dotenv(override=True)
 
 
 class Phase08Thumbnail(PhaseBase):
@@ -85,40 +91,48 @@ class Phase08Thumbnail(PhaseBase):
     def execute_phase(self) -> Dict[str, Any]:
         """
         サムネイル生成の実行
-        
+
         Returns:
             生成されたサムネイルの情報
-            
+
         Raises:
             PhaseExecutionError: 実行エラー
         """
         self.logger.info(f"Generating thumbnails for: {self.subject}")
-        
+
         try:
             # 1. 台本を読み込み
             script_data = self._load_script()
             self.logger.info(f"Loaded script: {script_data.get('subject')}")
-            
-            # 2. 画像リストを読み込み
+
+            # 2. サムネイル生成方法を確認
+            # デフォルトは知的好奇心ジェネレーター
+            use_intellectual_curiosity = self.phase_config.get("use_intellectual_curiosity", True)
+
+            if use_intellectual_curiosity:
+                # 知的好奇心サムネイル生成（デフォルト）
+                return self._generate_with_intellectual_curiosity(script_data)
+
+            # 画像リストを読み込み（従来の方法の場合のみ）
             images = self._load_classified_images()
             self.logger.info(f"Loaded {len(images)} images")
-            
+
             if not images:
                 raise PhaseExecutionError(
                     self.get_phase_number(),
                     "No images available for thumbnail generation"
                 )
-            
-            # 3. サムネイル生成方法を確認
+
+            # 従来の方法を確認
             use_dalle = self.phase_config.get("use_dalle", False)
-            
+
             if use_dalle:
                 # DALL-E 3を使用してサムネイルを生成
                 return self._generate_with_dalle(script_data)
             else:
                 # 従来の方法（Pillow）でサムネイルを生成
                 return self._generate_with_pillow(script_data, images)
-            
+
         except Exception as e:
             self.logger.error(f"Thumbnail generation failed: {e}", exc_info=True)
             raise PhaseExecutionError(
@@ -288,6 +302,77 @@ class Phase08Thumbnail(PhaseBase):
         self._save_metadata(result)
 
         self.logger.info(f"✓ {len(generated_thumbnails)} V3.0 thumbnails generated")
+
+        return result
+
+    def _generate_with_intellectual_curiosity(
+        self,
+        script_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        知的好奇心サムネイル生成（デフォルト）
+
+        DALL-E 3で明るい人物写真を生成し、
+        Claude APIで上下のテキストを自動生成
+
+        Args:
+            script_data: 台本データ
+
+        Returns:
+            生成結果
+        """
+        self.logger.info("🧠 Using Intellectual Curiosity Thumbnail Generator (Bright Photos)")
+
+        # 出力ディレクトリを作成
+        thumbnail_dir = self.phase_dir / "thumbnails"
+        thumbnail_dir.mkdir(parents=True, exist_ok=True)
+
+        # IntellectualCuriosityGeneratorを作成
+        generator = create_intellectual_curiosity_generator(
+            config=self.phase_config,
+            logger=self.logger
+        )
+
+        # サムネイルを生成（内部でDALL-E 3 + Claude API呼び出し）
+        num_variations = self.phase_config.get("num_variations", 5)
+
+        thumbnail_paths = generator.generate_thumbnails(
+            subject=self.subject,
+            output_dir=thumbnail_dir,
+            context=script_data,
+            num_variations=num_variations
+        )
+
+        if not thumbnail_paths:
+            raise PhaseExecutionError(
+                self.get_phase_number(),
+                "Failed to generate any thumbnails with IntellectualCuriosityGenerator"
+            )
+
+        # 結果を作成
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        generated_thumbnails = []
+
+        for i, path in enumerate(thumbnail_paths, 1):
+            generated_thumbnails.append({
+                "pattern_index": i,
+                "file_path": str(path),
+                "file_name": path.name,
+                "layout": "intellectual-curiosity",
+                "style": "bright-portrait"
+            })
+
+        result = {
+            "subject": self.subject,
+            "generated_at": timestamp,
+            "method": "intellectual-curiosity",
+            "thumbnails": generated_thumbnails,
+            "total_count": len(generated_thumbnails)
+        }
+
+        self._save_metadata(result)
+
+        self.logger.info(f"✓ {len(generated_thumbnails)} intellectual curiosity thumbnails generated")
 
         return result
 
