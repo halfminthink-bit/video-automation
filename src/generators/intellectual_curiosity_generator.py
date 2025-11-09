@@ -367,16 +367,14 @@ Purpose: YouTube thumbnail that captures viewers' attention and curiosity about 
             line2=line2
         )
 
-        # レイアウトゾーンを取得
-        zones = self.text_renderer.get_layout_zones()
-
         # 上部テキストレイヤーを配置
         canvas.paste(top_layer, (0, 0), top_layer)
 
-        # 下部テキストレイヤーを配置
+        # 下部テキストレイヤーを配置（見切れ防止のため画面下端から配置）
+        bottom_layer_height = 240  # レイヤー高さ（intellectual_curiosity_text_renderer.pyと一致）
         canvas.paste(
             bottom_layer,
-            (0, zones["bottom"]["start"]),
+            (0, canvas.size[1] - bottom_layer_height),  # = (0, 720 - 240) = (0, 480)
             bottom_layer
         )
 

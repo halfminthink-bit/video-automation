@@ -168,9 +168,9 @@ class IntellectualCuriosityTextRenderer:
 
         self.logger.debug(f"Rendering bottom text: Line1='{line1}', Line2='{line2}'")
 
-        # レイヤーサイズ
+        # レイヤーサイズ（見切れ防止のため高さを拡大）
         layer_width = self.width
-        layer_height = self.layout["bottom_area_height"]
+        layer_height = 240  # 180 → 240に拡大（1行目の上部マージン確保）
         layer = Image.new('RGBA', (layer_width, layer_height), (0, 0, 0, 0))
 
         # 1. 半透明黒背景（オプション）
@@ -193,9 +193,9 @@ class IntellectualCuriosityTextRenderer:
         # 行間の計算
         line_spacing = 100  # 1行目と2行目の間隔（被らないように十分に広げる）
 
-        # Y座標の計算（中央揃え）
+        # Y座標の計算（中央揃え、ただし最小上部マージン30px確保）
         total_height = font_size_line1 + line_spacing + font_size_line2
-        y_offset = (layer_height - total_height) // 2 + 20  # 少し下に調整
+        y_offset = max(30, (layer_height - total_height) // 2)  # 見切れ防止
 
         # 1行目を描画
         if line1:
