@@ -371,10 +371,10 @@ Purpose: YouTube thumbnail that captures viewers' attention and curiosity about 
         canvas.paste(top_layer, (0, 0), top_layer)
 
         # 下部テキストレイヤーを配置（見切れ防止のため画面下端から配置）
-        bottom_layer_height = 240  # レイヤー高さ（intellectual_curiosity_text_renderer.pyと一致）
+        bottom_layer_height = 280  # レイヤー高さ（intellectual_curiosity_text_renderer.pyと一致）
         canvas.paste(
             bottom_layer,
-            (0, canvas.size[1] - bottom_layer_height),  # = (0, 720 - 240) = (0, 480)
+            (0, canvas.size[1] - bottom_layer_height),  # = (0, 720 - 280) = (0, 440)
             bottom_layer
         )
 

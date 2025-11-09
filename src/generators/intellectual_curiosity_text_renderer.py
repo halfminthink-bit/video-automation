@@ -168,9 +168,9 @@ class IntellectualCuriosityTextRenderer:
 
         self.logger.debug(f"Rendering bottom text: Line1='{line1}', Line2='{line2}'")
 
-        # レイヤーサイズ（見切れ防止のため高さを拡大）
+        # レイヤーサイズ（行間調整に合わせて高さを拡大）
         layer_width = self.width
-        layer_height = 240  # 180 → 240に拡大（1行目の上部マージン確保）
+        layer_height = 280  # 240 → 280に拡大（行間+マージン確保）
         layer = Image.new('RGBA', (layer_width, layer_height), (0, 0, 0, 0))
 
         # 1. 半透明黒背景（オプション）
@@ -190,12 +190,9 @@ class IntellectualCuriosityTextRenderer:
         font1 = ImageFont.truetype(self.font_path, font_size_line1)
         font2 = ImageFont.truetype(self.font_path, font_size_line2)
 
-        # 行間の計算
-        line_spacing = 100  # 1行目と2行目の間隔（被らないように十分に広げる）
-
-        # Y座標の計算（中央揃え、ただし最小上部マージン30px確保）
-        total_height = font_size_line1 + line_spacing + font_size_line2
-        y_offset = max(30, (layer_height - total_height) // 2)  # 見切れ防止
+        # 行間とベースライン設定（縁取りを考慮して十分な間隔を確保）
+        line_spacing = 130  # 100 → 130に拡大
+        base_y = 50  # 上部マージン
 
         # 1行目を描画
         if line1:
@@ -207,7 +204,7 @@ class IntellectualCuriosityTextRenderer:
 
             # X座標（中央揃え）
             text_x1 = (layer_width - text_width1) // 2
-            text_y1 = y_offset
+            text_y1 = base_y
 
             # シャドウ効果
             for offset in range(10, 0, -2):
@@ -239,7 +236,7 @@ class IntellectualCuriosityTextRenderer:
 
             # X座標（中央揃え）
             text_x2 = (layer_width - text_width2) // 2
-            text_y2 = y_offset + line_spacing
+            text_y2 = base_y + line_spacing
 
             # シャドウ効果
             for offset in range(10, 0, -2):
