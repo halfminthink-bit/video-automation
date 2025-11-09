@@ -26,6 +26,7 @@ sys.path.insert(0, str(project_root))
 from src.core.config_manager import ConfigManager
 from src.utils.logger import setup_logger
 from src.core.models import PhaseStatus
+from src.core.orchestrator import PhaseOrchestrator
 
 # 全フェーズをインポート
 from src.phases.phase_01_script import Phase01Script
@@ -207,6 +208,63 @@ def run_phase(subject: str, phase_number: int, skip_if_exists: bool = False) -> 
         return 1
 
 
+def generate_video(
+    subject: str,
+    force: bool = False,
+    from_phase: int = 1,
+    until_phase: int = 8,
+    verbose: bool = False
+) -> int:
+    """
+    動画を生成（全フェーズ一括実行）
+
+    Args:
+        subject: 偉人名
+        force: 既存出力を無視して強制再実行
+        from_phase: 指定フェーズから実行（1-8）
+        until_phase: 指定フェーズまで実行（1-8）
+        verbose: 詳細ログ出力
+
+    Returns:
+        終了コード (0: 成功, 1: 失敗)
+    """
+    # 設定を読み込み
+    config = ConfigManager()
+
+    # ロガーを初期化
+    log_level = "DEBUG" if verbose else "INFO"
+    logger = setup_logger(
+        name="video_generation",
+        log_dir=config.get_path("logs_dir"),
+        level=log_level
+    )
+
+    # Orchestratorを作成
+    orchestrator = PhaseOrchestrator(config=config, logger=logger)
+
+    # 実行
+    try:
+        project_status = orchestrator.run_all_phases(
+            subject=subject,
+            skip_if_exists=not force,
+            from_phase=from_phase,
+            until_phase=until_phase
+        )
+
+        # 終了コード
+        if project_status.overall_status.value == "completed":
+            return 0
+        else:
+            return 1
+
+    except KeyboardInterrupt:
+        logger.warning("Interrupted by user")
+        return 130
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}", exc_info=True)
+        return 1
+
+
 def main():
     """メインエントリーポイント"""
     parser = argparse.ArgumentParser(
@@ -245,6 +303,41 @@ Examples:
 
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
+    # generate コマンド（全フェーズ一括実行）
+    generate_parser = subparsers.add_parser(
+        "generate",
+        help="Generate video (run all phases)"
+    )
+    generate_parser.add_argument(
+        "subject",
+        type=str,
+        help="Subject name (e.g., 'グリゴリー・ラスプーチン')"
+    )
+    generate_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force re-execution even if outputs exist"
+    )
+    generate_parser.add_argument(
+        "--from-phase",
+        type=int,
+        default=1,
+        choices=[1, 2, 3, 4, 5, 6, 7, 8],
+        help="Start from specified phase (1-8)"
+    )
+    generate_parser.add_argument(
+        "--until-phase",
+        type=int,
+        default=8,
+        choices=[1, 2, 3, 4, 5, 6, 7, 8],
+        help="Run until specified phase (1-8)"
+    )
+    generate_parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging"
+    )
+
     # run-phase コマンド
     run_parser = subparsers.add_parser(
         "run-phase",
@@ -275,6 +368,16 @@ Examples:
     if not args.command:
         parser.print_help()
         return 1
+
+    # generate コマンド
+    if args.command == "generate":
+        return generate_video(
+            subject=args.subject,
+            force=args.force,
+            from_phase=args.from_phase,
+            until_phase=args.until_phase,
+            verbose=args.verbose
+        )
 
     # run-phase コマンド
     if args.command == "run-phase":

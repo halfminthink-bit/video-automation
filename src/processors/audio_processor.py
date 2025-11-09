@@ -162,7 +162,8 @@ class AudioProcessor:
                 concat_list_path = Path(concat_file.name)
                 for file_path in files_to_concat:
                     # パスにスペースや特殊文字がある場合のエスケープ
-                    concat_file.write(f"file '{str(file_path).replace('\\', '/')}'\n")
+                    path_str = str(file_path).replace('\\', '/')
+                    concat_file.write(f"file '{path_str}'\n")
             
             try:
                 # ffmpegで結合（再エンコード）
