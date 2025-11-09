@@ -166,12 +166,12 @@ class Phase05BGM(PhaseBase):
     
     def check_inputs_exist(self) -> bool:
         """Phase 1 (台本) の出力を確認"""
-        script_path = self.working_dir / self.subject / "01_script" / "script.json"
-        
+        script_path = self.working_dir / "01_script" / "script.json"
+
         if not script_path.exists():
             self.logger.error(f"Script not found: {script_path}")
             return False
-        
+
         return True
     
     def check_outputs_exist(self) -> bool:
@@ -314,8 +314,8 @@ class Phase05BGM(PhaseBase):
     
     def _load_script(self) -> VideoScript:
         """台本を読み込み"""
-        script_path = self.working_dir / self.subject / "01_script" / "script.json"
-        
+        script_path = self.working_dir / "01_script" / "script.json"
+
         with open(script_path, "r", encoding="utf-8") as f:
             script_data = json.load(f)
         
