@@ -227,8 +227,8 @@ class Phase08Thumbnail(PhaseBase):
     
     def _generate_with_dalle(self, script_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        DALL-E 3 + FinalThumbnailGenerator（V3.0 - 赤文字上部＋白文字下部）でサムネイルを生成
-        DALL-E 3 + ThreeZoneThumbnailGenerator（3ゾーンレイアウト）でサムネイルを生成
+        DALL-E 3 + FinalThumbnailGenerator(V3.0 - 赤文字上部＋白文字下部)でサムネイルを生成
+        DALL-E 3 + ThreeZoneThumbnailGenerator(3ゾーンレイアウト)でサムネイルを生成
 
         Args:
             script_data: 台本データ
@@ -291,95 +291,13 @@ class Phase08Thumbnail(PhaseBase):
 
         return result
 
-    def _generate_with_dalle_legacy(self, script_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        レガシー: DALL-E 3 / gpt-image-1 + Pillow + Claudeでサムネイルを生成
-
-        Args:
-            script_data: 台本データ
-
-        Returns:
-            生成結果
-        """
-        model_name = self.phase_config.get("gptimage", {}).get("model", "dall-e-3")
-        self.logger.info(f"🌟 Using {model_name} + Pillow + Claude for thumbnail generation")
-        Returns:
-            生成結果
-        """
-        self.logger.info("🌟 Using DALL-E 3 + ThreeZoneThumbnailGenerator (3-zone layout)")
-
-        # 出力ディレクトリを作成
-        thumbnail_dir = self.phase_dir / "thumbnails"
-        thumbnail_dir.mkdir(parents=True, exist_ok=True)
-
-        # 設定を取得
-        gptimage_config = self.phase_config.get("gptimage", {})
-        catchcopy_config = self.phase_config.get("catchcopy", {})
-        
-        # 1. Claudeでキャッチコピーを生成
-        title, subtitle = self._generate_catchcopy(script_data, catchcopy_config)
-        
-        # 2. DALL-E 3 / GPT Image 1 + Pillowでサムネイルを生成
-        generator = GPTImageThumbnailGenerator(
-            width=gptimage_config.get("width", 1280),
-            height=gptimage_config.get("height", 720),
-            model=gptimage_config.get("model", "dall-e-3"),
-        # ThreeZoneThumbnailGeneratorを作成
-        generator = ThreeZoneThumbnailGenerator(
-            config=self.phase_config,
-            logger=self.logger
-        )
-
-        # サムネイルを生成（内部でDALL-E 3呼び出し + 2段テキスト生成）
-        num_variations = self.phase_config.get("catchcopy", {}).get("num_candidates", 5)
-
-        thumbnail_paths = generator.generate_thumbnails(
-            subject=self.subject,
-            script_data=script_data,
-            output_dir=thumbnail_dir,
-            num_variations=num_variations
-        )
-
-        if not thumbnail_paths:
-            raise PhaseExecutionError(
-                self.get_phase_number(),
-                "Failed to generate any thumbnails with ThreeZoneThumbnailGenerator"
-            )
-
-        # 結果を作成
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        generated_thumbnails = []
-
-        for i, path in enumerate(thumbnail_paths, 1):
-            generated_thumbnails.append({
-                "pattern_index": i,
-                "file_path": str(path),
-                "file_name": path.name,
-                "layout": "three-zone",
-                "style": self.phase_config.get("dalle", {}).get("style", "dramatic")
-            })
-
-        result = {
-            "subject": self.subject,
-            "generated_at": timestamp,
-            "method": "dall-e-3-three-zone",
-            "thumbnails": generated_thumbnails,
-            "total_count": len(generated_thumbnails)
-        }
-
-        self._save_metadata(result)
-
-        self.logger.info(f"✓ {len(generated_thumbnails)} three-zone thumbnails generated")
-
-        return result
-    
     def _generate_catchcopy_candidates(
         self,
         script_data: Dict[str, Any],
         catchcopy_config: Dict[str, Any]
     ) -> List[Dict[str, str]]:
         """
-        Claudeでキャッチコピー候補を生成（複数）
+        Claudeでキャッチコピー候補を生成(複数)
 
         Args:
             script_data: 台本データ
@@ -428,7 +346,7 @@ class Phase08Thumbnail(PhaseBase):
         catchcopy_config: Dict[str, Any]
     ) -> tuple:
         """
-        Claudeでキャッチコピーを生成（レガシーメソッド）
+        Claudeでキャッチコピーを生成(レガシーメソッド)
 
         Args:
             script_data: 台本データ
@@ -467,12 +385,12 @@ class Phase08Thumbnail(PhaseBase):
         images: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
         """
-        Pillowを使用してサムネイルを生成（従来の方法）
-        
+        Pillowを使用してサムネイルを生成(従来の方法)
+
         Args:
             script_data: 台本データ
             images: 画像リスト
-            
+
         Returns:
             生成結果
         """
