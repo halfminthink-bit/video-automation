@@ -21,8 +21,20 @@ from src.generators.textbook_series_generator import create_textbook_series_gene
 import yaml
 from dotenv import load_dotenv
 
-# 環境変数を読み込み
-load_dotenv(override=True)
+# 環境変数を読み込み（プロジェクトの優先順位で）
+env_files = [
+    project_root / ".env",
+    project_root / "config" / ".env",
+]
+
+loaded_env = False
+for env_path in env_files:
+    if env_path.exists():
+        load_dotenv(dotenv_path=env_path, override=True)
+        loaded_env = True
+
+if not loaded_env:
+    load_dotenv(override=True)
 
 
 def setup_logger(debug: bool = False) -> logging.Logger:
