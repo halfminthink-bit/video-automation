@@ -15,6 +15,7 @@ from io import BytesIO
 from .intellectual_curiosity_text_generator import IntellectualCuriosityTextGenerator
 from .intellectual_curiosity_text_renderer import IntellectualCuriosityTextRenderer
 from .bright_background_processor import BrightBackgroundProcessor
+from .fixed_top_text_patterns import FixedTopTextPatterns
 
 
 class IntellectualCuriosityGenerator:
@@ -86,15 +87,15 @@ class IntellectualCuriosityGenerator:
             f"Generating {num_variations} thumbnail variations for: {subject}"
         )
 
-        # 1. 驚きのテキストペアを生成
-        surprise_texts = self.text_generator.generate_surprise_texts(
+        # 1. 2行構成の下部テキストを生成
+        bottom_texts = self.text_generator.generate_surprise_texts(
             subject=subject,
             context=context,
             num_candidates=num_variations
         )
 
-        if not surprise_texts:
-            self.logger.error("No surprise texts generated")
+        if not bottom_texts:
+            self.logger.error("No bottom texts generated")
             return []
 
         # 2. 背景画像を生成（DALL-E 3）
@@ -121,12 +122,16 @@ class IntellectualCuriosityGenerator:
         output_paths = []
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        for i, text_pair in enumerate(surprise_texts, 1):
+        for i, text_data in enumerate(bottom_texts, 1):
             try:
+                # 固定フレーズを取得（インデックスで循環）
+                top_text = FixedTopTextPatterns.get_pattern_by_index(i - 1)
+
                 thumbnail_path = self._generate_single_thumbnail(
                     background=processed_background,
-                    top_text=text_pair.get("top", ""),
-                    bottom_text=text_pair.get("bottom", ""),
+                    top_text=top_text,
+                    line1=text_data.get("line1", ""),
+                    line2=text_data.get("line2", ""),
                     output_dir=output_dir,
                     index=i,
                     subject=subject
@@ -324,7 +329,8 @@ Purpose: YouTube thumbnail that captures viewers' attention and curiosity about 
         self,
         background: Image.Image,
         top_text: str,
-        bottom_text: str,
+        line1: str,
+        line2: str,
         output_dir: Path,
         index: int,
         subject: str
@@ -334,8 +340,9 @@ Purpose: YouTube thumbnail that captures viewers' attention and curiosity about 
 
         Args:
             background: 処理済み背景画像
-            top_text: 上部テキスト
-            bottom_text: 下部テキスト
+            top_text: 上部テキスト（固定フレーズ）
+            line1: 下部1行目（衝撃的な事実）
+            line2: 下部2行目（詳細説明）
             output_dir: 出力ディレクトリ
             index: インデックス番号
             subject: テーマ
@@ -344,19 +351,20 @@ Purpose: YouTube thumbnail that captures viewers' attention and curiosity about 
             生成されたサムネイルのパス
         """
         self.logger.debug(
-            f"Generating thumbnail {index}: Top='{top_text}', Bottom='{bottom_text}'"
+            f"Generating thumbnail {index}: Top='{top_text}', "
+            f"Line1='{line1}', Line2='{line2}'"
         )
 
         # キャンバスを作成（背景をコピー）
         canvas = background.copy()
 
-        # 上部テキストレイヤーを生成（黄色/金色）
+        # 上部テキストレイヤーを生成（金色、固定フレーズ）
         top_layer = self.text_renderer.render_top_text(top_text)
 
-        # 下部テキストレイヤーを生成（白、半透明背景なし）
+        # 下部テキストレイヤーを生成（白、2行構成）
         bottom_layer = self.text_renderer.render_bottom_text(
-            text=bottom_text
-            # with_background=False がデフォルト（半透明背景なし）
+            line1=line1,
+            line2=line2
         )
 
         # レイアウトゾーンを取得
@@ -373,8 +381,8 @@ Purpose: YouTube thumbnail that captures viewers' attention and curiosity about 
         )
 
         # ファイル名を生成
-        safe_top = "".join(c for c in top_text if c.isalnum() or c in (' ', '_'))[:10]
-        filename = f"curiosity_{subject}_{safe_top}_v{index}.png"
+        safe_line1 = "".join(c for c in line1 if c.isalnum() or c in (' ', '_'))[:10]
+        filename = f"curiosity_{subject}_{safe_line1}_v{index}.png"
         # ファイル名をクリーンアップ
         filename = filename.replace(" ", "_").replace("　", "_")
         output_path = output_dir / filename

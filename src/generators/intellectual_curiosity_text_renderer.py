@@ -75,23 +75,18 @@ class IntellectualCuriosityTextRenderer:
 
     def render_top_text(self, text: str) -> Image.Image:
         """
-        上部テキストをレンダリング（黄色/金色、10文字以内、超インパクト）
+        上部テキストをレンダリング（金色、固定フレーズ、読みやすいサイズ）
 
         Args:
-            text: テキスト（10文字以内）
+            text: テキスト（固定フレーズ）
 
         Returns:
             テキストレイヤー（RGBA）
         """
         self.logger.debug(f"Rendering top text: '{text}'")
 
-        # 文字数確認
-        char_count = len(text)
-        if char_count > 10:
-            self.logger.warning(f"Top text exceeds 10 chars: {char_count}")
-
-        # フォントサイズ（超大きく）
-        font_size = 90
+        # フォントサイズ（75px - 読みやすいサイズ）
+        font_size = 75
         font = ImageFont.truetype(self.font_path, font_size)
 
         # テキストサイズを取得
@@ -110,22 +105,13 @@ class IntellectualCuriosityTextRenderer:
         text_x = (layer_width - text_width) // 2
         text_y = (layer_height - text_height) // 2
 
-        # 1. 強力なグロー効果（黄金色）
-        glow_layer = self._create_glow_effect(
-            text,
-            font,
-            (text_x, text_y),
-            (layer_width, layer_height)
-        )
-        layer = Image.alpha_composite(layer, glow_layer)
-
-        # 2. 強いシャドウ
+        # 1. シャドウ効果（控えめ）
         shadow_layer = Image.new('RGBA', (layer_width, layer_height), (0, 0, 0, 0))
         shadow_draw = ImageDraw.Draw(shadow_layer)
 
-        # 多重シャドウ
-        for offset in range(12, 0, -2):
-            shadow_opacity = int(200 * (offset / 12))
+        # シャドウ
+        for offset in range(10, 0, -2):
+            shadow_opacity = int(180 * (offset / 10))
             shadow_draw.text(
                 (text_x + offset, text_y + offset),
                 text,
@@ -133,26 +119,17 @@ class IntellectualCuriosityTextRenderer:
                 fill=(0, 0, 0, shadow_opacity)
             )
 
-        shadow_layer = shadow_layer.filter(ImageFilter.GaussianBlur(8))
         layer = Image.alpha_composite(layer, shadow_layer)
 
-        # 3. 極太黒縁（35px）
+        # 2. 黒縁（20px - 適切なサイズ）
         draw = ImageDraw.Draw(layer)
         draw.text(
             (text_x, text_y),
             text,
             font=font,
-            fill=self.STROKE_COLOR,
-            stroke_width=35,  # 30 → 35pxに強化
+            fill=self.TOP_TEXT_COLOR,
+            stroke_width=20,  # 35 → 20pxに変更
             stroke_fill=self.STROKE_COLOR
-        )
-
-        # 4. 金色テキスト
-        draw.text(
-            (text_x, text_y),
-            text,
-            font=font,
-            fill=self.TOP_TEXT_COLOR
         )
 
         self.logger.debug(f"✅ Top text rendered: {layer.size}")
@@ -161,48 +138,42 @@ class IntellectualCuriosityTextRenderer:
 
     def render_bottom_text(
         self,
-        text: str,
-        with_background: bool = False  # デフォルトをFalseに変更
+        text: Optional[str] = None,
+        line1: Optional[str] = None,
+        line2: Optional[str] = None,
+        with_background: bool = False
     ) -> Image.Image:
         """
-        下部テキストをレンダリング（白文字、大きく、半透明背景なし）
+        下部テキストをレンダリング（白文字、2行構成、読みやすいサイズ）
 
         Args:
-            text: テキスト（10-20文字、改行可）
+            text: レガシー互換性のための単一テキスト（非推奨）
+            line1: 1行目テキスト（10-15文字、衝撃的な事実）
+            line2: 2行目テキスト（10-15文字、詳細説明）
             with_background: 半透明背景を追加するか（非推奨、デフォルトFalse）
 
         Returns:
             テキストレイヤー（RGBA）
         """
-        self.logger.debug(f"Rendering bottom text: '{text}'")
+        # レガシー互換性: textが指定されている場合は改行で分割
+        if text and not line1 and not line2:
+            self.logger.debug(f"Rendering bottom text (legacy): '{text}'")
+            lines_text = text.split('\n') if '\n' in text else [text]
+            line1 = lines_text[0] if len(lines_text) > 0 else ""
+            line2 = lines_text[1] if len(lines_text) > 1 else ""
 
-        # 改行で分割
-        lines = text.split('\n') if '\n' in text else [text]
+        # デフォルト値
+        line1 = line1 or ""
+        line2 = line2 or ""
 
-        # 1行が長すぎる場合は自動改行
-        processed_lines = []
-        for line in lines:
-            if len(line) > 20:
-                # 20文字で分割
-                processed_lines.append(line[:20])
-                if len(line) > 20:
-                    processed_lines.append(line[20:])
-            else:
-                processed_lines.append(line)
-
-        lines = processed_lines[:2]  # 最大2行
-
-        # フォントサイズ（大きく統一: 90px）
-        font_size = 90
-
-        font = ImageFont.truetype(self.font_path, font_size)
+        self.logger.debug(f"Rendering bottom text: Line1='{line1}', Line2='{line2}'")
 
         # レイヤーサイズ
         layer_width = self.width
         layer_height = self.layout["bottom_area_height"]
         layer = Image.new('RGBA', (layer_width, layer_height), (0, 0, 0, 0))
 
-        # 1. 半透明黒背景を削除（with_backgroundがTrueの場合のみ追加）
+        # 1. 半透明黒背景（オプション）
         if with_background:
             draw = ImageDraw.Draw(layer)
             draw.rectangle(
@@ -210,43 +181,83 @@ class IntellectualCuriosityTextRenderer:
                 fill=(0, 0, 0, 140)
             )
 
-        # 2. 各行を描画
         draw = ImageDraw.Draw(layer)
 
-        # Y座標の計算（中央揃え）
-        # フォントサイズが大きくなったので行間を調整
-        line_spacing = font_size * 1.1  # 行間を少し狭く
-        total_text_height = len(lines) * line_spacing
-        y_offset = (layer_height - total_text_height) // 2
+        # フォントサイズ（1行目: 70px、2行目: 60px）
+        font_size_line1 = 70
+        font_size_line2 = 60
 
-        for i, line in enumerate(lines):
+        font1 = ImageFont.truetype(self.font_path, font_size_line1)
+        font2 = ImageFont.truetype(self.font_path, font_size_line2)
+
+        # 行間の計算
+        line_spacing = 75  # 1行目と2行目の間隔
+
+        # Y座標の計算（中央揃え）
+        total_height = font_size_line1 + line_spacing + font_size_line2
+        y_offset = (layer_height - total_height) // 2 + 20  # 少し下に調整
+
+        # 1行目を描画
+        if line1:
             # テキストサイズを取得
             dummy_img = Image.new('RGBA', (1, 1))
             dummy_draw = ImageDraw.Draw(dummy_img)
-            bbox = dummy_draw.textbbox((0, 0), line, font=font)
-            text_width = bbox[2] - bbox[0]
+            bbox1 = dummy_draw.textbbox((0, 0), line1, font=font1)
+            text_width1 = bbox1[2] - bbox1[0]
 
             # X座標（中央揃え）
-            text_x = (layer_width - text_width) // 2
-            text_y = y_offset + (i * line_spacing)
+            text_x1 = (layer_width - text_width1) // 2
+            text_y1 = y_offset
 
-            # 強化されたシャドウ効果（可読性確保）
-            for offset in range(12, 0, -2):
-                shadow_opacity = int(200 * (offset / 12))
+            # シャドウ効果
+            for offset in range(10, 0, -2):
+                shadow_opacity = int(180 * (offset / 10))
                 draw.text(
-                    (text_x + offset, text_y + offset),
-                    line,
-                    font=font,
+                    (text_x1 + offset, text_y1 + offset),
+                    line1,
+                    font=font1,
                     fill=(0, 0, 0, shadow_opacity)
                 )
 
-            # メインテキスト（白文字・太い黒縁: 35px）
+            # メインテキスト（白文字・黒縁: 20px）
             draw.text(
-                (text_x, text_y),
-                line,
-                font=font,
+                (text_x1, text_y1),
+                line1,
+                font=font1,
                 fill=self.BOTTOM_TEXT_COLOR,
-                stroke_width=35,  # 20 → 35pxに強化
+                stroke_width=20,  # 35 → 20pxに変更
+                stroke_fill=self.STROKE_COLOR
+            )
+
+        # 2行目を描画
+        if line2:
+            # テキストサイズを取得
+            dummy_img = Image.new('RGBA', (1, 1))
+            dummy_draw = ImageDraw.Draw(dummy_img)
+            bbox2 = dummy_draw.textbbox((0, 0), line2, font=font2)
+            text_width2 = bbox2[2] - bbox2[0]
+
+            # X座標（中央揃え）
+            text_x2 = (layer_width - text_width2) // 2
+            text_y2 = y_offset + line_spacing
+
+            # シャドウ効果
+            for offset in range(10, 0, -2):
+                shadow_opacity = int(180 * (offset / 10))
+                draw.text(
+                    (text_x2 + offset, text_y2 + offset),
+                    line2,
+                    font=font2,
+                    fill=(0, 0, 0, shadow_opacity)
+                )
+
+            # メインテキスト（白文字・黒縁: 20px）
+            draw.text(
+                (text_x2, text_y2),
+                line2,
+                font=font2,
+                fill=self.BOTTOM_TEXT_COLOR,
+                stroke_width=20,  # 35 → 20pxに変更
                 stroke_fill=self.STROKE_COLOR
             )
 
