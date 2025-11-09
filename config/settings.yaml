@@ -17,6 +17,7 @@ paths:
   cache_dir: "data/cache"
   assets_dir: "assets"
   logs_dir: "logs"
+  input_dir: "data/input"
 
 # ========================================
 # 実行設定
