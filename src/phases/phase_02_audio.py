@@ -27,6 +27,7 @@ from src.core.exceptions import (
     PhaseInputMissingError
 )
 from src.generators.audio_generator import create_audio_generator
+from src.generators.kokoro_audio_generator import KokoroAudioGenerator
 from src.processors.audio_processor import AudioProcessor
 from src.processors.text_optimizer import TextOptimizer
 
@@ -246,28 +247,57 @@ class Phase02Audio(PhaseBase):
     def _create_audio_generator(self):
         """
         音声生成器を作成
-        
+
+        設定の "service" フィールドに基づいて、適切な生成器を選択:
+        - "kokoro": Kokoro TTS FastAPI（完全無料、タイムスタンプ対応）
+        - "elevenlabs": ElevenLabs API（従来の方法）
+
         Returns:
-            AudioGenerator または DummyAudioGenerator
+            AudioGenerator, KokoroAudioGenerator, または DummyAudioGenerator
         """
-        # APIキーを取得
-        try:
-            api_key = self.config.get_api_key("ELEVENLABS_API_KEY")
-            self.logger.info("ElevenLabs API key found")
-        except Exception as e:
-            self.logger.warning(f"Failed to get ElevenLabs API key: {e}")
-            self.logger.warning("Using dummy generator")
-            api_key = None
-        
-        # 生成器を作成
-        generator = create_audio_generator(
-            api_key=api_key,
-            config=self.phase_config,
-            use_dummy=not api_key,
-            logger=self.logger
-        )
-        
-        return generator
+        service = self.phase_config.get("service", "elevenlabs").lower()
+
+        if service == "kokoro":
+            # Kokoro TTS を使用
+            self.logger.info("Using Kokoro TTS for audio generation")
+
+            try:
+                kokoro_config = self.phase_config.get("kokoro", {})
+                generator = KokoroAudioGenerator(
+                    api_url=kokoro_config.get("api_url"),
+                    voice=kokoro_config.get("voice", "af_bella"),
+                    logger=self.logger
+                )
+                self.logger.info(
+                    f"Kokoro TTS initialized: voice={kokoro_config.get('voice', 'af_bella')}"
+                )
+                return generator
+            except Exception as e:
+                self.logger.error(f"Failed to initialize Kokoro TTS: {e}")
+                raise
+
+        else:
+            # ElevenLabs を使用（従来の方法）
+            self.logger.info("Using ElevenLabs API for audio generation")
+
+            # APIキーを取得
+            try:
+                api_key = self.config.get_api_key("ELEVENLABS_API_KEY")
+                self.logger.info("ElevenLabs API key found")
+            except Exception as e:
+                self.logger.warning(f"Failed to get ElevenLabs API key: {e}")
+                self.logger.warning("Using dummy generator")
+                api_key = None
+
+            # 生成器を作成
+            generator = create_audio_generator(
+                api_key=api_key,
+                config=self.phase_config,
+                use_dummy=not api_key,
+                logger=self.logger
+            )
+
+            return generator
     
     def _generate_all_sections(
         self,
