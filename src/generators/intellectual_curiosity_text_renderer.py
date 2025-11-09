@@ -136,14 +136,14 @@ class IntellectualCuriosityTextRenderer:
         shadow_layer = shadow_layer.filter(ImageFilter.GaussianBlur(8))
         layer = Image.alpha_composite(layer, shadow_layer)
 
-        # 3. 極太黒縁（30px）
+        # 3. 極太黒縁（35px）
         draw = ImageDraw.Draw(layer)
         draw.text(
             (text_x, text_y),
             text,
             font=font,
             fill=self.STROKE_COLOR,
-            stroke_width=30,
+            stroke_width=35,  # 30 → 35pxに強化
             stroke_fill=self.STROKE_COLOR
         )
 
@@ -162,14 +162,14 @@ class IntellectualCuriosityTextRenderer:
     def render_bottom_text(
         self,
         text: str,
-        with_background: bool = True
+        with_background: bool = False  # デフォルトをFalseに変更
     ) -> Image.Image:
         """
-        下部テキストをレンダリング（白文字、10-20文字、1-2行）
+        下部テキストをレンダリング（白文字、大きく、半透明背景なし）
 
         Args:
             text: テキスト（10-20文字、改行可）
-            with_background: 半透明背景を追加するか
+            with_background: 半透明背景を追加するか（非推奨、デフォルトFalse）
 
         Returns:
             テキストレイヤー（RGBA）
@@ -192,11 +192,8 @@ class IntellectualCuriosityTextRenderer:
 
         lines = processed_lines[:2]  # 最大2行
 
-        # フォントサイズ（行数に応じて調整）
-        if len(lines) == 1:
-            font_size = 55
-        else:
-            font_size = 45
+        # フォントサイズ（大きく統一: 90px）
+        font_size = 90
 
         font = ImageFont.truetype(self.font_path, font_size)
 
@@ -205,7 +202,7 @@ class IntellectualCuriosityTextRenderer:
         layer_height = self.layout["bottom_area_height"]
         layer = Image.new('RGBA', (layer_width, layer_height), (0, 0, 0, 0))
 
-        # 1. 半透明黒背景を追加（オプション）
+        # 1. 半透明黒背景を削除（with_backgroundがTrueの場合のみ追加）
         if with_background:
             draw = ImageDraw.Draw(layer)
             draw.rectangle(
@@ -217,7 +214,9 @@ class IntellectualCuriosityTextRenderer:
         draw = ImageDraw.Draw(layer)
 
         # Y座標の計算（中央揃え）
-        total_text_height = len(lines) * font_size * 1.3
+        # フォントサイズが大きくなったので行間を調整
+        line_spacing = font_size * 1.1  # 行間を少し狭く
+        total_text_height = len(lines) * line_spacing
         y_offset = (layer_height - total_text_height) // 2
 
         for i, line in enumerate(lines):
@@ -229,11 +228,11 @@ class IntellectualCuriosityTextRenderer:
 
             # X座標（中央揃え）
             text_x = (layer_width - text_width) // 2
-            text_y = y_offset + (i * font_size * 1.3)
+            text_y = y_offset + (i * line_spacing)
 
-            # 多重影効果（白文字用）
-            for offset in range(15, 0, -3):
-                shadow_opacity = int(180 * (offset / 15))
+            # 強化されたシャドウ効果（可読性確保）
+            for offset in range(12, 0, -2):
+                shadow_opacity = int(200 * (offset / 12))
                 draw.text(
                     (text_x + offset, text_y + offset),
                     line,
@@ -241,13 +240,13 @@ class IntellectualCuriosityTextRenderer:
                     fill=(0, 0, 0, shadow_opacity)
                 )
 
-            # メインテキスト（白文字・黒縁）
+            # メインテキスト（白文字・太い黒縁: 35px）
             draw.text(
                 (text_x, text_y),
                 line,
                 font=font,
                 fill=self.BOTTOM_TEXT_COLOR,
-                stroke_width=20,
+                stroke_width=35,  # 20 → 35pxに強化
                 stroke_fill=self.STROKE_COLOR
             )
 

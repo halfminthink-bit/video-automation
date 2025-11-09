@@ -23,14 +23,17 @@ from src.core.exceptions import (
     PhaseValidationError,
     PhaseInputMissingError
 )
+# 保持: 知的好奇心ジェネレーター（デフォルト）
+from src.generators.intellectual_curiosity_generator import create_intellectual_curiosity_generator
+# 保持: キャッチコピージェネレーター
+from src.generators.catchcopy_generator import CatchcopyGenerator
+
+# 従来の方法用（互換性のため保持）
 from src.generators.thumbnail_generator import create_thumbnail_generator
 from src.generators.pillow_thumbnail_generator import PillowThumbnailGenerator
 from src.generators.gptimage_thumbnail_generator import GPTImageThumbnailGenerator
-from src.generators.catchcopy_generator import CatchcopyGenerator
 from src.generators.final_thumbnail_generator import FinalThumbnailGenerator
 from src.generators.impact_thumbnail_generator import create_impact_thumbnail_generator
-from src.generators.three_zone_thumbnail_generator import ThreeZoneThumbnailGenerator
-from src.generators.intellectual_curiosity_generator import create_intellectual_curiosity_generator
 
 from dotenv import load_dotenv
 

@@ -205,80 +205,118 @@ class IntellectualCuriosityGenerator:
             )
             return None
 
+    def _extract_key_scenes(
+        self,
+        context: Optional[Dict[str, Any]]
+    ) -> str:
+        """
+        台本から重要なシーン・状況を抽出
+
+        Args:
+            context: 台本データ
+
+        Returns:
+            重要なシーンの説明文
+        """
+        if not context or "sections" not in context:
+            return "No specific context available. Create a dramatic historical scene."
+
+        sections = context.get("sections", [])
+        if not sections:
+            return "No specific context available. Create a dramatic historical scene."
+
+        # 最初の2-3セクションから重要な内容を抽出
+        key_content = []
+
+        for i, section in enumerate(sections[:3]):  # 最初の3セクション
+            title = section.get("title", "")
+            content = section.get("content", "")
+
+            # 各セクションから最初の150-200文字を抽出
+            content_preview = content[:200] if content else ""
+
+            if title and content_preview:
+                key_content.append(f"{i+1}. {title}: {content_preview}...")
+            elif content_preview:
+                key_content.append(f"{i+1}. {content_preview}...")
+
+        if not key_content:
+            return "No specific context available. Create a dramatic historical scene."
+
+        # セクション内容を結合
+        scenes_text = "\n".join(key_content)
+
+        return f"""Based on the script:
+{scenes_text}
+
+Focus on the most DRAMATIC and VISUALLY COMPELLING moment from these scenes.
+Show the ACTION, CONFLICT, or KEY TURNING POINT."""
+
     def _build_dalle_prompt(
         self,
         subject: str,
         context: Optional[Dict[str, Any]]
     ) -> str:
         """
-        DALL-E用のプロンプトを構築
+        DALL-E用のプロンプトを構築（歴史的状況を描く）
 
         Args:
             subject: 対象人物・テーマ
-            context: 追加コンテキスト
+            context: 追加コンテキスト（台本）
 
         Returns:
             プロンプト文字列
         """
-        # コンテキストから情報を抽出
-        context_info = ""
-        if context and "sections" in context:
-            sections = context.get("sections", [])
-            if sections:
-                first_section = sections[0]
-                content = first_section.get("content", "")[:150]
-                context_info = f"Context: {content}"
+        # 台本から重要なシーン・状況を抽出
+        key_scenes = self._extract_key_scenes(context)
 
         # 画像スタイル設定
         image_style = self.config.get("image_style", {})
         style_type = image_style.get("type", "dramatic")
-        mood = image_style.get("mood", "mysterious")
 
-        prompt = f"""High-quality portrait photograph of {subject} for YouTube thumbnail.
+        prompt = f"""A dramatic historical scene depicting a key moment in the story of {subject}.
 
-{context_info}
+KEY SCENES FROM THE STORY:
+{key_scenes}
 
-CRITICAL REQUIREMENTS:
-- BRIGHT, WELL-LIT photograph
-- Face CLEARLY VISIBLE and RECOGNIZABLE
-- Professional lighting, NO shadows on face
-- Face positioned in CENTER of frame
-- BRIGHT background, well-lit environment
+VISUAL REQUIREMENTS:
+- Show the SITUATION or DRAMATIC MOMENT from {subject}'s life, NOT just a portrait
+- Include PERIOD-APPROPRIATE details (historical clothing, architecture, environment)
+- Convey the EMOTION and HISTORICAL SIGNIFICANCE of the scene
+- Create VISUAL IMPACT through dramatic composition and lighting
+- Make it CLEAR this is a historical figure/event with period details
 
-Style:
-- Professional portrait photography
-- {style_type} style
-- Bright, engaging mood
-- Natural or studio lighting
+SCENE ELEMENTS:
+- Historical setting with period-accurate details
+- Dramatic composition showing action or a key moment
+- Rich, atmospheric lighting (can be dramatic but still visible)
+- Clear time period indicators (clothing, architecture, tools)
+- Emotional intensity and human drama
+- Environmental context that tells the story
 
-Composition:
-- Head and shoulders visible
-- Face centered in middle area
-- Clear facial features and expression
-- Top and bottom areas reserved for text overlay
-- NO dark or shadowy areas on face
+STYLE:
+- Cinematic, {style_type} style
+- Historically accurate but visually engaging
+- Professional quality, like a movie poster
+- Emotional and impactful
 
-Lighting:
-- BRIGHT, professional lighting
-- Face fully illuminated
-- NO dramatic shadows
-- Well-lit, clear visibility
-- Photographic quality
+COMPOSITION:
+- Horizontal 16:9 format
+- Space at top and bottom for text overlay
+- Main focus in center area
+- Dynamic, not static
+- Clear storytelling through visuals
 
-Colors:
-- Natural, vibrant colors
-- Good contrast but NOT dark
-- Face well-exposed and bright
-
-Technical:
+TECHNICAL:
 - NO text, NO UI elements, NO watermarks
 - High resolution, sharp focus
-- Horizontal 16:9 format
-- Professional photography quality
+- NO modern elements
+- Size: 1792x1024 (landscape)
 
-IMPORTANT: The person's face must be CLEARLY RECOGNIZABLE and BRIGHT.
-Size: 1792x1024 (landscape)
-Purpose: YouTube thumbnail with text overlay on top and bottom"""
+CRITICAL: Show a SITUATION, ACTION, or DRAMATIC SCENE from their life.
+NOT a simple portrait. The image should tell a story and convey historical context.
+
+Purpose: YouTube thumbnail that captures viewers' attention and curiosity about this historical moment."""
 
         return prompt
 
@@ -315,10 +353,10 @@ Purpose: YouTube thumbnail with text overlay on top and bottom"""
         # 上部テキストレイヤーを生成（黄色/金色）
         top_layer = self.text_renderer.render_top_text(top_text)
 
-        # 下部テキストレイヤーを生成（白）
+        # 下部テキストレイヤーを生成（白、半透明背景なし）
         bottom_layer = self.text_renderer.render_bottom_text(
-            text=bottom_text,
-            with_background=True
+            text=bottom_text
+            # with_background=False がデフォルト（半透明背景なし）
         )
 
         # レイアウトゾーンを取得
