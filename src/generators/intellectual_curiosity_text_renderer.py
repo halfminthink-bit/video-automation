@@ -192,7 +192,7 @@ class IntellectualCuriosityTextRenderer:
 
         # 行間とベースライン設定（縁取りを考慮して十分な間隔を確保）
         line_spacing = 110  # よりタイトな行間
-        base_y = 150  # 下端に被らないよう再調整
+        base_y = 140  # わずかに上げてバランスを調整
 
         # 1行目を描画
         if line1:
