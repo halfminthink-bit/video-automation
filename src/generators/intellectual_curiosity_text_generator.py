@@ -8,13 +8,31 @@
 
 import json
 import logging
+from pathlib import Path
 from typing import Dict, Any, List, Optional
 from dotenv import load_dotenv
 from openai import OpenAI
 
 
-# Ensure .env values override existing environment variables
-load_dotenv(override=True)
+def _load_env_with_overrides() -> None:
+    """Load environment variables giving priority to project .env files."""
+    project_root = Path(__file__).resolve().parents[2]
+    env_candidates = [
+        project_root / ".env",
+        project_root / "config" / ".env",
+    ]
+
+    loaded = False
+    for env_path in env_candidates:
+        if env_path.exists():
+            load_dotenv(dotenv_path=env_path, override=True)
+            loaded = True
+
+    if not loaded:
+        load_dotenv(override=True)
+
+
+_load_env_with_overrides()
 
 
 class IntellectualCuriosityTextGenerator:
