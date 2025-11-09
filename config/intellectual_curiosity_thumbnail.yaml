@@ -15,57 +15,61 @@ text_generation:
   model: "gpt-4o-mini"
   num_candidates: 5  # 生成する候補数
 
-  # 上部テキスト（自動生成）
+  # 上部テキスト（固定フレーズ）
   top_text:
-    max_chars: 10  # 厳守
-    role: "impact"  # インパクト重視
+    type: "fixed_phrase"  # 固定フレーズに変更
     patterns:
-      - "一言ショック"  # "実は○○だった"
-      - "衝撃ワード"    # "殺された", "追放"
-      - "疑問形"        # "天才？", "英雄？"
-      - "反転"          # "逆だった", "間違い"
+      - "あなたは知っている？"
+      - "教科書には載っていない！"
+      - "世界が隠した真実"
+      - "99%が知らない事実"
+      - "歴史の裏側"
 
-  # 下部テキスト（自動生成）
+  # 下部テキスト（2行構成）
   bottom_text:
-    min_chars: 10
-    max_chars: 20  # 目安（誤差OK）
-    max_lines: 2
-    role: "explanation"  # 説明・補完
-    allow_line_break: true
+    type: "two_lines"  # 2行構成に変更
+    line1:
+      min_chars: 10
+      max_chars: 15
+      role: "衝撃的な事実"  # 1行目の役割
+    line2:
+      min_chars: 10
+      max_chars: 15
+      role: "詳細説明"  # 2行目の役割
 
-# テキストスタイル設定
+# テキストスタイル設定（V2仕様）
 styles:
   top_text:
     color: "#FFD700"  # 金色/黄色
-    font_size: 90  # 超大きく
-    stroke_width: 30
+    font_size: 75  # 固定フレーズ用サイズ（90→75）
+    stroke_width: 20  # 読みやすい縁取り（30→20）
     stroke_color: "#000000"
-    glow:
-      enabled: true
-      blur_radius: 20
-      intensity: 120
     shadow:
       enabled: true
-      offset: [12, 12]
-      blur: 8
-      opacity: 200
+      offset: [10, 10]
+      blur: 0
+      opacity: 180
     position:
       area: "top"
       height: 200
 
   bottom_text:
     color: "#FFFFFF"  # 白
-    font_size_1line: 55
-    font_size_2lines: 45
-    stroke_width: 20
+    line1:
+      font_size: 70  # 1行目: 衝撃的な事実
+      stroke_width: 20  # 適切な縁取り
+    line2:
+      font_size: 60  # 2行目: 詳細説明
+      stroke_width: 20  # 適切な縁取り
     stroke_color: "#000000"
+    line_spacing: 75  # 1行目と2行目の間隔
     shadow:
       enabled: true
       layers: 5
-      max_offset: 15
+      max_offset: 10
       opacity: 180
     background:
-      enabled: true
+      enabled: false  # 半透明背景は無効化
       color: "#000000"
       opacity: 140
     position:
