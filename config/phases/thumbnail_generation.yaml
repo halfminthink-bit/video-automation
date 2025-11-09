@@ -1,9 +1,40 @@
-﻿# Phase 8: Thumbnail Generation（改善版）
-# YouTubeサムネイル生成の設定 - 超インパクト版
+﻿# Phase 8: Thumbnail Generation（V3.0最終版）
+# YouTubeサムネイル生成の設定 - 赤文字上部＋白文字下部レイアウト
+#
+# ================================
+# V3.0 仕様概要
+# ================================
+#
+# 【レイアウト構成】（25/50/25）
+# ┌──────────────────────────────────┐
+# │  上部25%: なぜ死んだ？            │ ← 赤グラデーション
+# │  （5-8文字、疑問形・衝撃系）      │   超大フォント（140-180px）
+# ├──────────────────────────────────┤
+# │                                  │
+# │  中央50%: 【人物の顔】           │ ← DALL-E 3生成
+# │  （明るいまま、暗くしない）       │   軽いビネットのみ（20%）
+# │                                  │
+# ├──────────────────────────────────┤
+# │  下部25%: 手洗いで命を救った男の  │ ← 白文字＋黒縁
+# │  真実（15-25文字）               │   半透明黒背景付き
+# └──────────────────────────────────┘
+#
+# 【主な特徴】
+# 1. 上部テキスト: 赤グラデーション（#FF0000→#FF6B6B→#FFAAAA）
+# 2. 下部テキスト: 白単色＋黒縁のみ（グラデーションなし）
+# 3. 背景処理: 暗くせず、軽いビネット（0.2）のみ
+# 4. テキスト内容: 専門用語を避け、誰でも理解できる言葉
+# 5. DALL-E 3: 人物の顔を中央に配置、明るい照明
+#
+# 【使用クラス】
+# - ImpactTextGenerator: 疑問形・衝撃系テキスト生成
+# - SimpleBackgroundProcessor: 軽いビネットのみの背景処理
+# - V3TextRenderer: 赤グラデーション＋白黒縁のテキスト描画
+# - FinalThumbnailGenerator: メイン統合クラス
 
 # 生成方法選択
 # - false: Pillowで画像に文字をオーバーレイ（5枚生成、無料）
-# - true: DALL-E 3 / GPT Image 1でAI生成（1枚生成、高品質、$0.040/枚）
+# - true: DALL-E 3でAI生成（V3.0レイアウト、$0.040/枚）
 use_dalle: true
 
 # DALL-E 3 / GPT Image 1設定（use_dalle: trueの場合）
@@ -21,15 +52,21 @@ gptimage:
   quality: "medium"         # 画像品質（low, medium, high）
   layout: "center"          # テキストレイアウト（center, left, right）
 
+# インパクトテキスト生成設定（V3.0 - 赤文字上部＋白文字下部）
 # Claudeキャッチコピー生成設定（3ゾーンレイアウト用・2段テキスト）
 catchcopy:
-  enabled: true             # キャッチコピー生成を有効化
+  enabled: true             # テキスト生成を有効化
   model: "gpt-4.1-mini"     # 使用するモデル
+  tone: "impact"            # トーン（impact: 疑問形・衝撃系）
+  target_audience: "一般"   # ターゲット層
+  main_title_length: 8      # 上部テキストの最大文字数（5-8文字厳守）
+  sub_title_length: 25      # 下部テキストの最大文字数（15-25文字推奨）
   tone: "dramatic"          # トーン（dramatic, shocking, educational, casual）
   target_audience: "一般"   # ターゲット層
   main_title_length: 7      # メインキャッチの最大文字数（5-7文字厳守）
   sub_title_length: 20      # サブ説明文の最大文字数（15-20文字推奨）
   num_candidates: 5         # 生成する候補数
+  avoid_technical_terms: true  # 専門用語を避ける
 
 # 3ゾーンレイアウト設定（新システム）
 three_zone_layout:
@@ -55,6 +92,39 @@ output:
   format: "png"              # PNG形式（高品質）
   quality: 95                # 品質（0-100）
   patterns: 5                # 生成するパターン数
+
+# 画像生成設定（V3.0）
+image_generation:
+  focus: "person_face"       # 人物の顔を中央に配置
+  brightness: "normal"       # 明るさ（暗くしない！）
+  vignette_strength: 0.2     # ビネット強度（軽いビネットのみ、0.2=20%）
+
+# レイアウト設定（V3.0 - 25/50/25）
+layout:
+  main_text_zone: 0.25       # 上部25%: メインキャッチ（赤グラデーション）
+  person_zone: 0.50          # 中央50%: 人物画像（明るいまま）
+  sub_text_zone: 0.25        # 下部25%: サブ説明文（白＋黒縁）
+
+# テキストスタイル設定（V3.0）
+text_style_v3:
+  main_text:                 # 上部テキスト（赤グラデーション）
+    gradient_colors:
+      - "#FF0000"            # 濃い赤
+      - "#FF6B6B"            # 中間赤
+      - "#FFAAAA"            # 薄い赤
+    font_size_range: [140, 180]  # 文字数で調整
+    stroke_black: 25         # 黒縁25px
+    stroke_white: 12         # 白縁12px
+    shadow_offset: [8, 8]    # シャドウオフセット
+    shadow_blur: 10          # シャドウぼかし
+
+  sub_text:                  # 下部テキスト（白＋黒縁）
+    color: "#FFFFFF"         # 白単色
+    font_size: 50            # 固定サイズ
+    stroke_black: 10         # 黒縁10px
+    background_opacity: 150  # 半透明黒背景（150/255）
+    background_padding: 20   # 背景パディング
+    background_blur: 5       # 背景ぼかし
 
 # 画像選択設定
 image_selection:
