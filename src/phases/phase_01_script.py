@@ -63,15 +63,24 @@ class Phase01Script(PhaseBase):
     def execute_phase(self) -> VideoScript:
         """
         台本生成の実行
-        
+
         Returns:
             VideoScript: 生成された台本
-            
+
         Raises:
             PhaseExecutionError: 生成失敗時
         """
-        self.logger.info(f"Generating script for: {self.subject}")
-        
+        # === manual_overrides をチェック ===
+        manual_script = self._load_manual_script()
+        if manual_script:
+            self.logger.info(f"✅ Using manual script from manual_overrides")
+            self._save_script(manual_script)
+            self._save_generation_metadata(manual_script)
+            return manual_script
+
+        # === 自動生成処理 ===
+        self.logger.info(f"Generating script via API for: {self.subject}")
+
         try:
             # APIキーを取得
             api_key = self._get_api_key()
@@ -216,7 +225,36 @@ class Phase01Script(PhaseBase):
     # ========================================
     # 内部メソッド
     # ========================================
-    
+
+    def _load_manual_script(self) -> Optional[VideoScript]:
+        """
+        manual_overrides から手動台本を読み込み
+
+        Returns:
+            VideoScript または None
+        """
+        # manual_overrides ディレクトリを確認
+        input_dir = self.config.get_path("input_dir")
+        manual_path = input_dir / "manual_overrides" / f"{self.subject}_script.json"
+
+        if not manual_path.exists():
+            self.logger.debug(f"No manual script found: {manual_path}")
+            return None
+
+        try:
+            with open(manual_path, 'r', encoding='utf-8') as f:
+                script_data = json.load(f)
+
+            # Pydanticモデルに変換
+            script = self._convert_to_model(script_data)
+
+            self.logger.info(f"Manual script loaded: {manual_path}")
+            return script
+
+        except Exception as e:
+            self.logger.error(f"Failed to load manual script: {e}")
+            return None
+
     def _get_api_key(self) -> Optional[str]:
         """Claude APIキーを取得"""
         try:
