@@ -1,0 +1,61 @@
+{
+  "subject": "グリゴリー・ラスプーチン",
+  "title": "不死身の怪僧ラスプーチン",
+  "description": "ロシア帝国を揺るがした謎の怪僧グリゴリー・ラスプーチン。なぜ彼は恐れられ、そして殺されたのか？壮絶な暗殺劇を1分で解説します。",
+  "sections": [
+    {
+      "section_id": 1,
+      "title": "導入",
+      "narration": "20世紀初頭のロシア帝国。\nひとりの農民出身の男が、皇帝一家を虜にしていました。\nその名はグリゴリー・ラスプーチン。\n不思議な治癒力で皇太子の病を治し、皇后の絶大な信頼を得た彼は、\nやがて「怪僧」として恐れられる存在になります。",
+      "estimated_duration": 20.0,
+      "image_keywords": [
+        "Rasputin",
+        "Russian Empire",
+        "Tsar Nicholas II",
+        "グリゴリー・ラスプーチン",
+        "ロシア帝国"
+      ],
+      "atmosphere": "劇的",
+      "requires_ai_video": false,
+      "ai_video_prompt": null,
+      "bgm_suggestion": "opening"
+    },
+    {
+      "section_id": 2,
+      "title": "展開",
+      "narration": "1916年12月、貴族たちはラスプーチン暗殺を決行します。\nまず毒入りのケーキとワインを振る舞いますが、彼は平然と食べ続けました。\n次に銃で撃ちますが、倒れても再び起き上がります。\n何度も撃たれ、殴られ、最後は凍てつくネヴァ川に投げ込まれました。",
+      "estimated_duration": 20.0,
+      "image_keywords": [
+        "Rasputin",
+        "assassination",
+        "Neva River",
+        "ラスプーチン",
+        "暗殺"
+      ],
+      "atmosphere": "劇的",
+      "requires_ai_video": false,
+      "ai_video_prompt": null,
+      "bgm_suggestion": "main"
+    },
+    {
+      "section_id": 3,
+      "title": "締め",
+      "narration": "検死の結果、死因は溺死。\nつまり川に投げ込まれた時、まだ生きていたのです。\nラスプーチンの死からわずか2ヶ月後、ロシア革命が勃発。\n彼が予言した通り、ロマノフ王朝は崩壊しました。\n不死身の怪僧は、時代の終わりを告げる最後の預言者だったのかもしれません。",
+      "estimated_duration": 20.0,
+      "image_keywords": [
+        "Rasputin",
+        "Russian Revolution",
+        "Romanov",
+        "ラスプーチン",
+        "ロシア革命"
+      ],
+      "atmosphere": "悲劇的",
+      "requires_ai_video": false,
+      "ai_video_prompt": null,
+      "bgm_suggestion": "ending"
+    }
+  ],
+  "total_estimated_duration": 60,
+  "generated_at": "2025-11-09T15:05:37.157427",
+  "model_version": "manual"
+}

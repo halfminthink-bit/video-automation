@@ -7,6 +7,24 @@
 
 ## 📋 更新履歴
 
+## 🔄 ワークフロー（まとめ）
+```
+1. テンプレート作成
+   ↓
+   python scripts/create_script_template.py "グリゴリー・ラスプーチン"
+   
+2. YAMLファイルを編集（これがメイン作業）
+   ↓
+   data/input/manual_scripts/偉人名.yaml
+   
+3. JSONに変換（1コマンド）
+   ↓
+   python scripts/convert_manual_script.py "グリゴリー・ラスプーチン"
+   
+4. 動画生成（自動で手動台本が使われる）
+   ↓
+   python -m src.cli generate "グリゴリー・ラスプーチン"
+
 ### v2.0 (2025年11月8日)
 - Phase 8 (サムネイル生成) の実装完了を反映
 - 日本語フォント対応の詳細を追加
