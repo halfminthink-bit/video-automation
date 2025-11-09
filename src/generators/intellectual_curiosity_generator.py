@@ -14,7 +14,7 @@ from io import BytesIO
 
 from .intellectual_curiosity_text_generator import IntellectualCuriosityTextGenerator
 from .intellectual_curiosity_text_renderer import IntellectualCuriosityTextRenderer
-from .dark_vignette_processor import DarkVignetteProcessor
+from .bright_background_processor import BrightBackgroundProcessor
 
 
 class IntellectualCuriosityGenerator:
@@ -51,7 +51,7 @@ class IntellectualCuriosityGenerator:
             logger=self.logger
         )
 
-        self.background_processor = DarkVignetteProcessor(
+        self.background_processor = BrightBackgroundProcessor(
             canvas_size=self.canvas_size,
             logger=self.logger
         )
@@ -108,13 +108,13 @@ class IntellectualCuriosityGenerator:
         background = background.resize(self.canvas_size, Image.Resampling.LANCZOS)
         self.logger.info(f"Background resized to: {background.size}")
 
-        # 4. 背景を処理（暗く、ビネット）
+        # 4. 背景を処理（明るく保つ、軽いビネット）
         bg_config = self.config.get("background", {})
         processed_background = self.background_processor.process_background(
             image=background,
-            darkness_factor=bg_config.get("darkness", 0.7),
-            vignette_strength=bg_config.get("vignette", 0.6),
-            edge_shadow=bg_config.get("edge_shadow", True)
+            vignette_strength=bg_config.get("vignette", 0.2),
+            edge_shadow=bg_config.get("edge_shadow", True),
+            enhance_brightness=bg_config.get("enhance_brightness", True)
         )
 
         # 5. 各テキストペアでサムネイルを生成
@@ -234,34 +234,51 @@ class IntellectualCuriosityGenerator:
         style_type = image_style.get("type", "dramatic")
         mood = image_style.get("mood", "mysterious")
 
-        prompt = f"""Portrait or dramatic scene of {subject} for YouTube thumbnail.
+        prompt = f"""High-quality portrait photograph of {subject} for YouTube thumbnail.
 
 {context_info}
 
+CRITICAL REQUIREMENTS:
+- BRIGHT, WELL-LIT photograph
+- Face CLEARLY VISIBLE and RECOGNIZABLE
+- Professional lighting, NO shadows on face
+- Face positioned in CENTER of frame
+- BRIGHT background, well-lit environment
+
 Style:
-- Dramatic, eye-catching, YouTube-optimized
+- Professional portrait photography
 - {style_type} style
-- {mood} mood
-- High contrast, bold colors
+- Bright, engaging mood
+- Natural or studio lighting
 
 Composition:
-- Center-focused for text overlay space
-- Clear subject in middle area
-- Top and bottom areas can be darker for text
-- Face or key element clearly visible
+- Head and shoulders visible
+- Face centered in middle area
+- Clear facial features and expression
+- Top and bottom areas reserved for text overlay
+- NO dark or shadowy areas on face
 
 Lighting:
-- Dramatic but not too dark
-- Subject well-lit and prominent
-- Cinematic quality
+- BRIGHT, professional lighting
+- Face fully illuminated
+- NO dramatic shadows
+- Well-lit, clear visibility
+- Photographic quality
+
+Colors:
+- Natural, vibrant colors
+- Good contrast but NOT dark
+- Face well-exposed and bright
 
 Technical:
-- NO text, NO UI elements
-- High quality, detailed
+- NO text, NO UI elements, NO watermarks
+- High resolution, sharp focus
 - Horizontal 16:9 format
+- Professional photography quality
 
+IMPORTANT: The person's face must be CLEARLY RECOGNIZABLE and BRIGHT.
 Size: 1792x1024 (landscape)
-Purpose: YouTube thumbnail optimized for text overlay"""
+Purpose: YouTube thumbnail with text overlay on top and bottom"""
 
         return prompt
 
@@ -343,13 +360,13 @@ Purpose: YouTube thumbnail optimized for text overlay"""
                 "quality": "standard"
             },
             "background": {
-                "darkness": 0.7,
-                "vignette": 0.6,
-                "edge_shadow": True
+                "vignette": 0.2,  # 軽いビネット
+                "edge_shadow": True,
+                "enhance_brightness": True  # 明るさを少し上げる
             },
             "image_style": {
-                "type": "dramatic",
-                "mood": "mysterious"
+                "type": "professional",  # プロフェッショナルな写真
+                "mood": "bright"  # 明るいムード
             }
         }
 
