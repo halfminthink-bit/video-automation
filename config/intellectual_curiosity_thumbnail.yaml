@@ -62,7 +62,7 @@ styles:
       font_size: 60  # 2行目: 詳細説明
       stroke_width: 20  # 適切な縁取り
     stroke_color: "#000000"
-    line_spacing: 75  # 1行目と2行目の間隔
+    line_spacing: 100  # 1行目と2行目の間隔（被らないように十分に広げる）
     shadow:
       enabled: true
       layers: 5

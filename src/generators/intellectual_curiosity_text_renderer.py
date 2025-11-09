@@ -191,7 +191,7 @@ class IntellectualCuriosityTextRenderer:
         font2 = ImageFont.truetype(self.font_path, font_size_line2)
 
         # 行間の計算
-        line_spacing = 75  # 1行目と2行目の間隔
+        line_spacing = 100  # 1行目と2行目の間隔（被らないように十分に広げる）
 
         # Y座標の計算（中央揃え）
         total_height = font_size_line1 + line_spacing + font_size_line2
