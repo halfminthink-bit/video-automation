@@ -1,0 +1,137 @@
+# 知的好奇心サムネイル自動生成システム設定
+
+style: "intellectual_curiosity"
+description: "「えっ！？」と驚く知的好奇心を刺激するサムネイル"
+
+# 出力設定
+output:
+  resolution: [1280, 720]  # YouTubeサムネイル標準サイズ
+  format: "PNG"
+  quality: 95
+
+# テキスト生成設定
+text_generation:
+  model: "gpt-4o-mini"
+  num_candidates: 5  # 生成する候補数
+
+  # 上部テキスト（自動生成）
+  top_text:
+    max_chars: 10  # 厳守
+    role: "impact"  # インパクト重視
+    patterns:
+      - "一言ショック"  # "実は○○だった"
+      - "衝撃ワード"    # "殺された", "追放"
+      - "疑問形"        # "天才？", "英雄？"
+      - "反転"          # "逆だった", "間違い"
+
+  # 下部テキスト（自動生成）
+  bottom_text:
+    min_chars: 10
+    max_chars: 20  # 目安（誤差OK）
+    max_lines: 2
+    role: "explanation"  # 説明・補完
+    allow_line_break: true
+
+# テキストスタイル設定
+styles:
+  top_text:
+    color: "#FFD700"  # 金色/黄色
+    font_size: 90  # 超大きく
+    stroke_width: 30
+    stroke_color: "#000000"
+    glow:
+      enabled: true
+      blur_radius: 20
+      intensity: 120
+    shadow:
+      enabled: true
+      offset: [12, 12]
+      blur: 8
+      opacity: 200
+    position:
+      area: "top"
+      height: 200
+
+  bottom_text:
+    color: "#FFFFFF"  # 白
+    font_size_1line: 55
+    font_size_2lines: 45
+    stroke_width: 20
+    stroke_color: "#000000"
+    shadow:
+      enabled: true
+      layers: 5
+      max_offset: 15
+      opacity: 180
+    background:
+      enabled: true
+      color: "#000000"
+      opacity: 140
+    position:
+      area: "bottom"
+      height: 180
+
+# レイアウト設定
+layout:
+  top_area_height: 200
+  middle_area_height: 340  # 画像用
+  bottom_area_height: 180
+
+# 背景処理設定
+background:
+  darkness: 0.7      # 70%の明るさ（0.0-1.0、低いほど暗い）
+  vignette: 0.6      # 強めのビネット（0.0-1.0）
+  edge_shadow: true  # 上下端の影を追加
+
+# DALL-E 3画像生成設定
+dalle:
+  model: "dall-e-3"
+  size: "1792x1024"  # 横長（16:9に近い）
+  quality: "standard"  # standard/hd
+
+# 画像スタイル設定
+image_style:
+  type: "dramatic"  # dramatic/professional/artistic
+  mood: "mysterious"  # mysterious/dramatic/serious
+
+# 生成例
+examples:
+  - subject: "イグナーツ・ゼンメルワイス"
+    expected_patterns:
+      - top: "殺された医師"
+        bottom: "手洗い提案で精神病院送り\n医師に殺された天才"
+        surprise_type: "衝撃事実"
+
+      - top: "嘘だった？"
+        bottom: "死亡率90%減の発見\n誰も信じなかった理由"
+        surprise_type: "常識覆し"
+
+  - subject: "ナポレオン"
+    expected_patterns:
+      - top: "背は高い"
+        bottom: "167cmは当時の平均以上\nイギリスの嘘だった"
+        surprise_type: "常識覆し"
+
+      - top: "天才？暴君？"
+        bottom: "評価が真逆に分かれる\n知られざる理由"
+        surprise_type: "意外な面"
+
+  - subject: "織田信長"
+    expected_patterns:
+      - top: "裏切者？"
+        bottom: "本能寺の変の真実\n実は味方が敵だった"
+        surprise_type: "隠された真実"
+
+      - top: "革新者"
+        bottom: "戦国最強の理由\n誰もマネできなかった戦略"
+        surprise_type: "意外な面"
+
+  - subject: "エジソン"
+    expected_patterns:
+      - top: "天才？"
+        bottom: "発明の9割は他人のもの\n特許で勝っただけ"
+        surprise_type: "常識覆し"
+
+      - top: "悪魔の発明家"
+        bottom: "テスラを陥れた\n卑劣な手段"
+        surprise_type: "衝撃事実"
