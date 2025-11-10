@@ -412,6 +412,50 @@ class Phase06Subtitles(PhaseBase):
         self.logger.info(f"Timing JSON saved: {timing_path}")
         return timing_path
 
+    def _normalize_section_timings(self, section_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        セクションのタイミング情報を正規化
+
+        各セクションの char_start_times を、最初の文字が0秒から始まるように調整。
+        これにより、音声生成時の最初の無音部分を除外できる。
+
+        Args:
+            section_data: セクションのタイミング情報
+
+        Returns:
+            正規化されたセクションデータ
+        """
+        char_start_times = section_data.get('char_start_times', [])
+        char_end_times = section_data.get('char_end_times', [])
+
+        if not char_start_times:
+            return section_data
+
+        # 最初の文字の開始時間（無音部分）
+        first_char_start = min(char_start_times)
+
+        if first_char_start > 0.1:  # 0.1秒以上の無音がある場合
+            self.logger.info(
+                f"Section {section_data.get('section_id')}: "
+                f"Removing {first_char_start:.2f}s leading silence"
+            )
+
+            # タイミングを正規化
+            normalized_data = section_data.copy()
+            normalized_data['char_start_times'] = [
+                t - first_char_start for t in char_start_times
+            ]
+            normalized_data['char_end_times'] = [
+                t - first_char_start for t in char_end_times
+            ]
+            normalized_data['duration'] = (
+                section_data.get('duration', 0) - first_char_start
+            )
+
+            return normalized_data
+
+        return section_data
+
     def _generate_from_audio_timing(self, timing_path: Path) -> List[SubtitleEntry]:
         """
         audio_timing.json から字幕を生成（最終版）
@@ -425,6 +469,12 @@ class Phase06Subtitles(PhaseBase):
 
         with open(timing_path, 'r', encoding='utf-8') as f:
             timing_data = json.load(f)
+
+        # 各セクションのタイミングを正規化（無音除去）
+        normalized_timing_data = []
+        for section_data in timing_data:
+            normalized_section = self._normalize_section_timings(section_data)
+            normalized_timing_data.append(normalized_section)
 
         subtitles = []
         subtitle_index = 1
@@ -440,7 +490,7 @@ class Phase06Subtitles(PhaseBase):
         # 複数の「、」がある文を分割する閾値
         MULTI_COMMA_THRESHOLD = 25
 
-        for section_data in timing_data:
+        for section_data in normalized_timing_data:
             section_id = section_data.get('section_id', 0)
             characters = section_data.get('characters', [])
             char_start_times = section_data.get('char_start_times', [])
@@ -767,7 +817,8 @@ class Phase06Subtitles(PhaseBase):
             sentence_char_data.append((char, char_start, char_end))
 
             # 「。」で文を区切る
-            if char == '。':
+            # 修正: char が複数文字の場合も考慮して endswith を使用
+            if char.endswith('。'):
                 sentences.append({
                     'text': current_sentence,
                     'start_time': sentence_start_time,

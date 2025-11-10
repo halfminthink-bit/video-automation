@@ -179,6 +179,62 @@ class KokoroAudioGenerator:
             self.logger.error(f"Error generating audio: {e}", exc_info=True)
             raise
 
+    def _expand_word_timings_to_chars(
+        self,
+        word_timings: List[Dict[str, Any]]
+    ) -> Dict[str, List]:
+        """
+        単語レベルのタイムスタンプを文字レベルに展開
+
+        各単語内で文字を均等に配分してタイミングを推定
+
+        Args:
+            word_timings: Whisperから取得した単語タイミング
+
+        Returns:
+            {
+                'characters': List[str],
+                'character_start_times_seconds': List[float],
+                'character_end_times_seconds': List[float]
+            }
+        """
+        characters = []
+        start_times = []
+        end_times = []
+
+        for timing in word_timings:
+            word = timing.get("word", "").strip()
+            word_start = float(timing.get("start", 0.0))
+            word_end = float(timing.get("end", 0.0))
+
+            if not word:
+                continue
+
+            # 単語の長さ（文字数）
+            word_length = len(word)
+
+            if word_length == 0:
+                continue
+
+            # 各文字の時間幅を計算（均等分割）
+            word_duration = word_end - word_start
+            char_duration = word_duration / word_length
+
+            # 各文字のタイミングを計算
+            for i, char in enumerate(word):
+                char_start = word_start + (i * char_duration)
+                char_end = char_start + char_duration
+
+                characters.append(char)
+                start_times.append(char_start)
+                end_times.append(char_end)
+
+        return {
+            'characters': characters,
+            'character_start_times_seconds': start_times,
+            'character_end_times_seconds': end_times
+        }
+
     def _extract_timestamps_with_whisper(
         self,
         audio_base64: str,
@@ -221,20 +277,15 @@ class KokoroAudioGenerator:
                 text=text
             )
 
-            # ElevenLabs互換形式に変換
-            characters = []
-            start_times = []
-            end_times = []
-
-            for timing in word_timings:
-                word = timing.get("word", "").strip()
-                if word:
-                    characters.append(word)
-                    start_times.append(float(timing.get("start", 0.0)))
-                    end_times.append(float(timing.get("end", 0.0)))
+            # 単語レベルのタイムスタンプを文字レベルに展開
+            expanded = self._expand_word_timings_to_chars(word_timings)
+            characters = expanded['characters']
+            start_times = expanded['character_start_times_seconds']
+            end_times = expanded['character_end_times_seconds']
 
             self.logger.info(
-                f"✓ Extracted {len(characters)} words with Whisper, "
+                f"✓ Extracted {len(word_timings)} words with Whisper, "
+                f"expanded to {len(characters)} characters, "
                 f"duration: {end_times[-1] if end_times else 0:.2f}s"
             )
 
