@@ -58,10 +58,10 @@ kokoro:
 # Whisperを使用して音声から単語レベルのタイミングを取得
 whisper:
   enabled: true           # Whisper使用の有効化
-  model: "base"          # tiny, base, small, medium, large
-                         # base: 約150MB、精度と速度のバランスが良い（推奨）
+  model: "small"         # tiny, base, small, medium, large
+                         # small: 約500MB、高精度（日本語認識精度向上のため推奨）
+                         # base: 約150MB、精度と速度のバランスが良い
                          # tiny: 約75MB、高速だが精度低め
-                         # small: 約500MB、高精度だが遅め
   language: "ja"         # 日本語
   device: "auto"         # auto（自動検出）, cuda（GPU）, cpu
 
