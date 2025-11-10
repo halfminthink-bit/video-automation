@@ -179,6 +179,47 @@ class KokoroAudioGenerator:
             self.logger.error(f"Error generating audio: {e}", exc_info=True)
             raise
 
+    def _estimate_char_timings_from_duration(
+        self,
+        text: str,
+        duration: float
+    ) -> Dict[str, List]:
+        """
+        Whisper失敗時のフォールバック: 文字数比率でタイミングを推定
+
+        Args:
+            text: 元のテキスト
+            duration: 音声の長さ（秒）
+
+        Returns:
+            文字レベルのタイムスタンプ
+        """
+        characters = list(text)
+        char_count = len(characters)
+
+        if char_count == 0:
+            return {
+                'characters': [],
+                'character_start_times_seconds': [],
+                'character_end_times_seconds': []
+            }
+
+        # 各文字の時間を均等分割
+        char_duration = duration / char_count
+
+        start_times = []
+        end_times = []
+
+        for i in range(char_count):
+            start_times.append(i * char_duration)
+            end_times.append((i + 1) * char_duration)
+
+        return {
+            'characters': characters,
+            'character_start_times_seconds': start_times,
+            'character_end_times_seconds': end_times
+        }
+
     def _expand_word_timings_to_chars(
         self,
         word_timings: List[Dict[str, Any]]
@@ -267,15 +308,50 @@ class KokoroAudioGenerator:
         try:
             with tempfile.NamedTemporaryFile(suffix=f".{self.response_format}", delete=False) as tmp:
                 tmp.write(audio_bytes)
+                tmp.flush()  # バッファをフラッシュ
+                os.fsync(tmp.fileno())  # ディスクに強制書き込み
                 tmp_file = tmp.name
 
-            self.logger.info(f"Extracting timestamps with Whisper from {tmp_file}")
+            # ファイルサイズ確認
+            file_size = os.path.getsize(tmp_file)
+            expected_size = len(audio_bytes)
+            if file_size != expected_size:
+                raise IOError(
+                    f"Temporary file incomplete: {file_size} bytes written, "
+                    f"expected {expected_size} bytes"
+                )
+
+            self.logger.info(
+                f"Extracting timestamps with Whisper from {tmp_file} "
+                f"({file_size} bytes)"
+            )
 
             # Whisperでタイミング取得
             word_timings = self.whisper_extractor.extract_word_timings(
                 audio_path=Path(tmp_file),
                 text=text
             )
+
+            # 認識率の診断
+            recognized_text = ''.join([w.get('word', '') for w in word_timings])
+            expected_chars = len(text)
+            recognized_chars = len(recognized_text)
+            recognition_rate = recognized_chars / expected_chars if expected_chars > 0 else 0
+
+            self.logger.info(
+                f"Recognition rate: {recognition_rate:.1%} "
+                f"({recognized_chars}/{expected_chars} chars)"
+            )
+
+            # 認識率が50%未満の場合は警告
+            if recognition_rate < 0.5:
+                self.logger.warning(
+                    f"Low recognition rate detected! Whisper may have failed. "
+                    f"Expected text: {text[:50]}..."
+                )
+                self.logger.warning(
+                    f"Recognized text: {recognized_text[:50]}..."
+                )
 
             # 単語レベルのタイムスタンプを文字レベルに展開
             expanded = self._expand_word_timings_to_chars(word_timings)
@@ -297,12 +373,27 @@ class KokoroAudioGenerator:
 
         except Exception as e:
             self.logger.warning(f"Failed to extract timestamps with Whisper: {e}")
-            # エラーの場合は空のalignmentを返す（音声は生成済み）
-            return {
-                'characters': [],
-                'character_start_times_seconds': [],
-                'character_end_times_seconds': []
-            }
+
+            # フォールバック: 音声の長さから推定
+            try:
+                from pydub import AudioSegment
+                audio_seg = AudioSegment.from_file(tmp_file)
+                duration = len(audio_seg) / 1000.0  # ミリ秒を秒に変換
+
+                self.logger.warning(
+                    f"Using fallback: estimating timing from duration ({duration:.2f}s) "
+                    f"and character count ({len(text)})"
+                )
+
+                return self._estimate_char_timings_from_duration(text, duration)
+            except Exception as fallback_error:
+                self.logger.error(f"Fallback also failed: {fallback_error}")
+                # 空のalignmentを返す（音声は生成済み）
+                return {
+                    'characters': [],
+                    'character_start_times_seconds': [],
+                    'character_end_times_seconds': []
+                }
 
         finally:
             # 一時ファイルを削除

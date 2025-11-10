@@ -93,7 +93,18 @@ class WhisperTimingExtractor:
                 language=self.language,
                 word_timestamps=True,
                 initial_prompt=text if text else None,
-                fp16=fp16_enabled  # CPUの場合はFP32を使用
+                fp16=fp16_enabled,  # CPUの場合はFP32を使用
+                # 認識精度向上のための追加パラメータ
+                condition_on_previous_text=False,  # 前のセグメントの影響を受けない
+                no_speech_threshold=0.6,  # 無音判定の閾値を高めに
+                logprob_threshold=-1.0,  # 確率が低い結果も許容
+                compression_ratio_threshold=2.4,  # 圧縮比の閾値を緩和
+                temperature=0.0,  # 決定的な認識を行う
+                beam_size=5,  # ビームサーチのサイズ
+                patience=1.0,  # 探索の粘り強さ
+                length_penalty=1.0,  # 長い文を優先しない
+                suppress_tokens="-1",  # トークン抑制を無効化
+                task="transcribe"  # 翻訳ではなく文字起こし
             )
             
             # 単語レベルのタイミング情報を抽出
