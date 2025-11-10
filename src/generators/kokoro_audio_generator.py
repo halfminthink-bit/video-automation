@@ -129,6 +129,15 @@ class KokoroAudioGenerator:
             # デバッグ: レスポンスの構造を確認
             self.logger.debug(f"API response keys: {list(result.keys())}")
 
+            # デバッグ: timestampsの内容を詳細に確認
+            timestamps_value = result.get("timestamps")
+            self.logger.info(f"Timestamps type: {type(timestamps_value)}, value: {timestamps_value}")
+
+            # レスポンス全体をログ（音声データは除外）
+            debug_result = {k: v if k != "audio" else f"<base64 data, {len(v) if v else 0} chars>"
+                           for k, v in result.items()}
+            self.logger.debug(f"Full API response (without audio): {debug_result}")
+
             # Base64エンコードされた音声を取得
             audio_base64 = result.get("audio")
             if not audio_base64:
