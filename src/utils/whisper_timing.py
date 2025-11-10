@@ -95,6 +95,17 @@ class WhisperTimingExtractor:
                 initial_prompt=text if text else None,
                 fp16=fp16_enabled  # CPUの場合はFP32を使用
             )
+
+            # デバッグ: Whisperの認識結果を確認
+            self.logger.info(f"Whisper recognized text: {result.get('text', '')}")
+            segments = result.get("segments", [])
+            self.logger.info(f"Number of segments: {len(segments)}")
+            for i, seg in enumerate(segments):
+                segment_text = seg.get("text", "")
+                words = seg.get("words", []) or []
+                self.logger.info(
+                    f"  Segment {i}: {segment_text} ({len(words)} words)"
+                )
             
             # 単語レベルのタイミング情報を抽出
             word_timings = []
