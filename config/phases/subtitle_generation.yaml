@@ -11,12 +11,12 @@ max_chars_per_line: 18
 # 2行表示を考慮して増やす
 max_words_per_subtitle: 8
 
-# タイミング設定（高齢者向け：長めの表示時間）
+# タイミング設定
 timing:
-  # 最低表示時間（秒）- 高齢者が余裕を持って読めるように
-  min_display_duration: 4.0
+  # 最低表示時間（秒）- 音声のタイミングに従う
+  min_display_duration: 1.0
 
-  # 最大表示時間（秒）- 落ち着いて読めるように
+  # 最大表示時間（秒）
   max_display_duration: 6.0
 
   # リードタイム（音声より少し早く表示する時間、秒）

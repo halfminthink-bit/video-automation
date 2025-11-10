@@ -470,129 +470,102 @@ class Phase06Subtitles(PhaseBase):
 
         return section_data
 
-    def _merge_sentences_for_readability(
+    def _split_long_sentence(
         self,
-        sentences: List[Dict[str, Any]],
-        min_duration: float = 4.0,
-        max_duration: float = 6.0,
+        sentence: Dict[str, Any],
         max_chars: int = 36
     ) -> List[Dict[str, Any]]:
         """
-        複数の文を結合して、4-6秒表示の字幕を作成
+        36文字を超える長い文を分割
 
-        ロジック:
-        1. 文を順番に見ていく
-        2. 36文字以内で、4-6秒の範囲に収まるように結合
-        3. 36文字を超えたら、現在のグループを確定
-        4. 時間が6秒を超えたら、現在のグループを確定
-        5. 時間が4秒に達したら、現在のグループを確定してもOK
+        分割の優先順位:
+        1. 読点「、」で分割
+        2. 助詞の後で分割
+        3. 強制分割（36文字）
 
         Args:
-            sentences: 文のリスト [{'text': str, 'start_time': float, 'end_time': float, 'char_data': [...]}, ...]
-            min_duration: 最低表示時間（秒）
-            max_duration: 最大表示時間（秒）
-            max_chars: 最大文字数
+            sentence: 文のデータ {'text': str, 'start_time': float, 'end_time': float, 'char_data': [...]}
+            max_chars: 最大文字数（デフォルト36）
 
         Returns:
-            結合済み字幕のリスト [{'text': str, 'start_time': float, 'end_time': float}, ...]
+            分割された文のリスト [{'text': str, 'start_time': float, 'end_time': float}, ...]
         """
-        if not sentences:
-            return []
+        text = sentence['text']
 
-        merged_subtitles = []
-        current_group = []
-        group_start = None
-        group_end = None
-        group_text = ""
+        # 36文字以内 → そのまま返す
+        if len(text) <= max_chars:
+            return [sentence]
 
-        for sentence in sentences:
-            sentence_text = sentence['text']
-            sentence_start = sentence['start_time']
-            sentence_end = sentence['end_time']
+        self.logger.debug(f"Splitting long sentence: {len(text)} chars")
 
-            # 現在のグループが空の場合、新しいグループを開始
-            if not current_group:
-                current_group.append(sentence)
-                group_start = sentence_start
-                group_end = sentence_end
-                group_text = sentence_text
-                continue
+        # ステップ1: 読点「、」で分割
+        parts = text.split('、')
 
-            # 結合後の文字数と時間をチェック
-            combined_text = group_text + sentence_text
-            combined_duration = sentence_end - group_start
+        # ステップ2: 36文字以内でグルーピング
+        chunks = []
+        current_chunk = ""
 
-            # 結合判定
-            should_split = False
-
-            # ケース1: 36文字を超える場合は分割
-            if len(combined_text) > max_chars:
-                should_split = True
-                self.logger.debug(
-                    f"Split due to length: {len(combined_text)} chars > {max_chars}"
-                )
-
-            # ケース2: 最大時間を超える場合は分割
-            elif combined_duration > max_duration:
-                should_split = True
-                self.logger.debug(
-                    f"Split due to max duration: {combined_duration:.1f}s > {max_duration}s"
-                )
-
-            # ケース3: 現在のグループが既に4秒以上で、結合すると6秒を超えそうな場合
-            elif (group_end - group_start) >= min_duration and combined_duration > (max_duration - 0.5):
-                should_split = True
-                self.logger.debug(
-                    f"Split to keep optimal duration: group={group_end - group_start:.1f}s, combined={combined_duration:.1f}s"
-                )
-
-            if should_split:
-                # 現在のグループを確定
-                merged_subtitles.append({
-                    'text': group_text,
-                    'start_time': group_start,
-                    'end_time': group_end
-                })
-
-                # 新しいグループを開始
-                current_group = [sentence]
-                group_start = sentence_start
-                group_end = sentence_end
-                group_text = sentence_text
+        for i, part in enumerate(parts):
+            # 読点を戻す（最後以外）
+            if i < len(parts) - 1:
+                part_with_comma = part + '、'
             else:
-                # グループに追加
-                current_group.append(sentence)
-                group_end = sentence_end
-                group_text = combined_text
+                part_with_comma = part
 
-        # 最後のグループを追加
-        if current_group:
-            merged_subtitles.append({
-                'text': group_text,
-                'start_time': group_start,
-                'end_time': group_end
+            # 追加できるかチェック
+            if len(current_chunk + part_with_comma) <= max_chars:
+                current_chunk += part_with_comma
+            else:
+                # 現在のチャンクを確定
+                if current_chunk:
+                    chunks.append(current_chunk)
+                    current_chunk = part_with_comma
+                else:
+                    # part_with_commaが36文字を超える場合（読点がない長い文）
+                    # 強制的に36文字で切る
+                    if len(part_with_comma) > max_chars:
+                        # 36文字ずつ分割
+                        for j in range(0, len(part_with_comma), max_chars):
+                            chunks.append(part_with_comma[j:j+max_chars])
+                    else:
+                        current_chunk = part_with_comma
+
+        # 最後のチャンクを追加
+        if current_chunk:
+            chunks.append(current_chunk)
+
+        # ステップ3: タイミング情報を分配
+        total_duration = sentence['end_time'] - sentence['start_time']
+        total_chars = len(text)
+
+        result = []
+        current_time = sentence['start_time']
+
+        for chunk in chunks:
+            # 文字数比率で時間を計算
+            char_ratio = len(chunk) / total_chars
+            chunk_duration = total_duration * char_ratio
+
+            result.append({
+                'text': chunk,
+                'start_time': current_time,
+                'end_time': current_time + chunk_duration
             })
 
-        # 統計情報をログ出力
-        total_duration = sum(s['end_time'] - s['start_time'] for s in merged_subtitles)
-        avg_duration = total_duration / len(merged_subtitles) if merged_subtitles else 0
-        avg_chars = sum(len(s['text']) for s in merged_subtitles) / len(merged_subtitles) if merged_subtitles else 0
+            current_time += chunk_duration
 
-        self.logger.info(
-            f"Merged {len(sentences)} sentences into {len(merged_subtitles)} subtitles "
-            f"(avg: {avg_duration:.1f}s, {avg_chars:.0f} chars)"
-        )
-
-        return merged_subtitles
+        self.logger.debug(f"Split into {len(result)} chunks")
+        return result
 
     def _generate_from_audio_timing(self, timing_path: Path) -> List[SubtitleEntry]:
         """
-        audio_timing.json から字幕を生成（最終版）
+        audio_timing.json から字幕を生成（シンプルルール）
 
         ルール:
-        1. 1行の推奨文字数: 16文字
-        2. 1行の最大文字数: 18文字（絶対制限）
-        3. 19文字以上: 字幕を分割すべき
+        1. 短い文（36文字以内）→ そのまま出す
+        2. 長い文（36文字超）→ 読点で分割
+        3. 各字幕を2行に分割（18文字×2）
+        4. 句読点は最後に削除
         """
         self.logger.info(f"Loading audio timing data from: {timing_path}")
 
@@ -661,76 +634,38 @@ class Phase06Subtitles(PhaseBase):
                     f"than TTS text ({len(tts_sentences)})"
                 )
 
-            # ステップ2: 文を結合して読みやすい字幕を作成（4-6秒表示）
-            merged_subtitles = self._merge_sentences_for_readability(
-                sentences=sentences,
-                min_duration=min_duration,
-                max_duration=self.phase_config.get("timing", {}).get("max_display_duration", 6.0),
-                max_chars=max_chars_per_subtitle
-            )
+            # ステップ2: 各文を処理（シンプルルール）
+            for sentence in sentences:
+                sentence_text = sentence['text']
+                sentence_len = len(sentence_text)
 
-            # ステップ3: 各結合済み字幕を処理
-            for merged_subtitle in merged_subtitles:
-                subtitle_text = merged_subtitle['text']
-                subtitle_len = len(subtitle_text)
-                subtitle_start = merged_subtitle['start_time']
-                subtitle_end = merged_subtitle['end_time']
+                # 長い文（36文字超）→ 分割
+                if sentence_len > max_chars_per_subtitle:
+                    self.logger.debug(f"Long sentence ({sentence_len} chars), splitting...")
+                    sentence_parts = self._split_long_sentence(sentence, max_chars_per_subtitle)
+                else:
+                    # 短い文（36文字以内）→ そのまま
+                    sentence_parts = [sentence]
 
-                # 36文字以内の場合: 2行に分割して字幕を作成
-                if subtitle_len <= max_chars_per_subtitle:
+                # ステップ3: 各パートを字幕に変換
+                for part in sentence_parts:
                     # 2行に分割（18文字×2）
                     line1, line2 = self._split_text_into_lines_strict(
-                        subtitle_text, max_chars_per_line, ABSOLUTE_MAX_CHARS_PER_LINE
+                        part['text'],
+                        max_chars_per_line,
+                        ABSOLUTE_MAX_CHARS_PER_LINE
                     )
 
-                    # 最低表示時間を確保
-                    duration = subtitle_end - subtitle_start
-                    if duration < min_duration:
-                        subtitle_end = subtitle_start + min_duration
-
+                    # 字幕エントリ作成（句読点削除は後で実行される）
                     subtitle = SubtitleEntry(
                         index=subtitle_index,
-                        start_time=subtitle_start,
-                        end_time=subtitle_end,
+                        start_time=part['start_time'],
+                        end_time=part['end_time'],
                         text_line1=line1,
                         text_line2=line2
                     )
                     subtitles.append(subtitle)
                     subtitle_index += 1
-
-                # 36文字超の場合: 強制的に36文字で分割（稀なケース）
-                else:
-                    self.logger.warning(
-                        f"Merged subtitle is too long ({subtitle_len} chars), "
-                        f"forcing split at {max_chars_per_subtitle} chars"
-                    )
-
-                    # 36文字ごとに分割
-                    num_chunks = (subtitle_len + max_chars_per_subtitle - 1) // max_chars_per_subtitle
-                    chunk_duration = (subtitle_end - subtitle_start) / num_chunks
-
-                    for i in range(num_chunks):
-                        start_pos = i * max_chars_per_subtitle
-                        end_pos = min(start_pos + max_chars_per_subtitle, subtitle_len)
-                        chunk_text = subtitle_text[start_pos:end_pos]
-
-                        chunk_start = subtitle_start + i * chunk_duration
-                        chunk_end = chunk_start + max(chunk_duration, min_duration)
-
-                        # 2行に分割
-                        line1, line2 = self._split_text_into_lines_strict(
-                            chunk_text, max_chars_per_line, ABSOLUTE_MAX_CHARS_PER_LINE
-                        )
-
-                        subtitle = SubtitleEntry(
-                            index=subtitle_index,
-                            start_time=chunk_start,
-                            end_time=chunk_end,
-                            text_line1=line1,
-                            text_line2=line2
-                        )
-                        subtitles.append(subtitle)
-                        subtitle_index += 1
 
         self.logger.info(f"Generated {len(subtitles)} subtitles")
         return subtitles
