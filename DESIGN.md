@@ -1,11 +1,19 @@
 # 偉人動画自動生成システム - 詳細設計書 v2.0
 
 **作成日**: 2025年10月28日
-**最終更新日**: 2025年11月8日
+**最終更新日**: 2025年11月10日
 **対象読者**: 開発者、AI補助ツール
 **設計方針**: 変更容易性、デバッグ性、フェーズ独立実行を最優先
 
 ## 📋 更新履歴
+
+### v2.1 (2025年11月10日)
+- Phase 2とPhase 6の句読点処理を修正
+  - `audio_timing.json`のcharacters配列に句読点を含めるよう修正
+  - 句読点位置の検出ロジックを改善（_find_punctuation_positions_from_characters追加）
+  - 「、」の分割位置を修正（「、」の直後で分割するように変更）
+  - 空の字幕をフィルタリングする処理を追加
+- Phase 6の実装詳細を更新（文字レベルのタイミング情報の使用方法を明記）
 
 ## 🔄 ワークフロー（まとめ）
 ```
@@ -1120,17 +1128,26 @@ transition_between_tracks:
 
 **入力**:
 - `working/{subject}/01_script/script.json`
-- `working/{subject}/02_audio/narration_full.mp3`（Whisper使用時）
-- `working/{subject}/02_audio/audio_analysis.json`
+- `working/{subject}/02_audio/audio_timing.json`（文字レベルのタイミング情報、Phase 2で生成）
+- `working/{subject}/02_audio/audio_analysis.json`（フォールバック用）
 
 **処理**:
-1. Whisperを使用して音声から単語レベルのタイミング情報を取得（オプション）
-2. ナレーション原稿を形態素解析
-3. 2行構成になるよう文節で分割
-4. Whisperのタイミング情報を使用して表示タイミングを計算
-   - タイミング情報が取得できない場合は文字数比率で計算（フォールバック）
-5. 各字幕の表示時間を4-6秒確保
-6. SRTファイル生成
+1. Phase 2で生成された文字レベルのタイミング情報（audio_timing.json）を読み込み
+   - characters配列に全ての文字（句読点を含む）が含まれる
+   - 各文字の開始・終了時刻が記録されている
+2. 句読点位置を検出し、文の境界を特定
+   - 「。」「！」「？」で文を分割
+   - 「、」では分割せず保持
+3. 長い文（36文字超）を適切な位置で分割
+   - 優先順位: 「、」の直後 > 助詞の後 > 文字種境界
+   - 「、」は前の部分に含めて分割（例: "礎は、" | "後の豊臣秀吉"）
+4. 各文を2行（18文字×2）に分割
+   - 文字種境界や助詞位置を考慮して自然な分割
+5. 句読点を削除
+   - 「。」「！」「？」を削除
+   - 「、」は保持（読みやすさのため）
+6. 空の字幕をフィルタリング
+7. SRTファイル生成
 
 **出力**:
 - `working/{subject}/06_subtitles/subtitles.srt`
@@ -1182,13 +1199,25 @@ font:
   - これにより、CPU環境でのFP16警告が解消されます（whisper_timing.py:88-96で実装）
 
 **実装の詳細**:
-- `src/utils/whisper_timing.py`: Whisperによる単語レベルのタイミング抽出
-- `src/generators/subtitle_generator.py`: Whisperのタイミング情報を使用した字幕生成
+- `src/utils/whisper_timing.py`: Whisperによる単語レベルのタイミング抽出と文字レベルへの展開
+  - `align_text_with_whisper_timings()`: 元テキストとWhisper認識結果をアライメント
+  - 句読点を含む全ての文字にタイミング情報を割り当て
+  - 句読点は直前の文字の終了時刻を使用（音声には含まれないため）
+- `src/generators/subtitle_generator.py`: 文字レベルのタイミング情報を使用した字幕生成
+  - `_find_punctuation_positions_from_characters()`: characters配列から直接句読点位置を検出
+  - `_find_split_position_with_score()`: スコアリング方式で最適な分割位置を決定
+    - 「、」の場合: 直後で分割（「、」を含める）
+    - その他の句読点: 直後で分割
+  - `_split_by_punctuation()`: 「。」「！」「？」で文を分割（「、」では分割しない）
+  - `_remove_punctuation_from_subtitles()`: 「。」「！」「？」を削除、「、」は保持
 - 処理フロー:
-  1. 音声ファイル全体からWhisperで単語タイミングを取得
-  2. 各セクションの時間範囲に基づいて文のタイミングをマッピング
-  3. 文レベルのタイミング情報から字幕エントリを生成
-  4. 最小・最大表示時間の制約を適用して重複を防止
+  1. audio_timing.jsonから文字レベルのタイミング情報を読み込み
+  2. 句読点位置を検出し、文の境界を特定
+  3. 長い文を適切な位置で分割（「、」の直後など）
+  4. 各文を2行に分割
+  5. 句読点を削除（「、」は保持）
+  6. 空の字幕をフィルタリング
+  7. SRTファイルとして出力
 
 ---
 

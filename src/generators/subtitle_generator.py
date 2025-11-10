@@ -657,13 +657,25 @@ class SubtitleGenerator:
             score = 0
             reason = ""
 
-            # 句読点
+            # 句読点の処理
+            # 「、」の場合は直後で分割（「、」を含める）
+            # 「。」「！」「？」の場合は直後で分割（これらも含める）
+            if pos > 0 and (pos - 1) in punctuation_positions:
+                punct = punctuation_positions[pos - 1]
+                if punct == "、":
+                    # 「、」の直後で分割
+                    score += self.priority_scores.get("punctuation", 120)
+                    reason = "punctuation_after_comma"
+
+            # その他の句読点（「。」など）も直後で分割
             if pos in punctuation_positions:
-                score += self.priority_scores.get("punctuation", 120)
-                reason = f"punctuation_{punctuation_positions[pos]}"
+                punct = punctuation_positions[pos]
+                if punct in ["。", "！", "？", "…"]:
+                    score += self.priority_scores.get("punctuation", 120)
+                    reason = f"punctuation_{punct}"
 
             # 助詞の後
-            elif pos in boundaries.get("particles", []):
+            if pos in boundaries.get("particles", []):
                 score += self.priority_scores.get("particle", 100)
                 reason = "particle"
 

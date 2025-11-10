@@ -1408,6 +1408,11 @@ class Phase06Subtitles(PhaseBase):
                 for punct in punctuation_to_remove:
                     line3 = line3.replace(punct, '')
 
+            # 空の字幕をスキップ（句読点のみの行が削除されて空になった場合）
+            if not line1.strip() and not line2.strip() and not (line3 and line3.strip()):
+                self.logger.debug(f"Skipping empty subtitle at index {subtitle.index}")
+                continue
+
             # 新しいSubtitleEntryを作成
             cleaned_subtitle = SubtitleEntry(
                 index=subtitle.index,
@@ -1419,6 +1424,10 @@ class Phase06Subtitles(PhaseBase):
             )
 
             cleaned_subtitles.append(cleaned_subtitle)
+
+        # インデックスを再割り当て（空の字幕をスキップした場合に連番にする）
+        for i, subtitle in enumerate(cleaned_subtitles, start=1):
+            subtitle.index = i
 
         self.logger.info(f"Removed punctuation from {len(cleaned_subtitles)} subtitles")
         return cleaned_subtitles
