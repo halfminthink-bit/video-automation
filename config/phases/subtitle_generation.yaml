@@ -26,13 +26,53 @@ timing:
 morphological_analysis:
   # MeCabを使用するか（より自然な分割）
   use_mecab: false
-  
+
   # 文の区切り文字
   break_on:
     - "。"
     - "、"
     - "！"
     - "？"
+
+# 分割戦略
+splitting:
+  window_size: 3  # 探索窓のサイズ（理想位置の±3文字）
+
+  # 優先順位とスコア
+  priority_scores:
+    punctuation: 120       # 句読点（最優先）
+    particle: 100          # 助詞の後
+    hiragana_to_kanji: 80  # ひらがな→漢字
+    kanji_to_hiragana: 60  # 漢字→ひらがな
+    katakana_boundary: 40  # カタカナ境界
+
+  # ペナルティ
+  penalties:
+    distance_from_ideal: 5   # 理想位置から1文字離れるごとに-5
+    ends_with_n_tsu: 20      # 「ん」「っ」で終わると-20
+    splits_number: 50        # 数字を分割すると-50
+    splits_alphabet: 50      # 英字を分割すると-50
+
+  # 助詞リスト
+  particles:
+    - "は"
+    - "が"
+    - "を"
+    - "に"
+    - "で"
+    - "と"
+    - "も"
+    - "や"
+    - "から"
+    - "まで"
+    - "より"
+
+  # 行の長さバランス
+  balance_lines: true
+  min_line_length: 3  # 極端に短い行を避ける
+
+# 句読点は字幕に表示しない（除去する）
+remove_punctuation_in_display: true
 
 # Whisper設定（音声から正確なタイミング情報を取得）
 whisper:

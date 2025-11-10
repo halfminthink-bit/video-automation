@@ -48,7 +48,32 @@ class SubtitleGenerator:
         morphological = config.get("morphological_analysis", {})
         self.use_mecab = morphological.get("use_mecab", False)
         self.break_on = morphological.get("break_on", ["。", "、", "！", "？"])
-        
+
+        # 分割戦略の設定
+        splitting = config.get("splitting", {})
+        self.window_size = splitting.get("window_size", 3)
+        self.priority_scores = splitting.get("priority_scores", {
+            "punctuation": 120,
+            "particle": 100,
+            "hiragana_to_kanji": 80,
+            "kanji_to_hiragana": 60,
+            "katakana_boundary": 40
+        })
+        self.penalties = splitting.get("penalties", {
+            "distance_from_ideal": 5,
+            "ends_with_n_tsu": 20,
+            "splits_number": 50,
+            "splits_alphabet": 50
+        })
+        self.particles = splitting.get("particles", [
+            "は", "が", "を", "に", "で", "と", "も", "や", "から", "まで", "より"
+        ])
+        self.balance_lines = splitting.get("balance_lines", True)
+        self.min_line_length = splitting.get("min_line_length", 3)
+
+        # 句読点表示設定
+        self.remove_punctuation = config.get("remove_punctuation_in_display", True)
+
         # MeCabの初期化（使用する場合）
         self.mecab = None
         if self.use_mecab:
@@ -450,12 +475,298 @@ class SubtitleGenerator:
         # 見つからない場合は0を返す
         return 0
 
+    def _is_hiragana(self, char: str) -> bool:
+        """ひらがなかどうか判定"""
+        return '\u3040' <= char <= '\u309F'
+
+    def _is_katakana(self, char: str) -> bool:
+        """カタカナかどうか判定"""
+        return '\u30A0' <= char <= '\u30FF'
+
+    def _is_kanji(self, char: str) -> bool:
+        """漢字かどうか判定"""
+        return '\u4E00' <= char <= '\u9FFF'
+
+    def _is_number(self, char: str) -> bool:
+        """数字かどうか判定"""
+        return char.isdigit() or '\uFF10' <= char <= '\uFF19'
+
+    def _is_alphabet(self, char: str) -> bool:
+        """英字かどうか判定"""
+        return char.isalpha() and ord(char) < 128
+
+    def _find_punctuation_positions(
+        self,
+        text: str,
+        characters: List[str]
+    ) -> Dict[int, str]:
+        """
+        textフィールドから句読点位置を抽出し、charactersのインデックスにマッピング
+
+        Args:
+            text: 句読点ありの元テキスト（例: "戦国時代、うつけ者と..."）
+            characters: 句読点なしの文字配列（例: ["戦", "国", "時", "代", "う", ...]）
+
+        Returns:
+            {4: "、", 20: "。", ...}  # charactersのインデックス → 句読点
+        """
+        punctuation_marks = set(["。", "、", "！", "？", "…"])
+        ignore_chars = set(["「", "」", "『", "』", "（", "）", " ", "　"])
+
+        # textから記号を除去しつつ、句読点の位置を記録
+        text_chars = []
+        punctuation_positions_in_text = {}
+
+        for i, char in enumerate(text):
+            if char in punctuation_marks:
+                # 句読点の位置を記録（除去後の位置）
+                punctuation_positions_in_text[len(text_chars)] = char
+            elif char not in ignore_chars:
+                text_chars.append(char)
+
+        # charactersと照合
+        characters_str = "".join(characters)
+        text_chars_str = "".join(text_chars)
+
+        if characters_str != text_chars_str:
+            self.logger.warning(
+                f"Text mismatch: characters='{characters_str[:50]}...' vs "
+                f"text_chars='{text_chars_str[:50]}...'"
+            )
+            # 一致しない場合は空の辞書を返す
+            return {}
+
+        return punctuation_positions_in_text
+
+    def _detect_character_boundaries(
+        self,
+        characters: List[str]
+    ) -> Dict[str, List[int]]:
+        """
+        文字種の境界を検出
+
+        Returns:
+            {
+                'hiragana_to_kanji': [5, 12, 23, ...],
+                'kanji_to_hiragana': [8, 15, 26, ...],
+                'katakana_boundary': [10, 20, ...],
+                'particles': [4, 11, 19, ...]
+            }
+        """
+        boundaries = {
+            'hiragana_to_kanji': [],
+            'kanji_to_hiragana': [],
+            'katakana_boundary': [],
+            'particles': []
+        }
+
+        for i in range(len(characters) - 1):
+            curr_char = characters[i]
+            next_char = characters[i + 1]
+
+            # ひらがな→漢字
+            if self._is_hiragana(curr_char) and self._is_kanji(next_char):
+                boundaries['hiragana_to_kanji'].append(i + 1)
+
+            # 漢字→ひらがな
+            if self._is_kanji(curr_char) and self._is_hiragana(next_char):
+                boundaries['kanji_to_hiragana'].append(i + 1)
+
+            # カタカナ境界
+            if self._is_katakana(curr_char) and not self._is_katakana(next_char):
+                boundaries['katakana_boundary'].append(i + 1)
+            elif not self._is_katakana(curr_char) and self._is_katakana(next_char):
+                boundaries['katakana_boundary'].append(i + 1)
+
+        # 助詞の位置を検出
+        for i, char in enumerate(characters):
+            if char in self.particles:
+                # 助詞の直後の位置
+                if i + 1 < len(characters):
+                    boundaries['particles'].append(i + 1)
+
+        return boundaries
+
+    def _find_split_position_with_score(
+        self,
+        text: str,
+        characters: List[str],
+        max_chars: int,
+        punctuation_positions: Dict[int, str],
+        boundaries: Dict[str, List[int]]
+    ) -> tuple[int, str]:
+        """
+        最適な分割位置をスコアリング方式で決定
+
+        優先順位:
+        1. 句読点（スコア: 120）
+        2. 助詞の後（スコア: 100）
+        3. ひらがな→漢字（スコア: 80）
+        4. 漢字→ひらがな（スコア: 60）
+        5. カタカナ境界（スコア: 40）
+
+        ペナルティ:
+        - 理想位置から離れるごとに -5点/文字
+        - 「ん」「っ」で終わる: -20点
+        - 数字・英字を分割: -50点
+
+        Returns:
+            (分割位置, 分割理由)
+        """
+        if len(characters) <= max_chars:
+            return (len(characters), "no_split_needed")
+
+        # 理想位置（max_charsに近い位置）
+        ideal_pos = max_chars
+
+        # 探索範囲
+        search_start = max(1, ideal_pos - self.window_size)
+        search_end = min(len(characters), ideal_pos + self.window_size + 1)
+
+        best_score = -99999
+        best_pos = ideal_pos
+        best_reason = "forced"
+
+        for pos in range(search_start, search_end):
+            score = 0
+            reason = ""
+
+            # 句読点
+            if pos in punctuation_positions:
+                score += self.priority_scores.get("punctuation", 120)
+                reason = f"punctuation_{punctuation_positions[pos]}"
+
+            # 助詞の後
+            elif pos in boundaries.get("particles", []):
+                score += self.priority_scores.get("particle", 100)
+                reason = "particle"
+
+            # ひらがな→漢字
+            elif pos in boundaries.get("hiragana_to_kanji", []):
+                score += self.priority_scores.get("hiragana_to_kanji", 80)
+                reason = "hiragana_to_kanji"
+
+            # 漢字→ひらがな
+            elif pos in boundaries.get("kanji_to_hiragana", []):
+                score += self.priority_scores.get("kanji_to_hiragana", 60)
+                reason = "kanji_to_hiragana"
+
+            # カタカナ境界
+            elif pos in boundaries.get("katakana_boundary", []):
+                score += self.priority_scores.get("katakana_boundary", 40)
+                reason = "katakana_boundary"
+
+            # 距離ペナルティ
+            distance = abs(pos - ideal_pos)
+            score -= distance * self.penalties.get("distance_from_ideal", 5)
+
+            # 「ん」「っ」で終わるペナルティ
+            if pos > 0 and characters[pos - 1] in ["ん", "っ"]:
+                score -= self.penalties.get("ends_with_n_tsu", 20)
+
+            # 数字を分割するペナルティ
+            if pos > 0 and pos < len(characters):
+                if self._is_number(characters[pos - 1]) and self._is_number(characters[pos]):
+                    score -= self.penalties.get("splits_number", 50)
+
+            # 英字を分割するペナルティ
+            if pos > 0 and pos < len(characters):
+                if self._is_alphabet(characters[pos - 1]) and self._is_alphabet(characters[pos]):
+                    score -= self.penalties.get("splits_alphabet", 50)
+
+            if score > best_score:
+                best_score = score
+                best_pos = pos
+                best_reason = reason if reason else "best_available"
+
+        # スコアが低すぎる場合は強制分割
+        if best_score < -100:
+            best_pos = ideal_pos
+            best_reason = "forced"
+
+        return (best_pos, best_reason)
+
+    def _split_into_balanced_lines(
+        self,
+        text: str,
+        characters: List[str],
+        max_chars_per_line: int,
+        max_lines: int,
+        punctuation_positions: Dict[int, str],
+        boundaries: Dict[str, List[int]]
+    ) -> List[str]:
+        """
+        テキストを複数行に分割（なるべく均等に）
+
+        Args:
+            text: 元のテキスト（句読点あり）
+            characters: 文字配列（句読点なし）
+            max_chars_per_line: 1行あたりの最大文字数
+            max_lines: 最大行数
+            punctuation_positions: 句読点位置のマップ
+            boundaries: 文字種境界のマップ
+
+        Returns:
+            行のリスト（句読点を除去済み）
+        """
+        if len(characters) <= max_chars_per_line:
+            return ["".join(characters)]
+
+        lines = []
+        remaining_chars = characters.copy()
+        remaining_punct = punctuation_positions.copy()
+
+        while remaining_chars and len(lines) < max_lines:
+            # 最終行は残りをそのまま入れる
+            if len(lines) == max_lines - 1:
+                line_text = "".join(remaining_chars[:max_chars_per_line])
+                if self.remove_punctuation:
+                    # 句読点を除去
+                    line_text = "".join([c for c in line_text if c not in ["。", "、", "！", "？", "…"]])
+                lines.append(line_text)
+                break
+
+            # 分割位置を決定
+            split_pos, reason = self._find_split_position_with_score(
+                text="".join(remaining_chars),
+                characters=remaining_chars,
+                max_chars=max_chars_per_line,
+                punctuation_positions=remaining_punct,
+                boundaries=self._detect_character_boundaries(remaining_chars)
+            )
+
+            # この行のテキストを取得
+            line_chars = remaining_chars[:split_pos]
+            line_text = "".join(line_chars)
+
+            if self.remove_punctuation:
+                # 句読点を除去
+                line_text = "".join([c for c in line_text if c not in ["。", "、", "！", "？", "…"]])
+
+            # 極端に短い行を避ける
+            if len(line_text) >= self.min_line_length or not lines:
+                lines.append(line_text)
+
+            # 残りを更新
+            remaining_chars = remaining_chars[split_pos:]
+            # 句読点位置を更新（インデックスをずらす）
+            new_punct = {}
+            for pos, punct in remaining_punct.items():
+                if pos >= split_pos:
+                    new_punct[pos - split_pos] = punct
+            remaining_punct = new_punct
+
+        # 空行を除外
+        lines = [line for line in lines if line.strip()]
+
+        return lines[:max_lines]
+
     def generate_subtitles_from_char_timings(
         self,
         audio_timing_data: List[Dict[str, Any]]
     ) -> List[SubtitleEntry]:
         """
-        文字レベルのタイミング情報から字幕を生成
+        文字レベルのタイミング情報から字幕を生成（改良版）
 
         Args:
             audio_timing_data: audio_timing.jsonの内容
@@ -463,15 +774,15 @@ class SubtitleGenerator:
         Returns:
             字幕リスト
         """
-        max_chars = self.max_chars_per_line * 2  # 2行分
+        max_chars = self.max_chars_per_line * self.max_lines
         max_duration = self.max_display_duration
         min_duration = self.min_display_duration
-        break_chars = self.break_on
 
         subtitles = []
         subtitle_index = 1
 
         for section in audio_timing_data:
+            text = section.get("text", "")
             characters = section.get("characters", [])
             char_start_times = section.get("char_start_times", [])
             char_end_times = section.get("char_end_times", [])
@@ -481,82 +792,189 @@ class SubtitleGenerator:
                 self.logger.warning(f"Section {section.get('section_id')} has invalid timing data")
                 continue
 
-            current_text = []
-            subtitle_start = None
+            # 句読点位置をマッピング
+            punctuation_positions = self._find_punctuation_positions(text, characters)
 
-            for i, char in enumerate(characters):
-                char_start = char_start_times[i] + offset
-                char_end = char_end_times[i] + offset
+            # 文字種境界を検出
+            boundaries = self._detect_character_boundaries(characters)
 
-                # 字幕開始時刻を設定
-                if subtitle_start is None:
-                    subtitle_start = char_start
+            # まず句読点で大まかに分割
+            chunks = self._split_by_punctuation(
+                characters,
+                punctuation_positions,
+                char_start_times,
+                char_end_times,
+                offset
+            )
 
-                # 文字を追加
-                current_text.append(char)
+            # 各チャンクを処理
+            for chunk in chunks:
+                chunk_chars = chunk["characters"]
+                chunk_start_times = chunk["start_times"]
+                chunk_end_times = chunk["end_times"]
 
-                # 現在の字幕の長さ
-                current_duration = char_end - subtitle_start
-                current_length = len(current_text)
+                if not chunk_chars:
+                    continue
 
-                # 次の文字との間隔をチェック
-                next_gap = 0.0
-                if i + 1 < len(characters):
-                    next_gap = char_start_times[i + 1] - char_end
-
-                # 区切り条件
-                should_break = (
-                    # 句読点
-                    char in break_chars or
-
-                    # 最大表示時間超過
-                    current_duration >= max_duration or
-
-                    # 最大文字数超過
-                    current_length >= max_chars or
-
-                    # 次の文字との間に大きな間がある（0.5秒以上）
-                    next_gap >= 0.5 or
-
-                    # 最後の文字
-                    i == len(characters) - 1
-                )
-
-                if should_break and current_text:
-                    # 最低表示時間を満たさない場合はスキップ
-                    if current_duration < min_duration and i < len(characters) - 1:
-                        continue
-
-                    # テキストを結合
-                    subtitle_text = "".join(current_text).strip()
-
-                    if not subtitle_text:
-                        current_text = []
-                        subtitle_start = None
-                        continue
-
-                    # 2行に分割
-                    line1, line2 = self._split_subtitle_into_lines(
-                        subtitle_text
+                # チャンクがmax_charsを超える場合は再分割
+                if len(chunk_chars) > max_chars:
+                    sub_chunks = self._split_large_chunk(
+                        chunk_chars,
+                        chunk_start_times,
+                        chunk_end_times,
+                        max_chars,
+                        boundaries
                     )
+                else:
+                    sub_chunks = [chunk]
+
+                # 各サブチャンクを字幕エントリに変換
+                for sub_chunk in sub_chunks:
+                    sub_chars = sub_chunk["characters"]
+                    sub_start_times = sub_chunk["start_times"]
+                    sub_end_times = sub_chunk["end_times"]
+
+                    if not sub_chars:
+                        continue
+
+                    # 開始・終了時刻
+                    subtitle_start = sub_start_times[0]
+                    subtitle_end = sub_end_times[-1]
+
+                    # 表示時間の制約を適用
+                    duration = subtitle_end - subtitle_start
+                    if duration < min_duration:
+                        subtitle_end = subtitle_start + min_duration
+                    elif duration > max_duration:
+                        subtitle_end = subtitle_start + max_duration
+
+                    # 句読点位置と境界を再計算（サブチャンク用）
+                    sub_punct = self._find_punctuation_positions("".join(sub_chars), sub_chars)
+                    sub_boundaries = self._detect_character_boundaries(sub_chars)
+
+                    # 複数行に分割
+                    lines = self._split_into_balanced_lines(
+                        text="".join(sub_chars),
+                        characters=sub_chars,
+                        max_chars_per_line=self.max_chars_per_line,
+                        max_lines=self.max_lines,
+                        punctuation_positions=sub_punct,
+                        boundaries=sub_boundaries
+                    )
+
+                    # 空行を埋める
+                    while len(lines) < 3:
+                        lines.append("")
 
                     subtitles.append(SubtitleEntry(
                         index=subtitle_index,
                         start_time=subtitle_start,
-                        end_time=char_end,
-                        text_line1=line1,
-                        text_line2=line2,
-                        text_line3=""  # 3行目は使わない
+                        end_time=subtitle_end,
+                        text_line1=lines[0] if len(lines) > 0 else "",
+                        text_line2=lines[1] if len(lines) > 1 else "",
+                        text_line3=lines[2] if len(lines) > 2 else ""
                     ))
 
                     subtitle_index += 1
 
-                    # リセット
-                    current_text = []
-                    subtitle_start = None
-
         self.logger.info(f"Generated {len(subtitles)} subtitles from character timings")
         return subtitles
+
+    def _split_by_punctuation(
+        self,
+        characters: List[str],
+        punctuation_positions: Dict[int, str],
+        start_times: List[float],
+        end_times: List[float],
+        offset: float
+    ) -> List[Dict[str, Any]]:
+        """
+        句読点で大まかに分割
+
+        Returns:
+            チャンクのリスト（各チャンクは characters, start_times, end_times を持つ）
+        """
+        chunks = []
+        current_chars = []
+        current_starts = []
+        current_ends = []
+
+        for i, char in enumerate(characters):
+            current_chars.append(char)
+            current_starts.append(start_times[i] + offset)
+            current_ends.append(end_times[i] + offset)
+
+            # 句読点の直後、または最後の文字
+            if (i + 1) in punctuation_positions or i == len(characters) - 1:
+                if current_chars:
+                    chunks.append({
+                        "characters": current_chars.copy(),
+                        "start_times": current_starts.copy(),
+                        "end_times": current_ends.copy()
+                    })
+                    current_chars = []
+                    current_starts = []
+                    current_ends = []
+
+        # 残りがあれば追加
+        if current_chars:
+            chunks.append({
+                "characters": current_chars,
+                "start_times": current_starts,
+                "end_times": current_ends
+            })
+
+        return chunks
+
+    def _split_large_chunk(
+        self,
+        characters: List[str],
+        start_times: List[float],
+        end_times: List[float],
+        max_chars: int,
+        boundaries: Dict[str, List[int]]
+    ) -> List[Dict[str, Any]]:
+        """
+        大きなチャンクをスコアリング方式で分割
+        """
+        chunks = []
+        remaining_chars = characters.copy()
+        remaining_starts = start_times.copy()
+        remaining_ends = end_times.copy()
+
+        while remaining_chars:
+            if len(remaining_chars) <= max_chars:
+                # 残りをそのまま追加
+                chunks.append({
+                    "characters": remaining_chars,
+                    "start_times": remaining_starts,
+                    "end_times": remaining_ends
+                })
+                break
+
+            # 分割位置を決定
+            sub_boundaries = self._detect_character_boundaries(remaining_chars)
+            split_pos, reason = self._find_split_position_with_score(
+                text="".join(remaining_chars),
+                characters=remaining_chars,
+                max_chars=max_chars,
+                punctuation_positions={},  # 句読点は既に処理済み
+                boundaries=sub_boundaries
+            )
+
+            # チャンクを追加
+            chunks.append({
+                "characters": remaining_chars[:split_pos],
+                "start_times": remaining_starts[:split_pos],
+                "end_times": remaining_ends[:split_pos]
+            })
+
+            # 残りを更新
+            remaining_chars = remaining_chars[split_pos:]
+            remaining_starts = remaining_starts[split_pos:]
+            remaining_ends = remaining_ends[split_pos:]
+
+        return chunks
 
     def _split_subtitle_into_lines(
         self,
