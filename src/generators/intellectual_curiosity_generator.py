@@ -5,6 +5,7 @@
 """
 
 import logging
+import os
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from PIL import Image
@@ -16,6 +17,7 @@ from .intellectual_curiosity_text_generator import IntellectualCuriosityTextGene
 from .intellectual_curiosity_text_renderer import IntellectualCuriosityTextRenderer
 from .bright_background_processor import BrightBackgroundProcessor
 from .fixed_top_text_patterns import FixedTopTextPatterns
+from .image_generator import ImageGenerator
 
 
 class IntellectualCuriosityGenerator:
@@ -57,11 +59,57 @@ class IntellectualCuriosityGenerator:
             logger=self.logger
         )
 
-        # OpenAI クライアント
-        self.openai_client = OpenAI()
+        # 背景生成方法の選択
+        self.use_stable_diffusion = self.config.get("use_stable_diffusion", False)
+
+        # OpenAI クライアント（DALL-E 用）
+        if not self.use_stable_diffusion:
+            self.openai_client = OpenAI()
+            self.logger.info("Background generation: DALL-E 3")
+        else:
+            self.openai_client = None
+            # ImageGenerator を初期化（SD 用）
+            self.image_generator = self._create_image_generator()
+            self.logger.info("Background generation: Stable Diffusion")
 
         self.logger.info(
             f"IntellectualCuriosityGenerator initialized: {self.canvas_size}"
+        )
+
+    def _create_image_generator(self) -> ImageGenerator:
+        """
+        ImageGenerator を作成（Stable Diffusion用）
+
+        Returns:
+            ImageGenerator インスタンス
+
+        Raises:
+            ValueError: API キーが見つからない場合
+        """
+        # Stability API キーを取得
+        sd_config = self.config.get("stable_diffusion", {})
+        api_key_env = sd_config.get("api_key_env", "STABILITY_API_KEY")
+        api_key = os.getenv(api_key_env)
+
+        if not api_key:
+            raise ValueError(f"Stability API key not found: {api_key_env}")
+
+        # Claude API キー（プロンプト最適化用）
+        claude_key = os.getenv("CLAUDE_API_KEY")
+        if not claude_key:
+            self.logger.warning("Claude API key not found, prompt optimization disabled")
+
+        # 出力ディレクトリ
+        output_dir = Path("data/working/thumbnails/sd_backgrounds")
+        cache_dir = Path("data/cache/sd_thumbnails")
+
+        return ImageGenerator(
+            api_key=api_key,
+            service="stable-diffusion",
+            claude_api_key=claude_key,  # プロンプト最適化を有効化
+            output_dir=output_dir,
+            cache_dir=cache_dir,
+            logger=self.logger
         )
 
     def generate_thumbnails(
@@ -160,6 +208,26 @@ class IntellectualCuriosityGenerator:
         context: Optional[Dict[str, Any]]
     ) -> Optional[Image.Image]:
         """
+        背景画像を生成（DALL-E または SD）
+
+        Args:
+            subject: 対象人物・テーマ
+            context: 追加コンテキスト（台本）
+
+        Returns:
+            生成された画像（Pillowオブジェクト）
+        """
+        if self.use_stable_diffusion:
+            return self._generate_background_image_sd(subject, context)
+        else:
+            return self._generate_background_image_dalle(subject, context)
+
+    def _generate_background_image_dalle(
+        self,
+        subject: str,
+        context: Optional[Dict[str, Any]]
+    ) -> Optional[Image.Image]:
+        """
         DALL-E 3で背景画像を生成
 
         Args:
@@ -209,6 +277,63 @@ class IntellectualCuriosityGenerator:
                 exc_info=True
             )
             return None
+
+    def _generate_background_image_sd(
+        self,
+        subject: str,
+        context: Optional[Dict[str, Any]]
+    ) -> Optional[Image.Image]:
+        """
+        Stable Diffusion で背景画像を生成
+
+        Args:
+            subject: 対象人物・テーマ
+            context: 追加コンテキスト（台本）
+
+        Returns:
+            生成された画像（Pillowオブジェクト）
+
+        Raises:
+            Exception: 生成失敗時（フォールバックなし）
+        """
+        self.logger.info(f"Generating background with Stable Diffusion for: {subject}")
+
+        # SD 用のプロンプトを構築
+        prompt = self._build_sd_prompt(subject, context)
+
+        self.logger.info(f"SD prompt: {prompt[:200]}...")  # 最初の200文字のみログ
+
+        # SD 設定を取得
+        sd_config = self.config.get("stable_diffusion", {})
+        width = sd_config.get("width", 1344)
+        height = sd_config.get("height", 768)
+
+        try:
+            # ImageGenerator で生成
+            collected_image = self.image_generator.generate_image(
+                keyword=subject,
+                atmosphere="dramatic",
+                section_context=self._extract_key_scenes(context),
+                image_type="portrait",  # 人物中心
+                style="photorealistic",
+                width=width,
+                height=height,
+                is_first_image=True  # 重要な画像として扱う
+            )
+
+            # PIL Image として読み込み
+            image = Image.open(collected_image.file_path)
+            self.logger.info(f"SD background generated: {image.size}")
+
+            return image
+
+        except Exception as e:
+            self.logger.error(
+                f"Stable Diffusion generation failed: {e}",
+                exc_info=True
+            )
+            # フォールバックなし、エラーを返す
+            raise Exception(f"Failed to generate background with Stable Diffusion: {e}")
 
     def _extract_key_scenes(
         self,
@@ -325,6 +450,76 @@ Purpose: YouTube thumbnail that captures viewers' attention and curiosity about 
 
         return prompt
 
+    def _build_sd_prompt(
+        self,
+        subject: str,
+        context: Optional[Dict[str, Any]]
+    ) -> str:
+        """
+        Stable Diffusion 用のプロンプト（中央配置を強調）
+
+        DALL-E と異なり、SD は具体的で明確な指示が必要。
+        「中央に被写体」「上下にスペース」を明確に指定。
+
+        Args:
+            subject: 対象人物・テーマ
+            context: 追加コンテキスト（台本）
+
+        Returns:
+            SD 用プロンプト
+        """
+        # 台本から重要なシーン・状況を抽出
+        key_scenes = self._extract_key_scenes(context)
+
+        prompt = f"""Historical documentary photograph of {subject}, dramatic key moment.
+
+SCENE CONTEXT:
+{key_scenes}
+
+COMPOSITION REQUIREMENTS (CRITICAL):
+- Main subject positioned in CENTER of frame
+- Subject fills center 50-60% of image
+- Close-up or medium shot showing face/upper body clearly
+- Dynamic angle, cinematic perspective
+- 16:9 horizontal landscape format
+
+VISUAL STYLE:
+- Photorealistic documentary photography
+- Professional quality, sharp focus on subject
+- Dramatic lighting with clear subject illumination
+- Rich, saturated colors
+- High detail and texture
+
+LAYOUT FOR TEXT OVERLAY (IMPORTANT):
+- Clear empty space at TOP 25% for text overlay
+- Clear empty space at BOTTOM 25% for text overlay
+- Main subject in MIDDLE 50%
+- Ensure subject does not extend to edges
+
+ATMOSPHERE:
+- Impactful, attention-grabbing
+- Historically accurate clothing and setting
+- Emotional intensity, human drama
+- Cinematic quality like movie poster
+
+TECHNICAL REQUIREMENTS:
+- NO text, NO watermarks, NO UI elements
+- NO modern elements (smartphones, cars, etc.)
+- Single main subject (not multiple people)
+- Clear background separation
+- Subject well-lit and clearly visible
+
+NEGATIVE ELEMENTS TO AVOID:
+- Multiple subjects competing for attention
+- Cluttered background
+- Dark or underexposed subject
+- Subject at edges or corners
+- Modern anachronistic elements
+
+Purpose: YouTube thumbnail background - must grab attention immediately while leaving space for text overlay."""
+
+        return prompt
+
     def _generate_single_thumbnail(
         self,
         background: Image.Image,
@@ -393,6 +588,8 @@ Purpose: YouTube thumbnail that captures viewers' attention and curiosity about 
     def _get_default_config(self) -> Dict[str, Any]:
         """デフォルト設定を取得"""
         return {
+            "use_stable_diffusion": False,  # デフォルトは DALL-E
+
             "output": {
                 "resolution": [1280, 720]
             },
@@ -402,6 +599,15 @@ Purpose: YouTube thumbnail that captures viewers' attention and curiosity about 
             "dalle": {
                 "size": "1792x1024",
                 "quality": "standard"
+            },
+            "stable_diffusion": {
+                "api_key_env": "STABILITY_API_KEY",
+                "width": 1344,
+                "height": 768,
+                "model": "sdxl",
+                "style": "photorealistic",
+                "steps": 30,
+                "cfg_scale": 7.5
             },
             "background": {
                 "vignette": 0.2,  # 軽いビネット
