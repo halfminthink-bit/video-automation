@@ -64,9 +64,9 @@ stable_diffusion:
   # Phase 3と同じモデルを使用（一貫性のため）
   model: "sdxl"                      # Phase 3と同じモデル名
 
-  # サムネイル生成パラメータ
-  width: 1280
-  height: 720
+  # サムネイル生成パラメータ（64の倍数が必須）
+  width: 1344   # 1344 ÷ 64 = 21 ✓ (Phase 3と同じ)
+  height: 768   # 768 ÷ 64 = 12 ✓ (Phase 3と同じ)
   steps: 30
   cfg_scale: 7.5
   sampler: "DPM++ 2M Karras"
@@ -87,7 +87,7 @@ stable_diffusion:
     Face should be centered and bright, not in shadows.
     Background can be darker for contrast.
 
-    High quality, cinematic, 1280x720, YouTube thumbnail optimized,
+    High quality, cinematic, 1344x768, YouTube thumbnail optimized,
     {additional_style_keywords}, photorealistic, 8k uhd, highly detailed
 
   # ネガティブプロンプト
