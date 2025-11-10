@@ -777,9 +777,9 @@ class SubtitleGenerator:
         remaining_punct = punctuation_positions.copy()
 
         while remaining_chars and len(lines) < max_lines:
-            # 最終行は残りをそのまま入れる
+            # 最終行は残りをすべて入れる（切り詰めない）
             if len(lines) == max_lines - 1:
-                line_text = "".join(remaining_chars[:max_chars_per_line])
+                line_text = "".join(remaining_chars)
                 if self.remove_punctuation:
                     # 句読点を除去（「、」と「」は残す）
                     line_text = "".join([c for c in line_text if c not in ["。", "！", "？", "…"]])
@@ -803,9 +803,9 @@ class SubtitleGenerator:
                 # 句読点を除去（「、」と「」は残す）
                 line_text = "".join([c for c in line_text if c not in ["。", "！", "？", "…"]])
 
-            # 極端に短い行を避ける
-            if len(line_text) >= self.min_line_length or not lines:
-                lines.append(line_text)
+            # 行を追加（スコアリングで最小長を保証しているため、スキップしない）
+            # 以前の min_line_length チェックはテキスト欠落の原因となるため削除
+            lines.append(line_text)
 
             # 残りを更新
             remaining_chars = remaining_chars[split_pos:]
