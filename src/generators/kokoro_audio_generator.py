@@ -25,7 +25,7 @@ class KokoroAudioGenerator:
     def __init__(
         self,
         api_url: Optional[str] = None,
-        voice: str = "af_bella",
+        voice: str = "jf_alpha",
         logger: Optional[logging.Logger] = None
     ):
         """

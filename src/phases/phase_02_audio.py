@@ -265,11 +265,11 @@ class Phase02Audio(PhaseBase):
                 kokoro_config = self.phase_config.get("kokoro", {})
                 generator = KokoroAudioGenerator(
                     api_url=kokoro_config.get("api_url"),
-                    voice=kokoro_config.get("voice", "af_bella"),
+                    voice=kokoro_config.get("voice", "jf_alpha"),
                     logger=self.logger
                 )
                 self.logger.info(
-                    f"Kokoro TTS initialized: voice={kokoro_config.get('voice', 'af_bella')}"
+                    f"Kokoro TTS initialized: voice={kokoro_config.get('voice', 'jf_alpha')}"
                 )
                 return generator
             except Exception as e:
