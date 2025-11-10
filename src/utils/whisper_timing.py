@@ -96,7 +96,7 @@ class WhisperTimingExtractor:
                 fp16=fp16_enabled,  # CPUの場合はFP32を使用
                 # 認識精度向上のための追加パラメータ
                 condition_on_previous_text=False,  # 前のセグメントの影響を受けない
-                no_speech_threshold=0.6,  # 無音判定の閾値を高めに
+                no_speech_threshold=0.3,  # 音声の冒頭を見逃しにくくする（0.6→0.3）
                 logprob_threshold=-1.0,  # 確率が低い結果も許容
                 compression_ratio_threshold=2.4,  # 圧縮比の閾値を緩和
                 temperature=0.0,  # 決定的な認識を行う
@@ -114,8 +114,10 @@ class WhisperTimingExtractor:
             for i, seg in enumerate(segments):
                 segment_text = seg.get("text", "")
                 words = seg.get("words", []) or []
+                no_speech_prob = seg.get("no_speech_prob", 0)
                 self.logger.info(
-                    f"  Segment {i}: {segment_text} ({len(words)} words)"
+                    f"  Segment {i}: {segment_text} "
+                    f"({len(words)} words, no_speech_prob={no_speech_prob:.3f})"
                 )
             
             # 単語レベルのタイミング情報を抽出
