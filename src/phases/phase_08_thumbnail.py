@@ -109,13 +109,25 @@ class Phase08Thumbnail(PhaseBase):
             self.logger.info(f"Loaded script: {script_data.get('subject')}")
 
             # 2. サムネイル生成方法を確認
-            # デフォルトは知的好奇心ジェネレーター
-            use_intellectual_curiosity = self.phase_config.get("use_intellectual_curiosity", True)
+            use_stable_diffusion = self.phase_config.get("use_stable_diffusion", False)
+            use_intellectual_curiosity = self.phase_config.get("use_intellectual_curiosity", False)
+            use_dalle = self.phase_config.get("use_dalle", False)
 
+            # Stable Diffusion APIを使用（新規）
+            if use_stable_diffusion:
+                return self._generate_with_sd(script_data)
+
+            # デフォルトは知的好奇心ジェネレーター
             if use_intellectual_curiosity:
                 # 知的好奇心サムネイル生成（デフォルト）
                 return self._generate_with_intellectual_curiosity(script_data)
 
+            # DALL-E 3を使用
+            if use_dalle:
+                # DALL-E 3を使用してサムネイルを生成
+                return self._generate_with_dalle(script_data)
+
+            # 従来の方法（Pillow）
             # 画像リストを読み込み（従来の方法の場合のみ）
             images = self._load_classified_images()
             self.logger.info(f"Loaded {len(images)} images")
@@ -126,15 +138,8 @@ class Phase08Thumbnail(PhaseBase):
                     "No images available for thumbnail generation"
                 )
 
-            # 従来の方法を確認
-            use_dalle = self.phase_config.get("use_dalle", False)
-
-            if use_dalle:
-                # DALL-E 3を使用してサムネイルを生成
-                return self._generate_with_dalle(script_data)
-            else:
-                # 従来の方法（Pillow）でサムネイルを生成
-                return self._generate_with_pillow(script_data, images)
+            # 従来の方法（Pillow）でサムネイルを生成
+            return self._generate_with_pillow(script_data, images)
 
         except Exception as e:
             self.logger.error(f"Thumbnail generation failed: {e}", exc_info=True)
@@ -305,6 +310,111 @@ class Phase08Thumbnail(PhaseBase):
         self._save_metadata(result)
 
         self.logger.info(f"✓ {len(generated_thumbnails)} V3.0 thumbnails generated")
+
+        return result
+
+    def _generate_with_sd(self, script_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Stable Diffusion APIでサムネイルを生成（新規）
+
+        Phase 3と同じSD APIを使用して、視覚的に一貫性のあるサムネイルを生成。
+
+        Args:
+            script_data: 台本データ
+
+        Returns:
+            生成結果
+        """
+        self.logger.info("🎨 Using Stable Diffusion API for thumbnail generation")
+
+        # 1. キャッチコピー生成（既存のCatchcopyGenerator使用）
+        catchcopy_config = self.phase_config.get("catchcopy", {})
+        candidates = self._generate_catchcopy_candidates(script_data, catchcopy_config)
+
+        # 2. SD API で背景画像生成
+        from src.generators.sd_thumbnail_generator import SDThumbnailGenerator
+        from src.processors.text_overlay_processor import TextOverlayProcessor
+
+        sd_config = self.phase_config.get("stable_diffusion", {})
+        sd_generator = SDThumbnailGenerator(
+            api_config=sd_config,
+            output_dir=self.phase_dir / "sd_backgrounds",
+            logger=self.logger
+        )
+
+        # 3. サムネイルを生成
+        thumbnail_dir = self.phase_dir / "thumbnails"
+        thumbnail_dir.mkdir(parents=True, exist_ok=True)
+
+        generated_thumbnails = []
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        # テキストオーバーレイプロセッサー
+        text_processor = TextOverlayProcessor(
+            phase_config=self.phase_config,
+            logger=self.logger
+        )
+
+        # 最大5枚のサムネイルを生成
+        num_variations = min(len(candidates), 5)
+
+        for i, catchcopy in enumerate(candidates[:num_variations]):
+            self.logger.info(f"Generating SD thumbnail {i+1}/{num_variations}")
+
+            try:
+                # SDで背景生成
+                bg_image_path = sd_generator.generate_thumbnail(
+                    subject=self.subject,
+                    catchcopy_main=catchcopy.get("main_title", ""),
+                    catchcopy_sub=catchcopy.get("sub_title", ""),
+                    style=sd_config.get("style", "dramatic")
+                )
+
+                # Pillowでテキストオーバーレイ
+                output_filename = f"{self.subject}_sd_thumbnail_{i+1}_{timestamp}.png"
+                output_path = thumbnail_dir / output_filename
+
+                final_path = text_processor.add_v3_text(
+                    image_path=bg_image_path,
+                    main_title=catchcopy.get("main_title", ""),
+                    sub_title=catchcopy.get("sub_title", ""),
+                    output_path=str(output_path)
+                )
+
+                generated_thumbnails.append({
+                    "pattern_index": i + 1,
+                    "main_title": catchcopy.get("main_title", ""),
+                    "sub_title": catchcopy.get("sub_title", ""),
+                    "file_path": str(final_path),
+                    "file_name": output_filename,
+                    "layout": "v3-sd",
+                    "style": sd_config.get("style", "dramatic")
+                })
+
+            except Exception as e:
+                self.logger.error(f"Failed to generate SD thumbnail {i+1}: {e}", exc_info=True)
+                # エラーが起きても続行
+                continue
+
+        if not generated_thumbnails:
+            raise PhaseExecutionError(
+                self.get_phase_number(),
+                "Failed to generate any thumbnails with SD API"
+            )
+
+        # 結果を作成
+        result = {
+            "subject": self.subject,
+            "generated_at": timestamp,
+            "method": "stable_diffusion",  # ← ここが重要
+            "thumbnails": generated_thumbnails,
+            "total_count": len(generated_thumbnails),
+            "total_cost_usd": round(sd_generator.get_total_cost(), 2)
+        }
+
+        self._save_metadata(result)
+
+        self.logger.info(f"✓ SD Thumbnail generation complete: {len(generated_thumbnails)} thumbnails")
 
         return result
 
