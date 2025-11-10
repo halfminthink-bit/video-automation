@@ -479,16 +479,19 @@ class Phase06Subtitles(PhaseBase):
         36文字を超える長い文を分割
 
         分割の優先順位:
-        1. 読点「、」で分割
-        2. 助詞の後で分割
-        3. 強制分割（36文字）
+        1. 20~36文字の範囲で、36文字目に一番近い「、」
+        2. 「、」がない場合:
+           - 助詞の後
+           - ひらがな→漢字の境目
+           - 漢字→ひらがなの境目
+        3. 強制分割
 
         Args:
             sentence: 文のデータ {'text': str, 'start_time': float, 'end_time': float, 'char_data': [...]}
             max_chars: 最大文字数（デフォルト36）
 
         Returns:
-            分割された文のリスト [{'text': str, 'start_time': float, 'end_time': float}, ...]
+            分割された文のリスト
         """
         text = sentence['text']
 
@@ -498,63 +501,85 @@ class Phase06Subtitles(PhaseBase):
 
         self.logger.debug(f"Splitting long sentence: {len(text)} chars")
 
-        # ステップ1: 読点「、」で分割
-        parts = text.split('、')
+        # ステップ1: 20~36文字の範囲で「、」を探す
+        split_pos = None
 
-        # ステップ2: 36文字以内でグルーピング
-        chunks = []
-        current_chunk = ""
+        # 20~36文字の範囲で「、」を探す（36文字目に近い方から）
+        for pos in range(max_chars, 19, -1):  # 36文字目から20文字目まで逆順
+            if pos < len(text) and text[pos] == '、':
+                split_pos = pos + 1  # 「、」を含める
+                self.logger.debug(f"Found comma at position {pos} (range 20-36)")
+                break
 
-        for i, part in enumerate(parts):
-            # 読点を戻す（最後以外）
-            if i < len(parts) - 1:
-                part_with_comma = part + '、'
-            else:
-                part_with_comma = part
+        # ステップ2: 「、」が見つからない場合、助詞・文字種境目を探す
+        if split_pos is None:
+            # 助詞リスト
+            particles = ['は', 'が', 'を', 'に', 'で', 'と', 'も', 'や', 'から', 'まで', 'より']
 
-            # 追加できるかチェック
-            if len(current_chunk + part_with_comma) <= max_chars:
-                current_chunk += part_with_comma
-            else:
-                # 現在のチャンクを確定
-                if current_chunk:
-                    chunks.append(current_chunk)
-                    current_chunk = part_with_comma
-                else:
-                    # part_with_commaが36文字を超える場合（読点がない長い文）
-                    # 強制的に36文字で切る
-                    if len(part_with_comma) > max_chars:
-                        # 36文字ずつ分割
-                        for j in range(0, len(part_with_comma), max_chars):
-                            chunks.append(part_with_comma[j:j+max_chars])
-                    else:
-                        current_chunk = part_with_comma
+            # 16~20文字の範囲で助詞を探す
+            for pos in range(20, 15, -1):
+                if pos < len(text) and text[pos] in particles:
+                    split_pos = pos + 1
+                    self.logger.debug(f"Found particle at position {pos}")
+                    break
 
-        # 最後のチャンクを追加
-        if current_chunk:
-            chunks.append(current_chunk)
+            # ひらがな→漢字の境目を探す（16~20文字の範囲）
+            if split_pos is None:
+                for pos in range(20, 15, -1):
+                    if pos > 0 and pos < len(text):
+                        prev_char = text[pos - 1]
+                        curr_char = text[pos]
+                        if self._get_char_type(prev_char) == 'hiragana' and \
+                           self._get_char_type(curr_char) == 'kanji':
+                            split_pos = pos
+                            self.logger.debug(f"Found hiragana->kanji boundary at position {pos}")
+                            break
 
-        # ステップ3: タイミング情報を分配
+            # 漢字→ひらがなの境目を探す（16~20文字の範囲）
+            if split_pos is None:
+                for pos in range(20, 15, -1):
+                    if pos > 0 and pos < len(text):
+                        prev_char = text[pos - 1]
+                        curr_char = text[pos]
+                        if self._get_char_type(prev_char) == 'kanji' and \
+                           self._get_char_type(curr_char) == 'hiragana':
+                            split_pos = pos
+                            self.logger.debug(f"Found kanji->hiragana boundary at position {pos}")
+                            break
+
+        # ステップ3: 強制分割（適切な位置が見つからない場合）
+        if split_pos is None:
+            split_pos = max_chars // 2  # 真ん中で分割
+            self.logger.debug(f"Force split at position {split_pos}")
+
+        # 文字列を分割
+        first_part_text = text[:split_pos]
+        remaining_text = text[split_pos:]
+
+        # タイミング情報を計算
         total_duration = sentence['end_time'] - sentence['start_time']
         total_chars = len(text)
+        first_part_ratio = len(first_part_text) / total_chars
+        first_part_duration = total_duration * first_part_ratio
 
-        result = []
-        current_time = sentence['start_time']
+        result = [
+            {
+                'text': first_part_text,
+                'start_time': sentence['start_time'],
+                'end_time': sentence['start_time'] + first_part_duration
+            }
+        ]
 
-        for chunk in chunks:
-            # 文字数比率で時間を計算
-            char_ratio = len(chunk) / total_chars
-            chunk_duration = total_duration * char_ratio
+        # 残りのテキストを再帰的に処理
+        if remaining_text:
+            remaining_sentence = {
+                'text': remaining_text,
+                'start_time': sentence['start_time'] + first_part_duration,
+                'end_time': sentence['end_time']
+            }
+            result.extend(self._split_long_sentence(remaining_sentence, max_chars))
 
-            result.append({
-                'text': chunk,
-                'start_time': current_time,
-                'end_time': current_time + chunk_duration
-            })
-
-            current_time += chunk_duration
-
-        self.logger.debug(f"Split into {len(result)} chunks")
+        self.logger.debug(f"Split into {len(result)} parts")
         return result
 
     def _generate_from_audio_timing(self, timing_path: Path) -> List[SubtitleEntry]:
@@ -1362,8 +1387,8 @@ class Phase06Subtitles(PhaseBase):
         Returns:
             句読点を削除した字幕リスト
         """
-        # 削除対象の句読点
-        punctuation_to_remove = ['。', '、', '！', '？', '，', '．']
+        # 削除対象の句読点（「、」は残す）
+        punctuation_to_remove = ['。', '！', '？', '，', '．']
 
         cleaned_subtitles = []
 
