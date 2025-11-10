@@ -1002,7 +1002,11 @@ class SubtitleGenerator:
     ) -> List[Dict[str, Any]]:
         """
         大きなチャンクをスコアリング方式で分割
+
+        残りが10文字未満にならないように調整する。
         """
+        MIN_CHUNK_LENGTH = 10  # 最小チャンク長
+
         chunks = []
         remaining_chars = characters.copy()
         remaining_starts = start_times.copy()
@@ -1018,12 +1022,28 @@ class SubtitleGenerator:
                 })
                 break
 
+            # 分割位置の上限を計算（残りが10文字未満にならないように）
+            # 例: 40文字なら、max_split_pos = 40 - 10 = 30
+            max_split_pos = len(remaining_chars) - MIN_CHUNK_LENGTH
+
+            # 調整された max_chars（通常は36だが、残りが短くなりすぎる場合は小さくする）
+            adjusted_max_chars = min(max_chars, max_split_pos)
+
+            # adjusted_max_chars が MIN_CHUNK_LENGTH より小さい場合は、分割せずに全体を1つに
+            if adjusted_max_chars < MIN_CHUNK_LENGTH:
+                chunks.append({
+                    "characters": remaining_chars,
+                    "start_times": remaining_starts,
+                    "end_times": remaining_ends
+                })
+                break
+
             # 分割位置を決定
             sub_boundaries = self._detect_character_boundaries(remaining_chars)
             split_pos, reason = self._find_split_position_with_score(
                 text="".join(remaining_chars),
                 characters=remaining_chars,
-                max_chars=max_chars,
+                max_chars=adjusted_max_chars,
                 punctuation_positions={},  # 句読点は既に処理済み
                 boundaries=sub_boundaries
             )
