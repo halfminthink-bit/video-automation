@@ -116,8 +116,22 @@ class Phase06Subtitles(PhaseBase):
 
             if audio_timing_path.exists():
                 # タイムスタンプ付き音声データを使用
-                self.logger.info("Using audio timing data from ElevenLabs")
-                subtitles = self._generate_from_audio_timing(audio_timing_path)
+                self.logger.info("Using audio timing data with character-level timings")
+
+                # audio_timing.jsonを読み込み
+                with open(audio_timing_path, 'r', encoding='utf-8') as f:
+                    audio_timing_data = json.load(f)
+
+                # 字幕生成器を作成
+                generator = create_subtitle_generator(
+                    config=self.phase_config,
+                    logger=self.logger
+                )
+
+                # 新しいメソッドを使用：文字レベルタイミングから字幕を生成
+                subtitles = generator.generate_subtitles_from_char_timings(
+                    audio_timing_data=audio_timing_data
+                )
             else:
                 # フォールバック：Whisperまたは文字数比率を使用
                 self.logger.warning("Audio timing data not found, using fallback method")
