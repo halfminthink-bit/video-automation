@@ -33,13 +33,9 @@
 # - FinalThumbnailGenerator: メイン統合クラス
 
 # 生成方法選択
-# - use_stable_diffusion: Stable Diffusion APIを使用（Phase 3と同じSD、コスト削減）
-# - use_dalle: DALL-E 3でAI生成（V3.0レイアウト、$0.040/枚）
-# - use_intellectual_curiosity: 知的好奇心サムネイル（デフォルト）
-# - その他: Pillowで画像に文字をオーバーレイ（無料）
-use_stable_diffusion: true   # SDを使用（Phase 3と同じモデル・スタイルで一貫性確保）
-use_dalle: false             # DALL-Eは使わない
-use_intellectual_curiosity: false  # 知的好奇心は使わない
+# - false: Pillowで画像に文字をオーバーレイ（5枚生成、無料）
+# - true: DALL-E 3でAI生成（V3.0レイアウト、$0.040/枚）
+use_dalle: true
 
 # DALL-E 3 / GPT Image 1設定（use_dalle: trueの場合）
 dalle:
@@ -96,7 +92,6 @@ stable_diffusion:
     dark face, underexposed face, face in shadow,
     cluttered background, busy composition,
     anime, cartoon, illustration, painting
-
 # Claudeキャッチコピー生成設定（3ゾーンレイアウト用・2段テキスト）
 catchcopy:
   enabled: true             # テキスト生成を有効化
