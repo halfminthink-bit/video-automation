@@ -470,14 +470,102 @@ class Phase06Subtitles(PhaseBase):
 
         return section_data
 
+    def _split_long_sentence(
+        self,
+        sentence: Dict[str, Any],
+        max_chars: int = 36
+    ) -> List[Dict[str, Any]]:
+        """
+        36文字を超える長い文を分割
+
+        分割の優先順位:
+        1. 読点「、」で分割
+        2. 助詞の後で分割
+        3. 強制分割（36文字）
+
+        Args:
+            sentence: 文のデータ {'text': str, 'start_time': float, 'end_time': float, 'char_data': [...]}
+            max_chars: 最大文字数（デフォルト36）
+
+        Returns:
+            分割された文のリスト [{'text': str, 'start_time': float, 'end_time': float}, ...]
+        """
+        text = sentence['text']
+
+        # 36文字以内 → そのまま返す
+        if len(text) <= max_chars:
+            return [sentence]
+
+        self.logger.debug(f"Splitting long sentence: {len(text)} chars")
+
+        # ステップ1: 読点「、」で分割
+        parts = text.split('、')
+
+        # ステップ2: 36文字以内でグルーピング
+        chunks = []
+        current_chunk = ""
+
+        for i, part in enumerate(parts):
+            # 読点を戻す（最後以外）
+            if i < len(parts) - 1:
+                part_with_comma = part + '、'
+            else:
+                part_with_comma = part
+
+            # 追加できるかチェック
+            if len(current_chunk + part_with_comma) <= max_chars:
+                current_chunk += part_with_comma
+            else:
+                # 現在のチャンクを確定
+                if current_chunk:
+                    chunks.append(current_chunk)
+                    current_chunk = part_with_comma
+                else:
+                    # part_with_commaが36文字を超える場合（読点がない長い文）
+                    # 強制的に36文字で切る
+                    if len(part_with_comma) > max_chars:
+                        # 36文字ずつ分割
+                        for j in range(0, len(part_with_comma), max_chars):
+                            chunks.append(part_with_comma[j:j+max_chars])
+                    else:
+                        current_chunk = part_with_comma
+
+        # 最後のチャンクを追加
+        if current_chunk:
+            chunks.append(current_chunk)
+
+        # ステップ3: タイミング情報を分配
+        total_duration = sentence['end_time'] - sentence['start_time']
+        total_chars = len(text)
+
+        result = []
+        current_time = sentence['start_time']
+
+        for chunk in chunks:
+            # 文字数比率で時間を計算
+            char_ratio = len(chunk) / total_chars
+            chunk_duration = total_duration * char_ratio
+
+            result.append({
+                'text': chunk,
+                'start_time': current_time,
+                'end_time': current_time + chunk_duration
+            })
+
+            current_time += chunk_duration
+
+        self.logger.debug(f"Split into {len(result)} chunks")
+        return result
+
     def _generate_from_audio_timing(self, timing_path: Path) -> List[SubtitleEntry]:
         """
-        audio_timing.json から字幕を生成（最終版）
+        audio_timing.json から字幕を生成（シンプルルール）
 
         ルール:
-        1. 1行の推奨文字数: 16文字
-        2. 1行の最大文字数: 18文字（絶対制限）
-        3. 19文字以上: 字幕を分割すべき
+        1. 短い文（36文字以内）→ そのまま出す
+        2. 長い文（36文字超）→ 読点で分割
+        3. 各字幕を2行に分割（18文字×2）
+        4. 句読点は最後に削除
         """
         self.logger.info(f"Loading audio timing data from: {timing_path}")
 
@@ -494,15 +582,12 @@ class Phase06Subtitles(PhaseBase):
         subtitle_index = 1
 
         # 設定を取得
-        min_duration = self.phase_config.get("timing", {}).get("min_display_duration", 1.0)
-        max_chars_per_line = self.phase_config.get("max_chars_per_line", 15)
-        max_chars_per_subtitle = max_chars_per_line * 2  # 32文字
+        min_duration = self.phase_config.get("timing", {}).get("min_display_duration", 4.0)
+        max_chars_per_line = self.phase_config.get("max_chars_per_line", 18)
+        max_chars_per_subtitle = max_chars_per_line * 2  # 36文字
 
-        # 1行の絶対的な制限（厳格に16文字）
-        ABSOLUTE_MAX_CHARS_PER_LINE = 16  # これを超えたら必ず字幕を分割
-
-        # 複数の「、」がある文を分割する閾値
-        MULTI_COMMA_THRESHOLD = 25
+        # 1行の絶対的な制限（厳格に18文字）
+        ABSOLUTE_MAX_CHARS_PER_LINE = 18  # これを超えたら必ず字幕を分割
 
         for section_data in normalized_timing_data:
             section_id = section_data.get('section_id', 0)
@@ -549,121 +634,38 @@ class Phase06Subtitles(PhaseBase):
                     f"than TTS text ({len(tts_sentences)})"
                 )
 
-            # ステップ2: 各文を処理
+            # ステップ2: 各文を処理（シンプルルール）
             for sentence in sentences:
                 sentence_text = sentence['text']
                 sentence_len = len(sentence_text)
-                comma_count = sentence_text.count('、')
 
-                # ケースA: 複数の「、」がある長めの文
-                if comma_count >= 2 and sentence_len >= MULTI_COMMA_THRESHOLD:
-                    self.logger.debug(f"Multi-comma split: {comma_count} commas, {sentence_len} chars")
-                    chunks = self._split_by_multiple_commas(sentence, max_chars_per_line)
-
-                    for chunk in chunks:
-                        # 2行に分割して1行制限チェック
-                        line1, line2 = self._split_text_into_lines_strict(
-                            chunk['text'], max_chars_per_line, ABSOLUTE_MAX_CHARS_PER_LINE
-                        )
-
-                        # 1行制限違反チェック
-                        if len(line1) > ABSOLUTE_MAX_CHARS_PER_LINE or len(line2) > ABSOLUTE_MAX_CHARS_PER_LINE:
-                            self.logger.warning(
-                                f"Line too long after split: line1={len(line1)}, line2={len(line2)} "
-                                f"Text: {chunk['text'][:30]}..."
-                            )
-
-                        duration = chunk['end_time'] - chunk['start_time']
-                        if duration < min_duration:
-                            chunk['end_time'] = chunk['start_time'] + min_duration
-
-                        subtitle = SubtitleEntry(
-                            index=subtitle_index,
-                            start_time=chunk['start_time'],
-                            end_time=chunk['end_time'],
-                            text_line1=line1,
-                            text_line2=line2
-                        )
-                        subtitles.append(subtitle)
-                        subtitle_index += 1
-
-                # ケースB: 32文字以内の文
-                elif sentence_len <= max_chars_per_subtitle:
-                    # 2行に分割
-                    line1, line2 = self._split_text_into_lines_strict(
-                        sentence_text, max_chars_per_line, ABSOLUTE_MAX_CHARS_PER_LINE
-                    )
-
-                    # 1行制限違反チェック → 字幕を分割すべき
-                    if len(line1) > ABSOLUTE_MAX_CHARS_PER_LINE or len(line2) > ABSOLUTE_MAX_CHARS_PER_LINE:
-                        self.logger.warning(
-                            f"Sentence too long to fit in 2 lines ({sentence_len} chars), "
-                            "splitting by comma..."
-                        )
-                        # 「、」で分割
-                        chunks = self._split_sentence_by_comma_if_needed(
-                            sentence, max_chars_per_subtitle
-                        )
-
-                        for chunk in chunks:
-                            duration = chunk['end_time'] - chunk['start_time']
-                            if duration < min_duration:
-                                chunk['end_time'] = chunk['start_time'] + min_duration
-
-                            line1, line2 = self._split_text_into_lines_strict(
-                                chunk['text'], max_chars_per_line, ABSOLUTE_MAX_CHARS_PER_LINE
-                            )
-
-                            subtitle = SubtitleEntry(
-                                index=subtitle_index,
-                                start_time=chunk['start_time'],
-                                end_time=chunk['end_time'],
-                                text_line1=line1,
-                                text_line2=line2
-                            )
-                            subtitles.append(subtitle)
-                            subtitle_index += 1
-                    else:
-                        # 1行制限OK → そのまま1つの字幕
-                        duration = sentence['end_time'] - sentence['start_time']
-                        if duration < min_duration:
-                            sentence['end_time'] = sentence['start_time'] + min_duration
-
-                        subtitle = SubtitleEntry(
-                            index=subtitle_index,
-                            start_time=sentence['start_time'],
-                            end_time=sentence['end_time'],
-                            text_line1=line1,
-                            text_line2=line2
-                        )
-                        subtitles.append(subtitle)
-                        subtitle_index += 1
-
-                # ケースC: 32文字超
+                # 長い文（36文字超）→ 分割
+                if sentence_len > max_chars_per_subtitle:
+                    self.logger.debug(f"Long sentence ({sentence_len} chars), splitting...")
+                    sentence_parts = self._split_long_sentence(sentence, max_chars_per_subtitle)
                 else:
-                    self.logger.debug(f"Long sentence split: {sentence_len} chars")
-                    chunks = self._split_sentence_by_comma_if_needed(
-                        sentence, max_chars_per_subtitle
+                    # 短い文（36文字以内）→ そのまま
+                    sentence_parts = [sentence]
+
+                # ステップ3: 各パートを字幕に変換
+                for part in sentence_parts:
+                    # 2行に分割（18文字×2）
+                    line1, line2 = self._split_text_into_lines_strict(
+                        part['text'],
+                        max_chars_per_line,
+                        ABSOLUTE_MAX_CHARS_PER_LINE
                     )
 
-                    for chunk in chunks:
-                        duration = chunk['end_time'] - chunk['start_time']
-                        if duration < min_duration:
-                            chunk['end_time'] = chunk['start_time'] + min_duration
-
-                        line1, line2 = self._split_text_into_lines_strict(
-                            chunk['text'], max_chars_per_line, ABSOLUTE_MAX_CHARS_PER_LINE
-                        )
-
-                        subtitle = SubtitleEntry(
-                            index=subtitle_index,
-                            start_time=chunk['start_time'],
-                            end_time=chunk['end_time'],
-                            text_line1=line1,
-                            text_line2=line2
-                        )
-                        subtitles.append(subtitle)
-                        subtitle_index += 1
+                    # 字幕エントリ作成（句読点削除は後で実行される）
+                    subtitle = SubtitleEntry(
+                        index=subtitle_index,
+                        start_time=part['start_time'],
+                        end_time=part['end_time'],
+                        text_line1=line1,
+                        text_line2=line2
+                    )
+                    subtitles.append(subtitle)
+                    subtitle_index += 1
 
         self.logger.info(f"Generated {len(subtitles)} subtitles")
         return subtitles
