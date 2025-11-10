@@ -450,6 +450,158 @@ class SubtitleGenerator:
         # 見つからない場合は0を返す
         return 0
 
+    def generate_subtitles_from_char_timings(
+        self,
+        audio_timing_data: List[Dict[str, Any]]
+    ) -> List[SubtitleEntry]:
+        """
+        文字レベルのタイミング情報から字幕を生成
+
+        Args:
+            audio_timing_data: audio_timing.jsonの内容
+
+        Returns:
+            字幕リスト
+        """
+        max_chars = self.max_chars_per_line * 2  # 2行分
+        max_duration = self.max_display_duration
+        min_duration = self.min_display_duration
+        break_chars = self.break_on
+
+        subtitles = []
+        subtitle_index = 1
+
+        for section in audio_timing_data:
+            characters = section.get("characters", [])
+            char_start_times = section.get("char_start_times", [])
+            char_end_times = section.get("char_end_times", [])
+            offset = section.get("offset", 0.0)
+
+            if not characters or len(characters) != len(char_start_times):
+                self.logger.warning(f"Section {section.get('section_id')} has invalid timing data")
+                continue
+
+            current_text = []
+            subtitle_start = None
+
+            for i, char in enumerate(characters):
+                char_start = char_start_times[i] + offset
+                char_end = char_end_times[i] + offset
+
+                # 字幕開始時刻を設定
+                if subtitle_start is None:
+                    subtitle_start = char_start
+
+                # 文字を追加
+                current_text.append(char)
+
+                # 現在の字幕の長さ
+                current_duration = char_end - subtitle_start
+                current_length = len(current_text)
+
+                # 次の文字との間隔をチェック
+                next_gap = 0.0
+                if i + 1 < len(characters):
+                    next_gap = char_start_times[i + 1] - char_end
+
+                # 区切り条件
+                should_break = (
+                    # 句読点
+                    char in break_chars or
+
+                    # 最大表示時間超過
+                    current_duration >= max_duration or
+
+                    # 最大文字数超過
+                    current_length >= max_chars or
+
+                    # 次の文字との間に大きな間がある（0.5秒以上）
+                    next_gap >= 0.5 or
+
+                    # 最後の文字
+                    i == len(characters) - 1
+                )
+
+                if should_break and current_text:
+                    # 最低表示時間を満たさない場合はスキップ
+                    if current_duration < min_duration and i < len(characters) - 1:
+                        continue
+
+                    # テキストを結合
+                    subtitle_text = "".join(current_text).strip()
+
+                    if not subtitle_text:
+                        current_text = []
+                        subtitle_start = None
+                        continue
+
+                    # 2行に分割
+                    line1, line2 = self._split_subtitle_into_lines(
+                        subtitle_text
+                    )
+
+                    subtitles.append(SubtitleEntry(
+                        index=subtitle_index,
+                        start_time=subtitle_start,
+                        end_time=char_end,
+                        text_line1=line1,
+                        text_line2=line2,
+                        text_line3=""  # 3行目は使わない
+                    ))
+
+                    subtitle_index += 1
+
+                    # リセット
+                    current_text = []
+                    subtitle_start = None
+
+        self.logger.info(f"Generated {len(subtitles)} subtitles from character timings")
+        return subtitles
+
+    def _split_subtitle_into_lines(
+        self,
+        text: str
+    ) -> tuple[str, str]:
+        """
+        テキストを2行に分割
+
+        Args:
+            text: 分割するテキスト
+
+        Returns:
+            (1行目, 2行目)
+        """
+        # 句読点や助詞の直後で区切るのが理想的
+        break_points = ["。", "、", "！", "？", "は", "が", "を", "に", "で", "と"]
+
+        if len(text) <= self.max_chars_per_line:
+            return (text, "")
+
+        # 中間点付近で良い区切り位置を探す
+        mid_point = len(text) // 2
+        best_break = mid_point
+        best_distance = len(text)
+
+        for i, char in enumerate(text):
+            if char in break_points:
+                distance = abs(i - mid_point)
+                if distance < best_distance and i > 0:
+                    best_distance = distance
+                    best_break = i + 1
+
+        # 最大文字数を超えないように調整
+        if best_break > self.max_chars_per_line:
+            best_break = self.max_chars_per_line
+
+        line1 = text[:best_break].strip()
+        line2 = text[best_break:].strip()
+
+        # 2行目が長すぎる場合は強制分割
+        if len(line2) > self.max_chars_per_line:
+            line2 = line2[:self.max_chars_per_line]
+
+        return (line1, line2)
+
 
 def create_subtitle_generator(
     config: Dict[str, Any],
@@ -457,11 +609,11 @@ def create_subtitle_generator(
 ) -> SubtitleGenerator:
     """
     字幕生成器を作成
-    
+
     Args:
         config: 字幕生成設定
         logger: ロガー
-        
+
     Returns:
         SubtitleGenerator
     """
