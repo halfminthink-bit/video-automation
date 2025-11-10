@@ -538,6 +538,32 @@ class SubtitleGenerator:
 
         return punctuation_positions_in_text
 
+    def _find_punctuation_positions_from_characters(
+        self,
+        characters: List[str]
+    ) -> Dict[int, str]:
+        """
+        charactersから直接句読点位置を検出
+
+        修正後のwhisper_timing.pyでは、charactersに句読点が含まれるようになったため、
+        このメソッドを使用する。
+
+        Args:
+            characters: 文字配列（句読点を含む）
+
+        Returns:
+            {インデックス: 句読点, ...}  # charactersのインデックス → 句読点
+            例: {4: "、", 24: "。", ...}
+        """
+        punctuation_marks = set(["。", "、", "！", "？", "…"])
+        positions = {}
+
+        for i, char in enumerate(characters):
+            if char in punctuation_marks:
+                positions[i] = char
+
+        return positions
+
     def _detect_character_boundaries(
         self,
         characters: List[str]
@@ -793,7 +819,8 @@ class SubtitleGenerator:
                 continue
 
             # 句読点位置をマッピング
-            punctuation_positions = self._find_punctuation_positions(text, characters)
+            # 修正後: charactersに句読点が含まれるため、直接検出
+            punctuation_positions = self._find_punctuation_positions_from_characters(characters)
 
             # 文字種境界を検出
             boundaries = self._detect_character_boundaries(characters)
@@ -849,7 +876,8 @@ class SubtitleGenerator:
                         subtitle_end = subtitle_start + max_duration
 
                     # 句読点位置と境界を再計算（サブチャンク用）
-                    sub_punct = self._find_punctuation_positions("".join(sub_chars), sub_chars)
+                    # 修正後: charactersに句読点が含まれるため、直接検出
+                    sub_punct = self._find_punctuation_positions_from_characters(sub_chars)
                     sub_boundaries = self._detect_character_boundaries(sub_chars)
 
                     # 複数行に分割
