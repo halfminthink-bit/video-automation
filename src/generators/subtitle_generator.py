@@ -635,12 +635,17 @@ class SubtitleGenerator:
         - 理想位置から離れるごとに -5点/文字
         - 「ん」「っ」で終わる: -20点
         - 数字・英字を分割: -50点
+        - 分割後の断片が短すぎる: -200点
+        - 分割バランスが悪い: 最大-50点
 
         Returns:
             (分割位置, 分割理由)
         """
         if len(characters) <= max_chars:
             return (len(characters), "no_split_needed")
+
+        # 最小断片長（これより短い断片を作らない）
+        MIN_CHUNK_LENGTH = 10
 
         # 理想位置（max_charsに近い位置）
         ideal_pos = max_chars
@@ -656,6 +661,23 @@ class SubtitleGenerator:
         for pos in range(search_start, search_end):
             score = 0
             reason = ""
+
+            # 分割後の長さをチェック
+            first_part_len = pos
+            second_part_len = len(characters) - pos
+
+            # 最小長ペナルティ（断片が短すぎる場合は大きなペナルティ）
+            if first_part_len < MIN_CHUNK_LENGTH:
+                score -= 200
+            if second_part_len < MIN_CHUNK_LENGTH:
+                score -= 200
+
+            # バランスペナルティ（なるべく均等に分割）
+            # 理想比率は50:50、そこから離れるほどペナルティ
+            ideal_ratio = 0.5
+            actual_ratio = first_part_len / len(characters)
+            balance_penalty = abs(ideal_ratio - actual_ratio) * 100
+            score -= balance_penalty
 
             # 句読点の処理
             # 「、」の場合は直後で分割（「、」を含める）
