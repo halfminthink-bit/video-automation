@@ -146,14 +146,26 @@ class KokoroAudioGenerator:
             response = requests.post(url, json=payload, timeout=60)
             response.raise_for_status()
 
-            # 音声データを取得（Base64エンコード済み）
-            result = response.json()
-            audio_base64 = result.get("audio", "")
+            # レスポンスタイプを確認
+            content_type = response.headers.get('content-type', '')
+            self.logger.debug(f"Response content-type: {content_type}")
 
-            if not audio_base64:
-                raise ValueError("API returned empty audio field")
+            # 音声データを取得
+            if 'application/json' in content_type:
+                # JSONレスポンスの場合（Base64エンコード済み）
+                result = response.json()
+                audio_base64 = result.get("audio", "")
+                if not audio_base64:
+                    raise ValueError("API returned empty audio field")
+            else:
+                # バイナリレスポンスの場合（OpenAI互換API）
+                audio_bytes = response.content
+                if not audio_bytes:
+                    raise ValueError("API returned empty audio data")
+                # Base64エンコード
+                audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
 
-            self.logger.info("Audio generated successfully from Kokoro API")
+            self.logger.info(f"Audio generated successfully from Kokoro API ({len(audio_base64)} bytes base64)")
 
             # Step 2: Whisperでタイムスタンプ取得
             alignment = self._extract_timestamps_with_whisper(audio_base64, text)
