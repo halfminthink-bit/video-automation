@@ -53,7 +53,7 @@ service: "kokoro"
 # Kokoro TTS の設定
 kokoro:
   api_url: "http://localhost:8880"
-  voice: "af_bella"  # または af_sarah, af_sky など
+  voice: "jf_alpha"  # または af_sarah, af_sky など
   speed: 1.0
   response_format: "mp3"
 ```
