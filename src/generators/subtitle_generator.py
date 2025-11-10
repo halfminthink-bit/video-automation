@@ -721,8 +721,8 @@ class SubtitleGenerator:
             if len(lines) == max_lines - 1:
                 line_text = "".join(remaining_chars[:max_chars_per_line])
                 if self.remove_punctuation:
-                    # 句読点を除去
-                    line_text = "".join([c for c in line_text if c not in ["。", "、", "！", "？", "…"]])
+                    # 句読点を除去（「、」と「」は残す）
+                    line_text = "".join([c for c in line_text if c not in ["。", "！", "？", "…"]])
                 lines.append(line_text)
                 break
 
@@ -740,8 +740,8 @@ class SubtitleGenerator:
             line_text = "".join(line_chars)
 
             if self.remove_punctuation:
-                # 句読点を除去
-                line_text = "".join([c for c in line_text if c not in ["。", "、", "！", "？", "…"]])
+                # 句読点を除去（「、」と「」は残す）
+                line_text = "".join([c for c in line_text if c not in ["。", "！", "？", "…"]])
 
             # 極端に短い行を避ける
             if len(line_text) >= self.min_line_length or not lines:
@@ -889,7 +889,7 @@ class SubtitleGenerator:
         offset: float
     ) -> List[Dict[str, Any]]:
         """
-        句読点で大まかに分割
+        句読点で大まかに分割（「。」のみで分割、「、」では分割しない）
 
         Returns:
             チャンクのリスト（各チャンクは characters, start_times, end_times を持つ）
@@ -904,8 +904,12 @@ class SubtitleGenerator:
             current_starts.append(start_times[i] + offset)
             current_ends.append(end_times[i] + offset)
 
-            # 句読点の直後、または最後の文字
-            if (i + 1) in punctuation_positions or i == len(characters) - 1:
+            # 「。」「！」「？」の直後、または最後の文字で分割（「、」では分割しない）
+            next_pos = i + 1
+            punct = punctuation_positions.get(next_pos)
+            should_split = (punct in ["。", "！", "？"]) or i == len(characters) - 1
+
+            if should_split:
                 if current_chars:
                     chunks.append({
                         "characters": current_chars.copy(),
