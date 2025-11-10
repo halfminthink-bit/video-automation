@@ -132,8 +132,8 @@ class KokoroAudioGenerator:
             if not audio_base64:
                 raise ValueError("API returned empty audio field")
 
-            # ✅ 修正4: タイムスタンプ取得
-            timestamps = result.get("timestamps", [])
+            # ✅ 修正4: タイムスタンプ取得（Noneチェック）
+            timestamps = result.get("timestamps") or []
 
             self.logger.info(f"Received {len(timestamps)} timestamps from API")
 
