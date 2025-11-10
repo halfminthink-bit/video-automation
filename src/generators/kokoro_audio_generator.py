@@ -26,6 +26,8 @@ class KokoroAudioGenerator:
         self,
         api_url: Optional[str] = None,
         voice: str = "jf_alpha",
+        speed: float = 1.0,
+        response_format: str = "mp3",
         logger: Optional[logging.Logger] = None
     ):
         """
@@ -34,6 +36,8 @@ class KokoroAudioGenerator:
         Args:
             api_url: Kokoro FastAPI のベースURL（環境変数 KOKORO_API_URL を優先）
             voice: 使用する音声名（af_bella, af_sarah, af_sky等）
+            speed: 速度（0.5-2.0）
+            response_format: 出力形式（mp3, wav, opus, flac）
             logger: ロガー
 
         Raises:
@@ -42,6 +46,8 @@ class KokoroAudioGenerator:
         # 環境変数からURLを取得（オーバーライド優先）
         self.api_url = os.getenv("KOKORO_API_URL", api_url or "http://localhost:8880")
         self.voice = voice
+        self.speed = speed
+        self.response_format = response_format
         self.logger = logger or logging.getLogger(__name__)
 
         # APIが利用可能かチェック
@@ -77,149 +83,94 @@ class KokoroAudioGenerator:
         self,
         text: str,
         previous_text: Optional[str] = None,
-        next_text: Optional[str] = None,
-        output_path: Optional[Path] = None,
-        speed: float = 1.0,
-        response_format: str = "mp3"
+        next_text: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        テキストから音声とタイムスタンプを生成
+        Kokoro TTS FastAPIを使用してタイムスタンプ付き音声を生成
 
         Args:
             text: 生成するテキスト
-            previous_text: 前のテキスト（Kokoro TTSでは未使用、互換性のため保持）
-            next_text: 次のテキスト（Kokoro TTSでは未使用、互換性のため保持）
-            output_path: 出力ファイルパス（Noneの場合は保存しない）
-            speed: 速度（0.5-2.0）
-            response_format: 出力形式（mp3, wav, opus, flac）
+            previous_text: 前のテキスト（未使用）
+            next_text: 次のテキスト（未使用）
 
         Returns:
             {
-                "audio_base64": str,  # Base64エンコードされた音声データ
-                "alignment": {
-                    "characters": List[str],
-                    "character_start_times_seconds": List[float],
-                    "character_end_times_seconds": List[float]
+                'audio_base64': str,
+                'alignment': {
+                    'characters': List[str],
+                    'character_start_times_seconds': List[float],
+                    'character_end_times_seconds': List[float]
                 }
             }
-
-        Raises:
-            Exception: 音声生成失敗時
         """
-        self.logger.info(f"Kokoro TTS で音声生成: {len(text)} 文字")
+        import base64
+        import json
+
+        self.logger.info(f"Generating audio with timestamps: {text[:50]}...")
+
+        # ✅ 修正1: エンドポイントを変更
+        url = f"{self.api_url}/dev/captioned_speech"  # ← 重要！
+
+        payload = {
+            "model": "kokoro",
+            "input": text,
+            "voice": self.voice,
+            "speed": self.speed,
+            "response_format": self.response_format,
+            "stream": False
+        }
 
         try:
-            response = requests.post(
-                f"{self.api_url}/dev/captioned_speech",
-                json={
-                    "model": "kokoro",
-                    "input": text,
-                    "voice": self.voice,
-                    "speed": speed,
-                    "response_format": response_format,
-                    "stream": False,
-                },
-                timeout=300  # 長い文章用に5分
-            )
+            response = requests.post(url, json=payload, stream=False, timeout=60)
             response.raise_for_status()
 
-            # レスポンスをJSON解析
+            # ✅ 修正2: JSONレスポンスをパース
             result = response.json()
 
-            # デバッグ: レスポンスの構造を確認
-            self.logger.debug(f"API response keys: {list(result.keys())}")
-
-            # デバッグ: timestampsの内容を詳細に確認
-            timestamps_value = result.get("timestamps")
-            self.logger.info(f"Timestamps type: {type(timestamps_value)}, value: {timestamps_value}")
-
-            # レスポンス全体をログ（音声データは除外）
-            debug_result = {k: v if k != "audio" else f"<base64 data, {len(v) if v else 0} chars>"
-                           for k, v in result.items()}
-            self.logger.debug(f"Full API response (without audio): {debug_result}")
-
-            # Base64エンコードされた音声を取得
-            audio_base64 = result.get("audio")
+            # ✅ 修正3: Base64デコード
+            audio_base64 = result.get("audio", "")
             if not audio_base64:
-                raise ValueError("APIレスポンスに音声データが含まれていません")
+                raise ValueError("API returned empty audio field")
 
-            # タイムスタンプ情報を取得（Noneの場合も空リストにする）
-            timestamps = result.get("timestamps") or []
+            # ✅ 修正4: タイムスタンプ取得
+            timestamps = result.get("timestamps", [])
+
             self.logger.info(f"Received {len(timestamps)} timestamps from API")
 
-            # ElevenLabs互換のフォーマットに変換
+            if not timestamps:
+                self.logger.warning("No timestamps received from API")
+
+            # ✅ 修正5: ElevenLabs互換形式に変換
             characters = []
-            char_start_times = []
-            char_end_times = []
+            start_times = []
+            end_times = []
 
             for ts in timestamps:
-                word = ts.get("word", "")
-                start_time = ts.get("start_time", 0.0)
-                end_time = ts.get("end_time", 0.0)
+                if isinstance(ts, dict):
+                    word = ts.get("word", "")
+                    if word:
+                        characters.append(word)
+                        start_times.append(float(ts.get("start_time", 0.0)))
+                        end_times.append(float(ts.get("end_time", 0.0)))
 
-                # 単語を文字に分解
-                for i, char in enumerate(word):
-                    characters.append(char)
-                    # 文字ごとの時間を均等に分割
-                    char_duration = (end_time - start_time) / len(word)
-                    char_start_times.append(start_time + i * char_duration)
-                    char_end_times.append(start_time + (i + 1) * char_duration)
-
-            # 出力ファイルに保存する場合
-            if output_path:
-                audio_bytes = base64.b64decode(audio_base64)
-                output_path.parent.mkdir(parents=True, exist_ok=True)
-                with open(output_path, "wb") as f:
-                    f.write(audio_bytes)
-                self.logger.info(f"音声ファイルを保存: {output_path}")
-
-            # 音声の長さを計算
-            if char_end_times:
-                duration = char_end_times[-1]
-            else:
-                # タイムスタンプがない場合は、音声ファイルから長さを取得
-                if output_path:
-                    try:
-                        from pydub import AudioSegment
-                        audio = AudioSegment.from_file(output_path)
-                        duration = len(audio) / 1000.0  # ミリ秒を秒に変換
-                        self.logger.warning(
-                            f"No timestamps available, using audio file duration: {duration:.2f}s"
-                        )
-                    except Exception as e:
-                        self.logger.warning(f"Failed to get audio duration: {e}")
-                        # 文字数から推定（1文字あたり約0.2秒と仮定）
-                        duration = len(text) * 0.2
-                        self.logger.warning(f"Using estimated duration: {duration:.2f}s")
-                else:
-                    # 推定値を使用
-                    duration = len(text) * 0.2
-                    self.logger.warning(f"Using estimated duration: {duration:.2f}s")
+            alignment = {
+                'characters': characters,
+                'character_start_times_seconds': start_times,
+                'character_end_times_seconds': end_times
+            }
 
             self.logger.info(
-                f"音声生成完了: {duration:.2f}秒, "
-                f"{len(timestamps)} 単語, {len(characters)} 文字"
+                f"✓ Generated {len(characters)} words, "
+                f"duration: {end_times[-1] if end_times else 0:.2f}s"
             )
 
             return {
-                "audio_base64": audio_base64,
-                "alignment": {
-                    "characters": characters,
-                    "character_start_times_seconds": char_start_times,
-                    "character_end_times_seconds": char_end_times
-                }
+                'audio_base64': audio_base64,
+                'alignment': alignment
             }
 
-        except requests.exceptions.Timeout:
-            error_msg = f"音声生成がタイムアウトしました（テキスト長: {len(text)}文字）"
-            self.logger.error(error_msg)
-            raise TimeoutError(error_msg)
-        except requests.exceptions.RequestException as e:
-            error_msg = f"API呼び出しエラー: {e}"
-            self.logger.error(error_msg)
-            raise
         except Exception as e:
-            self.logger.error(f"音声生成失敗: {e}")
+            self.logger.error(f"Error: {e}", exc_info=True)
             raise
 
     def generate_sections(
@@ -260,11 +211,14 @@ class KokoroAudioGenerator:
                 f"セクション {section_id} を生成中: {narration[:50]}..."
             )
 
-            result = self.generate_with_timestamps(
-                text=narration,
-                output_path=output_path,
-                speed=speed
-            )
+            result = self.generate_with_timestamps(text=narration)
+
+            # 音声ファイルを保存
+            audio_bytes = base64.b64decode(result["audio_base64"])
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(output_path, "wb") as f:
+                f.write(audio_bytes)
+            self.logger.info(f"音声ファイルを保存: {output_path}")
 
             # 音声の長さを取得
             alignment = result["alignment"]
@@ -304,17 +258,20 @@ def test_kokoro_generator():
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "test.mp3"
 
-            result = generator.generate_with_timestamps(
-                text=test_text,
-                output_path=output_path
-            )
+            result = generator.generate_with_timestamps(text=test_text)
+
+            # 音声ファイルを保存
+            audio_bytes = base64.b64decode(result["audio_base64"])
+            with open(output_path, "wb") as f:
+                f.write(audio_bytes)
 
             print("\n" + "="*60)
             print("✓ テスト成功")
             print("="*60)
             print(f"ファイル: {output_path}")
-            print(f"音声長: {result['alignment']['character_end_times_seconds'][-1]:.2f}秒")
-            print(f"文字数: {len(result['alignment']['characters'])}")
+            end_times = result['alignment']['character_end_times_seconds']
+            print(f"音声長: {end_times[-1] if end_times else 0:.2f}秒")
+            print(f"単語数: {len(result['alignment']['characters'])}")
             print(f"サイズ: {output_path.stat().st_size / 1024:.1f}KB")
 
     except Exception as e:
