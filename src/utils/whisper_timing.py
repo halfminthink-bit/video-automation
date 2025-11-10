@@ -370,15 +370,16 @@ def align_text_with_whisper_timings(
             logger.warning("No recognized characters, using uniform timing")
         duration_per_char = 0.15  # 1文字あたり0.15秒と仮定
         for i, char in enumerate(original_text):
-            if normalize_text(char):  # 空白や句読点以外
-                aligned_timings.append({
-                    "word": char,
-                    "start": i * duration_per_char,
-                    "end": (i + 1) * duration_per_char,
-                    "probability": 0.5
-                })
+            # 句読点も含む全ての文字を処理
+            aligned_timings.append({
+                "word": char,
+                "start": i * duration_per_char,
+                "end": (i + 1) * duration_per_char,
+                "probability": 0.5
+            })
     else:
         # 文字数比率でマッピング
+        # 句読点を除外した文字のみでインデックスを計算
         original_chars = [c for c in original_text if normalize_text(c)]
         ratio = len(recognized_chars) / max(len(original_chars), 1)
 
@@ -388,13 +389,35 @@ def align_text_with_whisper_timings(
                 f"({len(recognized_chars)} recognized / {len(original_chars)} original)"
             )
 
+        # 句読点を除外した文字のインデックスカウンター
+        normalized_char_count = 0
+        last_timing = None
+
         for i, char in enumerate(original_text):
             if not normalize_text(char):
-                # 空白や句読点はスキップ
+                # 句読点・空白の場合
+                # 直前の文字のタイミングを使用（音声には含まれないが表示用に必要）
+                if last_timing:
+                    # 直前の文字の終了時刻をそのまま使用（瞬間表示）
+                    aligned_timings.append({
+                        "word": char,
+                        "start": last_timing["end"],
+                        "end": last_timing["end"],
+                        "probability": last_timing.get("probability", 0.5)
+                    })
+                else:
+                    # 最初の文字が句読点の場合（稀）
+                    aligned_timings.append({
+                        "word": char,
+                        "start": 0.0,
+                        "end": 0.0,
+                        "probability": 0.5
+                    })
                 continue
 
+            # 通常の文字の場合
             # 対応する認識文字のインデックスを計算
-            recognized_idx = int(i * ratio)
+            recognized_idx = int(normalized_char_count * ratio)
             recognized_idx = min(recognized_idx, len(recognized_chars) - 1)
 
             if recognized_idx < len(recognized_chars):
@@ -405,6 +428,7 @@ def align_text_with_whisper_timings(
                     "end": timing["end"],
                     "probability": timing["probability"]
                 })
+                last_timing = timing
             else:
                 # 範囲外の場合、最後のタイミングを使用
                 last_timing = recognized_chars[-1]
@@ -414,6 +438,8 @@ def align_text_with_whisper_timings(
                     "end": last_timing["end"] + 0.15,
                     "probability": 0.5
                 })
+
+            normalized_char_count += 1
 
     if logger:
         logger.info(
