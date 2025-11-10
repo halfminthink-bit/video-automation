@@ -34,13 +34,15 @@ kokoro:
   api_url: "http://localhost:8880"
 
   # 使用する音声名
-  # 利用可能な女性の声（American Female）:
-  # - af_bella ⭐推奨（人気、安定）
-  # - af_sarah ⭐推奨（人気、自然）
+  # 利用可能な日本語の声（Japanese Female）:
+  # - jf_alpha ⭐推奨（日本語女性音声、自然）
+  # 利用可能な英語の声（American Female）:
+  # - af_bella （人気、安定）
+  # - af_sarah （人気、自然）
   # - af_sky （明るめ）
   # - af_heart （落ち着き）
   # - af_alloy, af_aoede, af_jessica, af_kore, af_nicole, af_nova, af_river
-  voice: "af_bella"
+  voice: "jf_alpha"
 
   # 速度（0.5-2.0）
   speed: 1.0
