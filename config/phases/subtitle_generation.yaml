@@ -1,23 +1,23 @@
 ﻿# Phase 7: 字幕生成設定
 
 # 字幕の最大行数
-max_lines: 3
+max_lines: 2
 
-# 1行あたりの最大文字数（YouTubeサイズ 1920x1080基準）
-# 日本語の場合、フォントサイズ60pxで約16文字が適切
-max_chars_per_line: 16
+# 1行あたりの最大文字数（高齢者向け：大きめフォント）
+# 2行×18文字 = 最大36文字
+max_chars_per_line: 18
 
 # 1つの字幕に含める最大単語数（ElevenLabs タイムスタンプ使用時）
 # 2行表示を考慮して増やす
 max_words_per_subtitle: 8
 
-# タイミング設定
+# タイミング設定（高齢者向け：長めの表示時間）
 timing:
-  # 最低表示時間（秒）- ElevenLabs タイムスタンプ使用時はより短くする
-  min_display_duration: 1.0
+  # 最低表示時間（秒）- 高齢者が余裕を持って読めるように
+  min_display_duration: 4.0
 
-  # 最大表示時間（秒）
-  max_display_duration: 3.0
+  # 最大表示時間（秒）- 落ち着いて読めるように
+  max_display_duration: 6.0
 
   # リードタイム（音声より少し早く表示する時間、秒）
   lead_time: 0.2
