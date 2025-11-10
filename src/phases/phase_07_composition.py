@@ -797,8 +797,8 @@ class Phase07Composition(PhaseBase):
         """
         二分割レイアウトの動画を生成
 
-        左側: 黒背景 + 字幕（960x1080）
-        右側: アニメ動画（960x1080にリサイズ）
+        上部: アニメ動画（1920x756, 70%）
+        下部: 黒背景 + 字幕（1920x324, 30%）
 
         Args:
             animated_clips: Phase 4の動画ファイルパスリスト
@@ -808,47 +808,60 @@ class Phase07Composition(PhaseBase):
         Returns:
             合成された二分割レイアウト動画
         """
-        self.logger.info("Creating split layout video...")
+        self.logger.info("Creating split layout video (vertical)...")
 
-        # Step 1: 左側（字幕側）を生成
-        self.logger.info("Creating subtitle side (left)...")
-        left_side = self._create_subtitle_side(subtitles, total_duration)
+        # 比率を取得（デフォルト0.7 = 70%）
+        ratio = self.split_config.get('ratio', 0.7)
+        top_height = int(1080 * ratio)        # 756px (70%)
+        bottom_height = 1080 - top_height     # 324px (30%)
 
-        # Step 2: 右側（動画側）を生成
-        self.logger.info("Creating video side (right)...")
-        right_side = self._create_video_side(animated_clips, total_duration)
+        self.logger.info(f"Layout: top={top_height}px (video), bottom={bottom_height}px (subtitle)")
 
-        # Step 3: 左右を横並びに配置
-        self.logger.info("Compositing left and right sides...")
+        # Step 1: 上部（動画エリア）を生成
+        self.logger.info("Creating top video area...")
+        top_side = self._create_top_video_area(animated_clips, total_duration, top_height)
+
+        # Step 2: 下部（字幕バー）を生成
+        self.logger.info("Creating bottom subtitle bar...")
+        bottom_side = self._create_bottom_subtitle_bar(subtitles, total_duration, bottom_height)
+
+        # Step 3: 上下を縦並びに配置
+        self.logger.info("Compositing top and bottom areas...")
         final_video = CompositeVideoClip([
-            left_side.with_position((0, 0)),           # 左側
-            right_side.with_position((960, 0))         # 右側
+            top_side.with_position((0, 0)),              # 上部
+            bottom_side.with_position((0, top_height))   # 下部
         ], size=(1920, 1080))
 
-        self.logger.info("Split layout video created successfully")
+        self.logger.info("Vertical split layout video created successfully")
         return final_video
 
-    def _create_subtitle_side(
+    def _create_bottom_subtitle_bar(
         self,
         subtitles: List[SubtitleEntry],
-        duration: float
+        duration: float,
+        bar_height: int
     ) -> 'VideoFileClip':
         """
-        左側の字幕エリアを生成
+        下部の字幕バーを生成
 
-        - 960x1080の黒背景
-        - 字幕を中央に配置（3行まで対応）
+        - 1920 x bar_height の黒背景
+        - 字幕を中央に配置（横方向・縦方向ともに中央、3行まで対応）
         - Pillowで画像を生成してImageClipに変換
 
+        Args:
+            subtitles: 字幕データ
+            duration: 動画の長さ（秒）
+            bar_height: 下部エリアの高さ（324px）
+
         Returns:
-            字幕側の動画クリップ
+            字幕バーの動画クリップ
         """
         from PIL import Image, ImageDraw, ImageFont
         import numpy as np
 
-        # 黒背景の作成（960x1080）
-        width = self.split_config.get('left_width', 960)
-        height = self.resolution[1]  # 1080
+        # 下部字幕バーのサイズ（1920 x bar_height）
+        width = 1920
+        height = bar_height
 
         # 字幕クリップのリスト
         subtitle_clips = []
@@ -885,29 +898,35 @@ class Phase07Composition(PhaseBase):
         # 字幕を合成
         if subtitle_clips:
             final_clip = CompositeVideoClip([black_bg] + subtitle_clips)
-            self.logger.info(f"Created subtitle side with {len(subtitle_clips)} subtitles")
+            self.logger.info(f"Created bottom subtitle bar with {len(subtitle_clips)} subtitles")
         else:
             final_clip = black_bg
             self.logger.warning("No subtitle clips created, using black background only")
 
         return final_clip
 
-    def _create_video_side(
+    def _create_top_video_area(
         self,
         clip_paths: List[Path],
-        duration: float
+        duration: float,
+        area_height: int
     ) -> 'VideoFileClip':
         """
-        右側の動画エリアを生成
+        上部の動画エリアを生成
 
-        - Phase 4の動画を960x1080にリサイズ
+        - Phase 4の動画を 1920 x area_height にリサイズ
         - 連結してループ
 
+        Args:
+            clip_paths: Phase 4の動画ファイルパスリスト
+            duration: 動画の長さ（秒）
+            area_height: 上部エリアの高さ（756px）
+
         Returns:
-            動画側のクリップ
+            動画エリアのクリップ
         """
-        width = self.split_config.get('right_width', 960)
-        height = self.resolution[1]  # 1080
+        width = 1920
+        height = area_height
 
         # 各クリップを読み込んでリサイズ
         video_clips = []
@@ -916,7 +935,7 @@ class Phase07Composition(PhaseBase):
                 self.logger.debug(f"Loading clip {i}/{len(clip_paths)}: {clip_path.name}")
                 clip = VideoFileClip(str(clip_path))
 
-                # 960x1080にリサイズ（crop or fit）
+                # 1920 x area_height にリサイズ（crop or fit）
                 clip_resized = self._resize_clip_for_split_layout(clip, width, height)
                 video_clips.append(clip_resized)
 
@@ -959,7 +978,7 @@ class Phase07Composition(PhaseBase):
         - "fit": アスペクト比を保ちつつフィット（余白あり）
         - "stretch": アスペクト比無視して引き伸ばし
         """
-        resize_method = self.split_config.get('right_side', {}).get('resize_method', 'crop')
+        resize_method = self.split_config.get('top_side', {}).get('resize_method', 'crop')
 
         if resize_method == "crop":
             # クロップ（はみ出た部分をカット）
@@ -1040,7 +1059,7 @@ class Phase07Composition(PhaseBase):
             line_heights.append(line_height)
 
         # 行間を取得
-        line_spacing = self.split_config.get('left_side', {}).get('line_spacing', 1.3)
+        line_spacing = self.split_config.get('bottom_side', {}).get('line_spacing', 1.3)
         spacing_px = int(line_heights[0] * (line_spacing - 1.0)) if line_heights else 10
 
         # 全体の高さ計算
