@@ -92,7 +92,9 @@ class WhisperTimingExtractor:
                 str(audio_path),
                 language=self.language,
                 word_timestamps=True,
-                initial_prompt=text if text else None,
+                # initial_promptは使用しない（全文をスキップされるため）
+                # Whisperの仕様: initial_promptは「直前に話された内容」として機能し、
+                # 渡されたテキストを「もう話し終わった」と判断してスキップする
                 fp16=fp16_enabled,
                 # 認識精度向上のための追加パラメータ
                 condition_on_previous_text=False,
@@ -130,13 +132,29 @@ class WhisperTimingExtractor:
                         "end": word_info.get("end", 0.0),
                         "probability": word_info.get("probability", 1.0)
                     })
-            
+
             self.logger.info(
-                f"Extracted {len(word_timings)} word timings "
+                f"Extracted {len(word_timings)} word timings from Whisper "
                 f"(duration: {result.get('segments', [{}])[-1].get('end', 0):.1f}s)"
             )
-            
-            return word_timings
+
+            # 🔥 新機能：元のテキストが提供されている場合、アライメントを実行
+            if text:
+                self.logger.info("Aligning Whisper timings with original text...")
+                recognized_text = result.get('text', '')
+                aligned_timings = align_text_with_whisper_timings(
+                    original_text=text,
+                    recognized_text=recognized_text,
+                    word_timings=word_timings,
+                    logger=self.logger
+                )
+                self.logger.info(
+                    f"✓ Alignment complete: {len(aligned_timings)} characters mapped"
+                )
+                return aligned_timings
+            else:
+                # 元のテキストがない場合は、Whisperの認識結果をそのまま返す
+                return word_timings
             
         except Exception as e:
             self.logger.error(f"Failed to extract word timings: {e}", exc_info=True)
@@ -268,6 +286,144 @@ class WhisperTimingExtractor:
         return words
 
 
+def align_text_with_whisper_timings(
+    original_text: str,
+    recognized_text: str,
+    word_timings: List[Dict[str, Any]],
+    logger: Optional[logging.Logger] = None
+) -> List[Dict[str, Any]]:
+    """
+    元のテキストとWhisperの認識結果をアライメントし、
+    元のテキストの文字にタイミング情報をマッピングする
+
+    Args:
+        original_text: 元のnarration text（正確な固有名詞を含む）
+        recognized_text: Whisperが認識したテキスト（誤認識あり）
+        word_timings: Whisperから取得した単語タイミング情報
+        logger: ロガー
+
+    Returns:
+        元のテキストの文字にマッピングされたタイミング情報:
+        [
+            {
+                "word": "信",  # 元のテキストの文字
+                "start": 0.0,
+                "end": 0.24,
+                "probability": 0.95
+            },
+            ...
+        ]
+
+    アルゴリズム:
+    1. 元のテキストと認識テキストを文字レベルで比較
+    2. 類似度の高い部分をマッピング
+    3. Whisperのタイミング情報を元のテキストの文字位置に対応付け
+    """
+    if logger:
+        logger.info(
+            f"Aligning texts: original={len(original_text)} chars, "
+            f"recognized={len(recognized_text)} chars"
+        )
+
+    # 空白と句読点を除去して比較用テキストを作成
+    import re
+    def normalize_text(text: str) -> str:
+        """比較用にテキストを正規化"""
+        # 全角英数字を半角に
+        text = text.translate(str.maketrans(
+            '０１２３４５６７８９ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚ',
+            '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+        ))
+        # 空白、句読点、記号を除去
+        text = re.sub(r'[\s、。，．！？!?「」『』【】（）()〈〉《》]', '', text)
+        return text
+
+    original_normalized = normalize_text(original_text)
+    recognized_normalized = normalize_text(recognized_text)
+
+    # Whisperの認識結果から文字とタイミングのマッピングを作成
+    recognized_chars = []
+    for word_info in word_timings:
+        word = word_info.get("word", "").strip()
+        word_normalized = normalize_text(word)
+        for char in word_normalized:
+            recognized_chars.append({
+                "char": char,
+                "start": word_info.get("start", 0.0),
+                "end": word_info.get("end", 0.0),
+                "probability": word_info.get("probability", 1.0)
+            })
+
+    if logger:
+        logger.info(
+            f"Recognized chars: {len(recognized_chars)}, "
+            f"normalized: '{recognized_normalized[:50]}...'"
+        )
+
+    # 簡易的なアライメント：文字数比率でマッピング
+    # より高度な実装では編集距離（Levenshtein距離）を使用可能
+    aligned_timings = []
+
+    if len(recognized_chars) == 0:
+        # 認識結果が空の場合、均等にタイミングを割り当て
+        if logger:
+            logger.warning("No recognized characters, using uniform timing")
+        duration_per_char = 0.15  # 1文字あたり0.15秒と仮定
+        for i, char in enumerate(original_text):
+            if normalize_text(char):  # 空白や句読点以外
+                aligned_timings.append({
+                    "word": char,
+                    "start": i * duration_per_char,
+                    "end": (i + 1) * duration_per_char,
+                    "probability": 0.5
+                })
+    else:
+        # 文字数比率でマッピング
+        original_chars = [c for c in original_text if normalize_text(c)]
+        ratio = len(recognized_chars) / max(len(original_chars), 1)
+
+        if logger:
+            logger.info(
+                f"Alignment ratio: {ratio:.2f} "
+                f"({len(recognized_chars)} recognized / {len(original_chars)} original)"
+            )
+
+        for i, char in enumerate(original_text):
+            if not normalize_text(char):
+                # 空白や句読点はスキップ
+                continue
+
+            # 対応する認識文字のインデックスを計算
+            recognized_idx = int(i * ratio)
+            recognized_idx = min(recognized_idx, len(recognized_chars) - 1)
+
+            if recognized_idx < len(recognized_chars):
+                timing = recognized_chars[recognized_idx]
+                aligned_timings.append({
+                    "word": char,
+                    "start": timing["start"],
+                    "end": timing["end"],
+                    "probability": timing["probability"]
+                })
+            else:
+                # 範囲外の場合、最後のタイミングを使用
+                last_timing = recognized_chars[-1]
+                aligned_timings.append({
+                    "word": char,
+                    "start": last_timing["end"],
+                    "end": last_timing["end"] + 0.15,
+                    "probability": 0.5
+                })
+
+    if logger:
+        logger.info(
+            f"✓ Aligned {len(aligned_timings)} characters from original text "
+            f"to Whisper timings"
+        )
+
+    return aligned_timings
+
+
 def create_whisper_extractor(
     model_name: str = "base",
     logger: Optional[logging.Logger] = None,
@@ -275,12 +431,12 @@ def create_whisper_extractor(
 ) -> Optional[WhisperTimingExtractor]:
     """
     WhisperTimingExtractorを作成
-    
+
     Args:
         model_name: Whisperモデル名
         logger: ロガー
         language: 言語コード
-        
+
     Returns:
         WhisperTimingExtractor（利用不可の場合はNone）
     """
@@ -290,7 +446,7 @@ def create_whisper_extractor(
                 "Whisper not available. Install with: pip install openai-whisper"
             )
         return None
-    
+
     try:
         return WhisperTimingExtractor(
             model_name=model_name,
