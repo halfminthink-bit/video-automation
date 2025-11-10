@@ -126,13 +126,17 @@ class KokoroAudioGenerator:
             # レスポンスをJSON解析
             result = response.json()
 
+            # デバッグ: レスポンスの構造を確認
+            self.logger.debug(f"API response keys: {list(result.keys())}")
+
             # Base64エンコードされた音声を取得
             audio_base64 = result.get("audio")
             if not audio_base64:
                 raise ValueError("APIレスポンスに音声データが含まれていません")
 
-            # タイムスタンプ情報を取得
-            timestamps = result.get("timestamps", [])
+            # タイムスタンプ情報を取得（Noneの場合も空リストにする）
+            timestamps = result.get("timestamps") or []
+            self.logger.info(f"Received {len(timestamps)} timestamps from API")
 
             # ElevenLabs互換のフォーマットに変換
             characters = []
@@ -161,7 +165,27 @@ class KokoroAudioGenerator:
                 self.logger.info(f"音声ファイルを保存: {output_path}")
 
             # 音声の長さを計算
-            duration = char_end_times[-1] if char_end_times else 0.0
+            if char_end_times:
+                duration = char_end_times[-1]
+            else:
+                # タイムスタンプがない場合は、音声ファイルから長さを取得
+                if output_path:
+                    try:
+                        from pydub import AudioSegment
+                        audio = AudioSegment.from_file(output_path)
+                        duration = len(audio) / 1000.0  # ミリ秒を秒に変換
+                        self.logger.warning(
+                            f"No timestamps available, using audio file duration: {duration:.2f}s"
+                        )
+                    except Exception as e:
+                        self.logger.warning(f"Failed to get audio duration: {e}")
+                        # 文字数から推定（1文字あたり約0.2秒と仮定）
+                        duration = len(text) * 0.2
+                        self.logger.warning(f"Using estimated duration: {duration:.2f}s")
+                else:
+                    # 推定値を使用
+                    duration = len(text) * 0.2
+                    self.logger.warning(f"Using estimated duration: {duration:.2f}s")
 
             self.logger.info(
                 f"音声生成完了: {duration:.2f}秒, "
