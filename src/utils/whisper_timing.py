@@ -92,14 +92,14 @@ class WhisperTimingExtractor:
                 str(audio_path),
                 language=self.language,
                 word_timestamps=True,
-                initial_prompt=text if text else None,
+                initial_prompt=None,  # 前のテキストの影響を完全に排除
                 fp16=fp16_enabled,  # CPUの場合はFP32を使用
                 # 認識精度向上のための追加パラメータ
                 condition_on_previous_text=False,  # 前のセグメントの影響を受けない
                 no_speech_threshold=0.3,  # 音声の冒頭を見逃しにくくする（0.6→0.3）
                 logprob_threshold=-1.0,  # 確率が低い結果も許容
                 compression_ratio_threshold=2.4,  # 圧縮比の閾値を緩和
-                temperature=0.0,  # 決定的な認識を行う
+                temperature=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],  # 複数の温度で試行（失敗時の自動リトライ）
                 beam_size=5,  # ビームサーチのサイズ
                 patience=1.0,  # 探索の粘り強さ
                 length_penalty=1.0,  # 長い文を優先しない
