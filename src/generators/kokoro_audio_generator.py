@@ -10,8 +10,11 @@ import base64
 import json
 import os
 import logging
+import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Any
+
+from src.utils.whisper_timing import WhisperTimingExtractor, WHISPER_AVAILABLE
 
 
 
@@ -28,7 +31,8 @@ class KokoroAudioGenerator:
         voice: str = "jf_alpha",
         speed: float = 1.0,
         response_format: str = "mp3",
-        logger: Optional[logging.Logger] = None
+        logger: Optional[logging.Logger] = None,
+        whisper_config: Optional[Dict[str, Any]] = None
     ):
         """
         初期化
@@ -39,6 +43,7 @@ class KokoroAudioGenerator:
             speed: 速度（0.5-2.0）
             response_format: 出力形式（mp3, wav, opus, flac）
             logger: ロガー
+            whisper_config: Whisper設定 {"enabled": bool, "model": str, "language": str}
 
         Raises:
             ConnectionError: APIサーバーに接続できない場合
@@ -49,6 +54,23 @@ class KokoroAudioGenerator:
         self.speed = speed
         self.response_format = response_format
         self.logger = logger or logging.getLogger(__name__)
+
+        # Whisper設定
+        self.whisper_config = whisper_config or {"enabled": True, "model": "base", "language": "ja"}
+        self.whisper_extractor = None
+
+        # Whisperが有効かつ利用可能な場合、初期化
+        if self.whisper_config.get("enabled", True) and WHISPER_AVAILABLE:
+            try:
+                self.whisper_extractor = WhisperTimingExtractor(
+                    model_name=self.whisper_config.get("model", "base"),
+                    logger=self.logger,
+                    language=self.whisper_config.get("language", "ja")
+                )
+                self.logger.info("Whisper timing extractor initialized")
+            except Exception as e:
+                self.logger.warning(f"Failed to initialize Whisper: {e}. Timestamps will not be available.")
+                self.whisper_extractor = None
 
         # APIが利用可能かチェック
         self._verify_api_connection()
@@ -86,7 +108,11 @@ class KokoroAudioGenerator:
         next_text: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Kokoro TTS FastAPIを使用してタイムスタンプ付き音声を生成
+        Kokoro TTS + Whisperを使用してタイムスタンプ付き音声を生成
+
+        処理フロー:
+        1. Kokoro APIで音声生成（タイムスタンプなし）
+        2. 生成した音声をWhisperで解析してタイムスタンプ取得
 
         Args:
             text: 生成するテキスト
@@ -103,66 +129,34 @@ class KokoroAudioGenerator:
                 }
             }
         """
-        import base64
-        import json
-
         self.logger.info(f"Generating audio with timestamps: {text[:50]}...")
 
-        # ✅ 修正1: エンドポイントを変更
-        url = f"{self.api_url}/dev/captioned_speech"  # ← 重要！
+        # Step 1: Kokoro APIで音声のみ生成
+        url = f"{self.api_url}/v1/audio/speech"
 
         payload = {
             "model": "kokoro",
             "input": text,
             "voice": self.voice,
             "speed": self.speed,
-            "response_format": self.response_format,
-            "stream": False
+            "response_format": self.response_format
         }
 
         try:
-            response = requests.post(url, json=payload, stream=False, timeout=60)
+            response = requests.post(url, json=payload, timeout=60)
             response.raise_for_status()
 
-            # ✅ 修正2: JSONレスポンスをパース
+            # 音声データを取得（Base64エンコード済み）
             result = response.json()
-
-            # ✅ 修正3: Base64デコード
             audio_base64 = result.get("audio", "")
+
             if not audio_base64:
                 raise ValueError("API returned empty audio field")
 
-            # ✅ 修正4: タイムスタンプ取得（Noneチェック）
-            timestamps = result.get("timestamps") or []
+            self.logger.info("Audio generated successfully from Kokoro API")
 
-            self.logger.info(f"Received {len(timestamps)} timestamps from API")
-
-            if not timestamps:
-                self.logger.warning("No timestamps received from API")
-
-            # ✅ 修正5: ElevenLabs互換形式に変換
-            characters = []
-            start_times = []
-            end_times = []
-
-            for ts in timestamps:
-                if isinstance(ts, dict):
-                    word = ts.get("word", "")
-                    if word:
-                        characters.append(word)
-                        start_times.append(float(ts.get("start_time", 0.0)))
-                        end_times.append(float(ts.get("end_time", 0.0)))
-
-            alignment = {
-                'characters': characters,
-                'character_start_times_seconds': start_times,
-                'character_end_times_seconds': end_times
-            }
-
-            self.logger.info(
-                f"✓ Generated {len(characters)} words, "
-                f"duration: {end_times[-1] if end_times else 0:.2f}s"
-            )
+            # Step 2: Whisperでタイムスタンプ取得
+            alignment = self._extract_timestamps_with_whisper(audio_base64, text)
 
             return {
                 'audio_base64': audio_base64,
@@ -170,8 +164,90 @@ class KokoroAudioGenerator:
             }
 
         except Exception as e:
-            self.logger.error(f"Error: {e}", exc_info=True)
+            self.logger.error(f"Error generating audio: {e}", exc_info=True)
             raise
+
+    def _extract_timestamps_with_whisper(
+        self,
+        audio_base64: str,
+        text: str
+    ) -> Dict[str, List]:
+        """
+        Whisperを使用して音声からタイムスタンプを取得
+
+        Args:
+            audio_base64: Base64エンコードされた音声データ
+            text: 元のテキスト（精度向上のため）
+
+        Returns:
+            alignment形式のタイムスタンプ情報
+        """
+        # Whisperが利用不可の場合は空のalignmentを返す
+        if not self.whisper_extractor:
+            self.logger.warning("Whisper not available, returning empty alignment")
+            return {
+                'characters': [],
+                'character_start_times_seconds': [],
+                'character_end_times_seconds': []
+            }
+
+        # 音声をデコード
+        audio_bytes = base64.b64decode(audio_base64)
+
+        # 一時ファイルに保存
+        tmp_file = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=f".{self.response_format}", delete=False) as tmp:
+                tmp.write(audio_bytes)
+                tmp_file = tmp.name
+
+            self.logger.info(f"Extracting timestamps with Whisper from {tmp_file}")
+
+            # Whisperでタイミング取得
+            word_timings = self.whisper_extractor.extract_word_timings(
+                audio_path=Path(tmp_file),
+                text=text
+            )
+
+            # ElevenLabs互換形式に変換
+            characters = []
+            start_times = []
+            end_times = []
+
+            for timing in word_timings:
+                word = timing.get("word", "").strip()
+                if word:
+                    characters.append(word)
+                    start_times.append(float(timing.get("start", 0.0)))
+                    end_times.append(float(timing.get("end", 0.0)))
+
+            self.logger.info(
+                f"✓ Extracted {len(characters)} words with Whisper, "
+                f"duration: {end_times[-1] if end_times else 0:.2f}s"
+            )
+
+            return {
+                'characters': characters,
+                'character_start_times_seconds': start_times,
+                'character_end_times_seconds': end_times
+            }
+
+        except Exception as e:
+            self.logger.warning(f"Failed to extract timestamps with Whisper: {e}")
+            # エラーの場合は空のalignmentを返す（音声は生成済み）
+            return {
+                'characters': [],
+                'character_start_times_seconds': [],
+                'character_end_times_seconds': []
+            }
+
+        finally:
+            # 一時ファイルを削除
+            if tmp_file and os.path.exists(tmp_file):
+                try:
+                    os.unlink(tmp_file)
+                except Exception as e:
+                    self.logger.warning(f"Failed to delete temporary file {tmp_file}: {e}")
 
     def generate_sections(
         self,

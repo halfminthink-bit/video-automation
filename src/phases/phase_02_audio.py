@@ -263,13 +263,19 @@ class Phase02Audio(PhaseBase):
 
             try:
                 kokoro_config = self.phase_config.get("kokoro", {})
+                whisper_config = self.phase_config.get("whisper", {})
+
                 generator = KokoroAudioGenerator(
                     api_url=kokoro_config.get("api_url"),
                     voice=kokoro_config.get("voice", "jf_alpha"),
-                    logger=self.logger
+                    speed=kokoro_config.get("speed", 1.0),
+                    response_format=kokoro_config.get("response_format", "mp3"),
+                    logger=self.logger,
+                    whisper_config=whisper_config
                 )
                 self.logger.info(
-                    f"Kokoro TTS initialized: voice={kokoro_config.get('voice', 'jf_alpha')}"
+                    f"Kokoro TTS initialized: voice={kokoro_config.get('voice', 'jf_alpha')}, "
+                    f"whisper_enabled={whisper_config.get('enabled', True)}"
                 )
                 return generator
             except Exception as e:
