@@ -33,9 +33,13 @@
 # - FinalThumbnailGenerator: メイン統合クラス
 
 # 生成方法選択
-# - false: Pillowで画像に文字をオーバーレイ（5枚生成、無料）
-# - true: DALL-E 3でAI生成（V3.0レイアウト、$0.040/枚）
-use_dalle: true
+# - use_stable_diffusion: Stable Diffusion APIを使用（Phase 3と同じSD、コスト削減）
+# - use_dalle: DALL-E 3でAI生成（V3.0レイアウト、$0.040/枚）
+# - use_intellectual_curiosity: 知的好奇心サムネイル（デフォルト）
+# - その他: Pillowで画像に文字をオーバーレイ（無料）
+use_stable_diffusion: true   # SDを使用（Phase 3と同じモデル・スタイルで一貫性確保）
+use_dalle: false             # DALL-Eは使わない
+use_intellectual_curiosity: false  # 知的好奇心は使わない
 
 # DALL-E 3 / GPT Image 1設定（use_dalle: trueの場合）
 dalle:
@@ -53,6 +57,46 @@ gptimage:
   layout: "center"          # テキストレイアウト（center, left, right）
 
 # インパクトテキスト生成設定（V3.0 - 赤文字上部＋白文字下部）
+# Stable Diffusion API設定（use_stable_diffusion: trueの場合）
+stable_diffusion:
+  api_key_env: "STABILITY_API_KEY"  # 環境変数から取得（Phase 3と同じ）
+
+  # Phase 3と同じモデルを使用（一貫性のため）
+  model: "sdxl"                      # Phase 3と同じモデル名
+
+  # サムネイル生成パラメータ
+  width: 1280
+  height: 720
+  steps: 30
+  cfg_scale: 7.5
+  sampler: "DPM++ 2M Karras"
+
+  # スタイル
+  style: "dramatic"                  # dramatic, professional, minimalist
+
+  # プロンプトテンプレート（V3.0レイアウト対応）
+  prompt_template: |
+    A {style} portrait of {subject}, historical figure,
+    centered composition, bright lighting on face, professional photography,
+
+    IMPORTANT LAYOUT for text overlay (25/50/25):
+    - Top 25% area: Empty space for title text overlay
+    - Center 50% area: Person's face, well-lit, clearly visible, centered
+    - Bottom 25% area: Empty space for subtitle text overlay
+
+    Face should be centered and bright, not in shadows.
+    Background can be darker for contrast.
+
+    High quality, cinematic, 1280x720, YouTube thumbnail optimized,
+    {additional_style_keywords}, photorealistic, 8k uhd, highly detailed
+
+  # ネガティブプロンプト
+  negative_prompt: |
+    text, watermark, signature, logo, blurry, low quality,
+    dark face, underexposed face, face in shadow,
+    cluttered background, busy composition,
+    anime, cartoon, illustration, painting
+
 # Claudeキャッチコピー生成設定（3ゾーンレイアウト用・2段テキスト）
 catchcopy:
   enabled: true             # テキスト生成を有効化
