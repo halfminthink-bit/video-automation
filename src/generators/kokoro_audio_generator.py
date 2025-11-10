@@ -55,22 +55,15 @@ class KokoroAudioGenerator:
         self.response_format = response_format
         self.logger = logger or logging.getLogger(__name__)
 
-        # Whisper設定
+        # Whisper設定（初期化はしない）
         self.whisper_config = whisper_config or {"enabled": True, "model": "base", "language": "ja"}
-        self.whisper_extractor = None
 
-        # Whisperが有効かつ利用可能な場合、初期化
+        # 🔥 変更：__init__での初期化は不要（各セクションで都度初期化）
+        # Whisperが利用可能かだけチェック
         if self.whisper_config.get("enabled", True) and WHISPER_AVAILABLE:
-            try:
-                self.whisper_extractor = WhisperTimingExtractor(
-                    model_name=self.whisper_config.get("model", "base"),
-                    logger=self.logger,
-                    language=self.whisper_config.get("language", "ja")
-                )
-                self.logger.info("Whisper timing extractor initialized")
-            except Exception as e:
-                self.logger.warning(f"Failed to initialize Whisper: {e}. Timestamps will not be available.")
-                self.whisper_extractor = None
+            self.logger.info("Whisper is available (will initialize per section)")
+        else:
+            self.logger.warning("Whisper not available. Timestamps will not be available.")
 
         # APIが利用可能かチェック
         self._verify_api_connection()
@@ -284,6 +277,8 @@ class KokoroAudioGenerator:
         """
         Whisperを使用して音声からタイムスタンプを取得
 
+        🔥 変更点: 毎回Whisperを再初期化して前のセグメントの影響を完全排除
+
         Args:
             audio_base64: Base64エンコードされた音声データ
             text: 元のテキスト（精度向上のため）
@@ -292,8 +287,24 @@ class KokoroAudioGenerator:
             alignment形式のタイムスタンプ情報
         """
         # Whisperが利用不可の場合は空のalignmentを返す
-        if not self.whisper_extractor:
+        if not (self.whisper_config.get("enabled", True) and WHISPER_AVAILABLE):
             self.logger.warning("Whisper not available, returning empty alignment")
+            return {
+                'characters': [],
+                'character_start_times_seconds': [],
+                'character_end_times_seconds': []
+            }
+
+        # 🔥 追加：毎回Whisperを初期化（前のセグメントの影響を完全排除）
+        try:
+            self.logger.info("Initializing fresh Whisper model for this section...")
+            whisper_extractor = WhisperTimingExtractor(
+                model_name=self.whisper_config.get("model", "base"),
+                logger=self.logger,
+                language=self.whisper_config.get("language", "ja")
+            )
+        except Exception as e:
+            self.logger.error(f"Failed to initialize Whisper: {e}")
             return {
                 'characters': [],
                 'character_start_times_seconds': [],
@@ -326,8 +337,8 @@ class KokoroAudioGenerator:
                 f"({file_size} bytes)"
             )
 
-            # Whisperでタイミング取得
-            word_timings = self.whisper_extractor.extract_word_timings(
+            # 🔥 変更：whisper_extractorを使用（self.whisper_extractorではない）
+            word_timings = whisper_extractor.extract_word_timings(
                 audio_path=Path(tmp_file),
                 text=text
             )
