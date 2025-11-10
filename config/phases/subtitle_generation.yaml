@@ -27,10 +27,9 @@ morphological_analysis:
   # MeCabを使用するか（より自然な分割）
   use_mecab: false
 
-  # 文の区切り文字
+  # 文の区切り文字（「。」のみで分割）
   break_on:
     - "。"
-    - "、"
     - "！"
     - "？"
 
