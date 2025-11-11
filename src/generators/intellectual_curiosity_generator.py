@@ -117,9 +117,7 @@ class IntellectualCuriosityGenerator:
         subject: str,
         output_dir: Path,
         context: Optional[Dict[str, Any]] = None,
-        num_variations: int = 5,
-        upper_text: str = "",
-        lower_text: str = ""
+        num_variations: int = 5
     ) -> List[Path]:
         """
         サムネイルを生成
@@ -129,8 +127,6 @@ class IntellectualCuriosityGenerator:
             output_dir: 出力ディレクトリ
             context: 追加コンテキスト（台本など）
             num_variations: 生成するバリエーション数
-            upper_text: 上部テキスト（新規）
-            lower_text: 下部テキスト（新規）
 
         Returns:
             生成されたサムネイルのパスリスト
@@ -138,21 +134,30 @@ class IntellectualCuriosityGenerator:
         self.logger.info(
             f"Generating {num_variations} thumbnail variations for: {subject}"
         )
-        self.logger.info(f"Upper text: {upper_text}")
-        self.logger.info(f"Lower text: {lower_text}")
 
-        # 1. 背景画像を生成（DALL-E または SD）
+        # 1. 2行構成の下部テキストを生成
+        bottom_texts = self.text_generator.generate_surprise_texts(
+            subject=subject,
+            context=context,
+            num_candidates=num_variations
+        )
+
+        if not bottom_texts:
+            self.logger.error("No bottom texts generated")
+            return []
+
+        # 2. 背景画像を生成（DALL-E または SD）
         background = self._generate_background_image(subject, context)
 
         if background is None:
             self.logger.error("Failed to generate background image")
             return []
 
-        # 2. 背景画像をリサイズ（1792x1024 → 1280x720）
+        # 3. 背景画像をリサイズ（1792x1024 → 1280x720）
         background = background.resize(self.canvas_size, Image.Resampling.LANCZOS)
         self.logger.info(f"Background resized to: {background.size}")
 
-        # 3. 背景を処理（明るく保つ、軽いビネット）
+        # 4. 背景を処理（明るく保つ、軽いビネット）
         bg_config = self.config.get("background", {})
         processed_background = self.background_processor.process_background(
             image=background,
@@ -161,16 +166,20 @@ class IntellectualCuriosityGenerator:
             enhance_brightness=bg_config.get("enhance_brightness", True)
         )
 
-        # 4. 各バリエーションでサムネイルを生成
+        # 5. 各テキストペアでサムネイルを生成
         output_paths = []
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        for i in range(1, num_variations + 1):
+        for i, text_data in enumerate(bottom_texts, 1):
             try:
+                # 固定フレーズを取得（インデックスで循環）
+                top_text = FixedTopTextPatterns.get_pattern_by_index(i - 1)
+
                 thumbnail_path = self._generate_single_thumbnail(
                     background=processed_background,
-                    upper_text=upper_text,
-                    lower_text=lower_text,
+                    top_text=top_text,
+                    line1=text_data.get("line1", ""),
+                    line2=text_data.get("line2", ""),
                     output_dir=output_dir,
                     index=i,
                     subject=subject
@@ -514,19 +523,21 @@ Purpose: YouTube thumbnail background - must grab attention immediately while le
     def _generate_single_thumbnail(
         self,
         background: Image.Image,
-        upper_text: str,
-        lower_text: str,
+        top_text: str,
+        line1: str,
+        line2: str,
         output_dir: Path,
         index: int,
         subject: str
     ) -> Optional[Path]:
         """
-        単一のサムネイルを生成（3分割レイアウト）
+        単一のサムネイルを生成
 
         Args:
             background: 処理済み背景画像
-            upper_text: 上部テキスト（黄色、90px）
-            lower_text: 下部テキスト（白色、70px）
+            top_text: 上部テキスト（固定フレーズ）
+            line1: 下部1行目（衝撃的な事実）
+            line2: 下部2行目（詳細説明）
             output_dir: 出力ディレクトリ
             index: インデックス番号
             subject: テーマ
@@ -535,23 +546,36 @@ Purpose: YouTube thumbnail background - must grab attention immediately while le
             生成されたサムネイルのパス
         """
         self.logger.debug(
-            f"Generating thumbnail {index}: Upper='{upper_text}', "
-            f"Lower='{lower_text}'"
+            f"Generating thumbnail {index}: Top='{top_text}', "
+            f"Line1='{line1}', Line2='{line2}'"
         )
 
         # キャンバスを作成（背景をコピー）
         canvas = background.copy()
 
-        # テキストオーバーレイを追加（3分割レイアウト）
-        canvas = self._add_text_overlay(
-            image=canvas,
-            upper_text=upper_text,
-            lower_text=lower_text
+        # 上部テキストレイヤーを生成（金色、固定フレーズ）
+        top_layer = self.text_renderer.render_top_text(top_text)
+
+        # 下部テキストレイヤーを生成（白、2行構成）
+        bottom_layer = self.text_renderer.render_bottom_text(
+            line1=line1,
+            line2=line2
         )
 
-        # ファイル名を生成
-        safe_upper = "".join(c for c in upper_text if c.isalnum() or c in (' ', '_'))[:10]
-        filename = f"thumbnail_{subject}_{safe_upper}_v{index}.png"
+        # 上部テキストレイヤーを配置
+        canvas.paste(top_layer, (0, 0), top_layer)
+
+        # 下部テキストレイヤーを配置（見切れ防止のため画面下端から配置）
+        bottom_layer_height = 330  # レイヤー高さ（intellectual_curiosity_text_renderer.pyと一致）
+        canvas.paste(
+            bottom_layer,
+            (0, canvas.size[1] - bottom_layer_height),  # = (0, 720 - 330) = (0, 390)
+            bottom_layer
+        )
+
+        # ファイル名を生成（安全な文字のみ使用）
+        safe_line1 = "".join(c for c in line1 if c.isalnum() or c in (' ', '_'))[:20]
+        filename = f"thumbnail_{subject}_{safe_line1}_v{index}.png"
         # ファイル名をクリーンアップ
         filename = filename.replace(" ", "_").replace("　", "_")
         output_path = output_dir / filename
