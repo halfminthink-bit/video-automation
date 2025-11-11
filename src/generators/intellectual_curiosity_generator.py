@@ -392,49 +392,67 @@ Show the ACTION, CONFLICT, or KEY TURNING POINT."""
         image_style = self.config.get("image_style", {})
         style_type = image_style.get("type", "dramatic")
 
-        prompt = f"""A dramatic historical scene depicting a key moment in the story of {subject}.
+        prompt = f"""A dramatically stylish and visually stunning scene featuring {subject} in a heroic, cool pose against a beautiful scenic background.
 
 KEY SCENES FROM THE STORY:
 {key_scenes}
 
-VISUAL REQUIREMENTS:
-- Show the SITUATION or DRAMATIC MOMENT from {subject}'s life, NOT just a portrait
+VISUAL REQUIREMENTS - COOL AND STYLISH (重要):
+- Show {subject} in a HEROIC, STYLISH, and POWERFUL POSE - not a simple portrait or face close-up
+- Feature BEAUTIFUL SCENIC BACKGROUND with dramatic landscape or stunning environment
+- Create MAXIMUM VISUAL IMPACT with cool composition and striking presence
 - Include PERIOD-APPROPRIATE details (historical clothing, architecture, environment)
-- Convey the EMOTION and HISTORICAL SIGNIFICANCE of the scene
-- Create VISUAL IMPACT through dramatic composition and lighting
-- Make it CLEAR this is a historical figure/event with period details
+- Convey POWER, CHARISMA, and VISUAL COOLNESS through the pose and setting
+
+POSE AND CHARACTER (最重要):
+- FULL BODY or 3/4 body shot showing stylish stance and cool pose
+- Dynamic, powerful posture that looks visually impressive
+- NOT just standing - show action, movement, or dramatic gesture
+- Character should look COOL, HEROIC, and VISUALLY STRIKING
+- Face visible but NOT a close-up - entire figure and pose are important
+
+BACKGROUND - BEAUTIFUL SCENERY (最重要):
+- STUNNING, BEAUTIFUL background landscape or environment
+- Dramatic natural scenery: mountains, sky, battlefield, castle, or historical location
+- Rich atmospheric elements that enhance the visual coolness
+- Background should be visually impressive and complement the heroic pose
+- Create depth and scale with beautiful environmental details
 
 SCENE ELEMENTS:
 - Historical setting with period-accurate details
-- Dramatic composition showing action or a key moment
-- Rich, atmospheric lighting (can be dramatic but still visible)
-- Clear time period indicators (clothing, architecture, tools)
-- Emotional intensity and human drama
-- Environmental context that tells the story
+- COOL and DRAMATIC composition showing the figure in an impressive pose
+- Rich, cinematic lighting that highlights both the character and beautiful background
+- Clear time period indicators (clothing, architecture, environment)
+- Emotional intensity and visual power
+- Environmental context with stunning scenery
 
 STYLE:
-- Cinematic, {style_type} style
-- Historically accurate but visually engaging
-- Professional quality, like a movie poster
-- Emotional and impactful
+- Cinematic, {style_type} style with MAXIMUM VISUAL IMPACT
+- Historically accurate but EXTREMELY visually engaging and cool
+- Professional quality, like an epic movie poster or game cover art
+- Emphasis on COOLNESS, POWER, and BEAUTIFUL VISUALS
 
 COMPOSITION:
 - Horizontal 16:9 format
 - Space at top and bottom for text overlay
-- Main focus in center area
-- Dynamic, not static
-- Clear storytelling through visuals
+- Character positioned impressively in frame with beautiful background visible
+- DYNAMIC pose and composition - NOT static
+- Balance between heroic figure and stunning scenic background
 
 TECHNICAL:
 - NO text, NO UI elements, NO watermarks
-- High resolution, sharp focus
+- High resolution, sharp focus on both character and scenery
 - NO modern elements
 - Size: 1792x1024 (landscape)
 
-CRITICAL: Show a SITUATION, ACTION, or DRAMATIC SCENE from their life.
-NOT a simple portrait. The image should tell a story and convey historical context.
+CRITICAL REQUIREMENTS:
+1. Show a COOL, HEROIC POSE - full body or 3/4 body, NOT a face close-up
+2. Include BEAUTIFUL SCENIC BACKGROUND - stunning landscape or environment
+3. Create MAXIMUM VISUAL IMPACT and COOLNESS
+4. The image should be STYLISH, POWERFUL, and VISUALLY STRIKING
+NOT a simple portrait. This should be a COOL, HEROIC image with BEAUTIFUL SCENERY.
 
-Purpose: YouTube thumbnail that captures viewers' attention and curiosity about this historical moment."""
+Purpose: YouTube thumbnail that captures viewers' attention with COOL VISUALS and BEAUTIFUL SCENERY."""
 
         return prompt
 
@@ -504,7 +522,7 @@ Purpose: YouTube thumbnail that captures viewers' attention and curiosity about 
         # Claude にプロンプト生成を依頼
         claude_request = f"""あなたはStable Diffusion用のプロンプトを生成する専門家です。
 
-以下の台本から、YouTubeサムネイル用の印象的な背景画像を生成するためのプロンプトを作成してください。
+以下の台本から、YouTubeサムネイル用の「かっこよく」「迫力のある」画像を生成するためのプロンプトを作成してください。
 
 【台本】
 テーマ: {subject}
@@ -512,29 +530,43 @@ Purpose: YouTube thumbnail that captures viewers' attention and curiosity about 
 {script_text}
 
 【要件】
-1. **人物**: 台本の主人公（{subject}）を中央に配置
-2. **背景**: 台本から最も印象的で視覚的にインパクトのある場面を選択
-   - 具体的な場所や状況を含める（例：戦場、城、研究室など）
-   - 時代背景を反映した要素を含める
-3. **スタイル**: 写実的（photorealistic）
+1. **人物のポーズ（最重要）**: {subject}を「かっこいい姿勢・ポーズ」で描写
+   - 全身または3/4ボディショット（顔のドアップは避ける）
+   - 英雄的で力強いポーズ（heroic, powerful, stylish pose）
+   - 動きのある構図（アクション、ドラマチックなジェスチャー）
+   - 視覚的にインパクトがあり「かっこいい」姿
+2. **背景の美しさ（最重要）**: 美しい景色を背景に配置
+   - 壮大で美しい風景（dramatic landscape, stunning scenery）
+   - 例：山、空、戦場、城、歴史的な場所など
+   - 背景が視覚的に印象的で、人物のかっこよさを引き立てる
+   - 時代背景を反映した美しい環境
+3. **スタイル**: 写実的（photorealistic）で迫力のある映画的スタイル
+   - 最大限の視覚的インパクト（MAXIMUM VISUAL IMPACT）
+   - かっこよさと美しさの強調
 4. **構図**:
-   - 人物を画面中央に配置
+   - 人物を印象的に配置、美しい背景が見える構図
    - 上部25%と下部25%はテキストオーバーレイ用の空間を確保
-   - 中央50%に人物と背景を配置
+   - 中央50%に「かっこいいポーズの人物」と「美しい背景」を配置
+   - ダイナミックで静的でない構図
 
 【出力形式】
 以下のJSON形式で出力してください：
 
 ```json
 {{
-  "main_subject": "中央に配置する人物の説明（英語で簡潔に）",
-  "background_scene": "背景の場面の説明（英語で具体的に）",
-  "atmosphere": "雰囲気・感情（英語で）",
+  "main_subject": "かっこいいポーズの人物の説明（英語で、heroic poseなど含む）",
+  "background_scene": "美しい背景の場面の説明（英語で具体的に、stunning sceneryなど含む）",
+  "atmosphere": "雰囲気・感情（英語で、powerful, dramaticなど）",
   "stable_diffusion_prompt": "Stable Diffusion用の完全なプロンプト（英語、200-300語）"
 }}
 ```
 
-**重要**: `stable_diffusion_prompt`は英語で、写実的（photorealistic）、中央配置、16:9フォーマット、YouTubeサムネイル用であることを明記してください。"""
+**重要**: `stable_diffusion_prompt`は英語で、以下を必ず含めること：
+- 「heroic pose」「stylish stance」「powerful presence」などのかっこいいポーズの表現
+- 「beautiful scenic background」「stunning landscape」「dramatic scenery」などの美しい背景の表現
+- 「full body shot」または「3/4 body shot」（顔のドアップは避ける）
+- 写実的（photorealistic）、16:9フォーマット、YouTubeサムネイル用
+- 最大限の視覚的インパクト（maximum visual impact）とかっこよさ（coolness）"""
 
         self.logger.info("Requesting SD prompt generation from Claude...")
 
@@ -594,59 +626,77 @@ Purpose: YouTube thumbnail that captures viewers' attention and curiosity about 
         # 台本から重要なシーン・状況を抽出
         key_scenes = self._extract_key_scenes(context)
 
-        prompt = f"""Photorealistic portrait of {subject}, centered composition, dramatic historical scene.
+        prompt = f"""Photorealistic heroic scene of {subject} in a stylish, powerful pose against stunning scenic background.
 
 SCENE CONTEXT:
 {key_scenes}
 
+POSE AND CHARACTER REQUIREMENTS (CRITICAL):
+- {subject} in a HEROIC, STYLISH, POWERFUL POSE - NOT a simple portrait
+- FULL BODY or 3/4 BODY SHOT - NOT just face and upper body
+- Dynamic stance showing action, movement, or dramatic gesture
+- Character looks COOL, VISUALLY STRIKING, and IMPRESSIVE
+- Face visible but entire figure and pose are the focus
+- NOT just standing - show powerful presence and charisma
+
+BACKGROUND - BEAUTIFUL SCENERY (CRITICAL):
+- STUNNING, BEAUTIFUL scenic background with dramatic landscape
+- Examples: mountains, dramatic sky, battlefield, castle, historical location
+- Rich atmospheric elements that enhance visual impact
+- Background should be visually impressive and complement the heroic pose
+- Create depth and scale with beautiful environmental details
+- Period-appropriate but visually stunning setting
+
 COMPOSITION REQUIREMENTS (CRITICAL):
-- Main subject ({subject}) positioned in CENTER of frame
-- Subject fills center 50-60% of image
-- Medium shot showing face and upper body clearly
-- Cinematic perspective with period-accurate background
+- Character positioned impressively in frame with beautiful background visible
+- Dynamic composition showing both heroic pose and scenic background
+- Balance between stylish figure and stunning scenery
 - 16:9 horizontal landscape format
+- NOT centered static pose - create visual interest and movement
 
 VISUAL STYLE:
-- Photorealistic, documentary-style photography
-- Professional quality, sharp focus on subject
-- Dramatic natural lighting highlighting the subject
-- Rich, historically accurate colors
-- High detail and texture
-
-BACKGROUND:
-- Relevant historical setting from the person's life
-- Period-appropriate architecture, environment, or dramatic scene
-- Contextually meaningful backdrop that tells a story
-- Clear but not distracting from the main subject
+- Photorealistic, cinematic movie poster quality
+- MAXIMUM VISUAL IMPACT with cool and stylish aesthetics
+- Professional quality, sharp focus on both character and scenery
+- Dramatic cinematic lighting highlighting the character against beautiful background
+- Rich, historically accurate colors with visual punch
+- High detail and texture on both figure and environment
 
 LAYOUT FOR TEXT OVERLAY (IMPORTANT):
 - Clear empty space at TOP 25% for text overlay
 - Clear empty space at BOTTOM 25% for text overlay
-- Main subject in MIDDLE 50%
-- Subject centered, not extending to frame edges
+- Main heroic figure and beautiful background in MIDDLE 50%
+- Composition allows for text without blocking key visual elements
 
 ATMOSPHERE:
-- Impactful, attention-grabbing
-- Historically accurate period details
-- Emotional intensity and human drama
-- Cinematic quality suitable for YouTube thumbnail
+- COOL, POWERFUL, VISUALLY STRIKING
+- Maximum impact and attention-grabbing
+- Historically accurate period details with stunning presentation
+- Emotional intensity and heroic presence
+- Epic cinematic quality suitable for YouTube thumbnail
 
 TECHNICAL REQUIREMENTS:
 - NO text, NO watermarks, NO UI elements
 - NO modern elements or anachronisms
-- Single main subject clearly visible
-- Professional photographic quality
-- Subject well-lit and prominent
+- Single main subject in heroic pose clearly visible
+- Professional cinematic quality
+- Both character and beautiful background well-lit and prominent
+- Emphasis on COOLNESS and VISUAL IMPACT
 
 NEGATIVE ELEMENTS TO AVOID:
+- Simple portrait or face close-up
+- Static, boring pose or centered standing pose
+- Plain or uninteresting background
 - Multiple subjects competing for attention
-- Overly cluttered background
+- Overly cluttered composition
 - Dark or underexposed subject
-- Subject at edges or corners
 - Modern or anachronistic elements
 - Cartoon, illustration, or artistic styles
 
-Purpose: YouTube thumbnail background - photorealistic, impactful, historically accurate, with clear space for text overlay."""
+CRITICAL: This is a HEROIC, STYLISH image with BEAUTIFUL SCENERY - NOT a simple portrait.
+Focus on creating MAXIMUM VISUAL IMPACT with cool pose and stunning background.
+
+Purpose: YouTube thumbnail - photorealistic, visually striking, heroic pose with beautiful scenic background, historically accurate, with maximum coolness and impact."""
 
         return prompt
 
