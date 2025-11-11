@@ -393,8 +393,8 @@ class IntellectualCuriosityTextRenderer:
         """
         self.logger.debug(f"Rendering vertical left text: '{text}'")
 
-        # フォントサイズ: 70px（7文字用）
-        font_size = 70
+        # フォントサイズ: 80px（より大きく）
+        font_size = 80
         font = ImageFont.truetype(self.font_path, font_size)
 
         # レイヤーサイズ
@@ -409,8 +409,8 @@ class IntellectualCuriosityTextRenderer:
         # 開始Y座標（上部マージン）
         y_start = 100
 
-        # 文字間隔
-        char_spacing = font_size + 4  # 70 + 4 = 74px
+        # 文字間隔（文字同士の縦の間隔を広げる）
+        char_spacing = font_size + 15  # 80 + 15 = 95px
 
         # 改行で列を分割
         columns = text.split('\n')
