@@ -132,7 +132,7 @@ three_zone_layout:
 
 # サムネイル基本設定
 output:
-  resolution: [1920, 1080]   # YouTubeサムネイル標準解像度（16:9）
+  resolution: [1280, 720]    # YouTubeサムネイル標準解像度（16:9）
   format: "png"              # PNG形式（高品質）
   quality: 95                # 品質（0-100）
   patterns: 5                # 生成するパターン数

@@ -68,9 +68,9 @@ class FinalThumbnailGenerator:
 
         # レイアウト設定（25/50/25）
         self.layout = {
-            "main_text_zone": 0.30,   # 上部30%
-            "person_zone": 0.40,      # 中央40%
-            "sub_text_zone": 0.30,    # 下部30%
+            "main_text_zone": 0.25,   # 上部25%
+            "person_zone": 0.50,       # 中央50%
+            "sub_text_zone": 0.25,     # 下部25%
         }
 
         self.logger.info(f"FinalThumbnailGenerator initialized: {self.canvas_size}")
@@ -281,30 +281,33 @@ Lighting: Bright and clear, face well-lit"""
         Returns:
             生成されたサムネイルのパス
         """
-        main_text = self._wrap_text(text_pair.get("main", ""), max_chars_per_line=4)
-        sub_text = self._wrap_text(text_pair.get("sub", ""), max_chars_per_line=6)
+        main_text = text_pair.get("main", "")
+        sub_text = text_pair.get("sub", "")
 
         self.logger.debug(f"Generating thumbnail {index}: Main='{main_text}', Sub='{sub_text}'")
 
         # キャンバスを作成（背景をコピー）
         canvas = background.copy()
 
-        # 上部ゾーンにメインテキストを配置
+        # 上部25%の中央にメインテキストを配置
         main_zone_height = int(self.canvas_size[1] * self.layout["main_text_zone"])
+        main_position = (self.canvas_size[0] // 2, main_zone_height // 2)
 
         # メインテキストを描画（赤グラデーション）
         main_layer = self.text_renderer.render_main_text(
             text=main_text,
-            zone_height=main_zone_height
+            position=main_position
         )
 
-        # 下部ゾーンにサブテキストを配置
+        # 下部25%の中央にサブテキストを配置
+        sub_zone_start = int(self.canvas_size[1] * (1 - self.layout["sub_text_zone"]))
         sub_zone_height = int(self.canvas_size[1] * self.layout["sub_text_zone"])
+        sub_position = (self.canvas_size[0] // 2, sub_zone_start + sub_zone_height // 2)
 
         # サブテキストを描画（白＋黒縁、半透明背景付き）
         sub_layer = self.text_renderer.render_sub_text(
             text=sub_text,
-            zone_height=sub_zone_height,
+            position=sub_position,
             with_background=True
         )
 
@@ -325,43 +328,3 @@ Lighting: Bright and clear, face well-lit"""
         canvas.convert('RGB').save(output_path, 'PNG', quality=95)
 
         return output_path
-
-    def _wrap_text(self, text: str, max_chars_per_line: int) -> str:
-        """
-        指定した文字数で自動改行
-
-        Args:
-            text: 元のテキスト
-            max_chars_per_line: 1行あたりの最大文字数
-
-        Returns:
-            改行後のテキスト
-        """
-        if not text:
-            return text
-
-        wrapped_lines = []
-        for raw_line in text.splitlines():
-            segment = raw_line.strip()
-            if not segment:
-                continue
-
-            if len(segment) <= max_chars_per_line:
-                wrapped_lines.append(segment)
-                continue
-
-            buffer = ""
-            for char in segment:
-                buffer += char
-                if len(buffer) >= max_chars_per_line:
-                    wrapped_lines.append(buffer)
-                    buffer = ""
-
-            if buffer:
-                wrapped_lines.append(buffer)
-
-        # テキストが全く追加されなかった場合は元のテキストを返す
-        if not wrapped_lines:
-            return text
-
-        return "\n".join(wrapped_lines)

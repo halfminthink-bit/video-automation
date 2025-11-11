@@ -69,7 +69,7 @@ class V3TextRenderer:
     def render_main_text(
         self,
         text: str,
-        zone_height: int
+        position: Tuple[int, int]
     ) -> Image.Image:
         """
         上部メインテキストをレンダリング（赤グラデーション）
@@ -83,77 +83,69 @@ class V3TextRenderer:
         """
         self.logger.debug(f"Rendering main text: '{text}'")
 
-        # フォントサイズを動的に計算
-        max_width = int(self.width * 0.9)
-        max_height = max(zone_height - 40, 100)
-        font, font_size, line_spacing = self._get_fitting_font(
-            text=text,
-            max_width=max_width,
-            max_height=max_height,
-            initial_size=int(zone_height * 1.4),
-            min_size=120,
-            stroke_ratio=0.16,
-            line_spacing_ratio=0.12
-        )
+        # フォントサイズを計算（文字数で調整）
+        char_count = len(text)
+        if char_count <= 5:
+            font_size = 180
+        elif char_count <= 6:
+            font_size = 160
+        elif char_count <= 7:
+            font_size = 150
+        else:
+            font_size = 140
 
-        stroke_black = max(28, int(font_size * 0.16))
-        stroke_white = max(14, int(font_size * 0.08))
-        shadow_offset = max(10, int(font_size * 0.05))
-        shadow_blur = max(12, int(font_size * 0.05))
+        self.logger.debug(f"Font size: {font_size}px for {char_count} chars")
 
-        # テキストサイズ（ストローク込み）を取得
+        # フォントを読み込み
+        font = ImageFont.truetype(self.font_path, font_size)
+
+        # テキストサイズを取得
         dummy_img = Image.new('RGBA', (1, 1))
         dummy_draw = ImageDraw.Draw(dummy_img)
-        bbox = dummy_draw.textbbox(
-            (0, 0),
-            text,
-            font=font,
-            stroke_width=stroke_black,
-            spacing=line_spacing
-        )
+        bbox = dummy_draw.textbbox((0, 0), text, font=font)
         text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
 
-        layer = Image.new('RGBA', (self.width, zone_height), (0, 0, 0, 0))
-        text_x = (self.width - text_width) // 2
-        text_y = max((zone_height - text_height) // 2, 0)
+        # レイヤーサイズ（ストロークとシャドウ用に余裕を持たせる）
+        layer_width = text_width + 200
+        layer_height = text_height + 200
+        layer = Image.new('RGBA', (layer_width, layer_height), (0, 0, 0, 0))
+
+        # テキスト位置（レイヤー内）
+        text_x = (layer_width - text_width) // 2
+        text_y = (layer_height - text_height) // 2
 
         # 1. シャドウを追加
-        shadow_layer = Image.new('RGBA', (self.width, zone_height), (0, 0, 0, 0))
+        shadow_layer = Image.new('RGBA', (layer_width, layer_height), (0, 0, 0, 0))
         shadow_draw = ImageDraw.Draw(shadow_layer)
         shadow_draw.text(
-            (text_x + shadow_offset, text_y + shadow_offset),
+            (text_x + 8, text_y + 8),
             text,
             font=font,
-            fill=(0, 0, 0, 180),
-            stroke_width=stroke_black,
-            stroke_fill=(0, 0, 0, 180),
-            spacing=line_spacing
+            fill=(0, 0, 0, 170)  # #000000AA
         )
-        shadow_layer = shadow_layer.filter(ImageFilter.GaussianBlur(shadow_blur))
+        shadow_layer = shadow_layer.filter(ImageFilter.GaussianBlur(10))
         layer = Image.alpha_composite(layer, shadow_layer)
 
-        # 2. 黒縁
+        # 2. 黒縁（25px）
         draw = ImageDraw.Draw(layer)
         draw.text(
             (text_x, text_y),
             text,
             font=font,
             fill=(0, 0, 0, 255),
-            stroke_width=stroke_black,
-            stroke_fill=(0, 0, 0, 255),
-            spacing=line_spacing
+            stroke_width=25,
+            stroke_fill=(0, 0, 0, 255)
         )
 
-        # 3. 白縁
+        # 3. 白縁（12px）
         draw.text(
             (text_x, text_y),
             text,
             font=font,
             fill=(255, 255, 255, 255),
-            stroke_width=stroke_white,
-            stroke_fill=(255, 255, 255, 255),
-            spacing=line_spacing
+            stroke_width=12,
+            stroke_fill=(255, 255, 255, 255)
         )
 
         # 4. 赤グラデーションテキスト
@@ -161,22 +153,19 @@ class V3TextRenderer:
             text,
             font,
             (text_x, text_y),
-            (self.width, zone_height),
-            self.RED_GRADIENT_COLORS,
-            spacing=line_spacing
+            (layer_width, layer_height),
+            self.RED_GRADIENT_COLORS
         )
         layer = Image.alpha_composite(layer, gradient_text)
 
-        self.logger.debug(
-            f"✅ Main text rendered: {layer.size}, font={font_size}, spacing={line_spacing}"
-        )
+        self.logger.debug(f"✅ Main text rendered: {layer.size}")
 
         return layer
 
     def render_sub_text(
         self,
         text: str,
-        zone_height: int,
+        position: Tuple[int, int],
         with_background: bool = True
     ) -> Image.Image:
         """
@@ -192,34 +181,19 @@ class V3TextRenderer:
         """
         self.logger.debug(f"Rendering sub text: '{text}'")
 
-        max_width = int(self.width * 0.92)
-        max_height = max(zone_height - 40, 120)
-        font, font_size, line_spacing = self._get_fitting_font(
-            text=text,
-            max_width=max_width,
-            max_height=max_height,
-            initial_size=int(zone_height * 0.9),
-            min_size=60,
-            stroke_ratio=0.12,
-            line_spacing_ratio=0.10
-        )
+        font_size = 50
+        font = ImageFont.truetype(self.font_path, font_size)
 
-        stroke_width = max(12, int(font_size * 0.12))
-
+        # テキストサイズを取得
         dummy_img = Image.new('RGBA', (1, 1))
         dummy_draw = ImageDraw.Draw(dummy_img)
-        bbox = dummy_draw.textbbox(
-            (0, 0),
-            text,
-            font=font,
-            stroke_width=stroke_width,
-            spacing=line_spacing
-        )
+        bbox = dummy_draw.textbbox((0, 0), text, font=font)
         text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
 
+        # レイヤーサイズ
         layer_width = self.width
-        layer_height = zone_height
+        layer_height = int(self.height * 0.25)  # 下部25%
         layer = Image.new('RGBA', (layer_width, layer_height), (0, 0, 0, 0))
 
         # 1. 半透明黒背景を追加（オプション）
@@ -227,9 +201,7 @@ class V3TextRenderer:
             bg_layer = self._create_text_background(
                 text,
                 font,
-                (layer_width, layer_height),
-                stroke_width=stroke_width,
-                spacing=line_spacing
+                (layer_width, layer_height)
             )
             layer = Image.alpha_composite(layer, bg_layer)
 
@@ -244,14 +216,11 @@ class V3TextRenderer:
             text,
             font=font,
             fill=(255, 255, 255, 255),
-            stroke_width=stroke_width,
-            stroke_fill=(0, 0, 0, 255),
-            spacing=line_spacing
+            stroke_width=10,
+            stroke_fill=(0, 0, 0, 255)
         )
 
-        self.logger.debug(
-            f"✅ Sub text rendered: {layer.size}, font={font_size}, spacing={line_spacing}"
-        )
+        self.logger.debug(f"✅ Sub text rendered: {layer.size}")
 
         return layer
 
@@ -261,8 +230,7 @@ class V3TextRenderer:
         font: ImageFont.FreeTypeFont,
         position: Tuple[int, int],
         size: Tuple[int, int],
-        colors: List[Tuple[int, int, int]],
-        spacing: int
+        colors: List[Tuple[int, int, int]]
     ) -> Image.Image:
         """
         縦方向のグラデーションテキストを作成
@@ -280,7 +248,7 @@ class V3TextRenderer:
         # テキストサイズを取得
         dummy_img = Image.new('RGBA', (1, 1))
         dummy_draw = ImageDraw.Draw(dummy_img)
-        bbox = dummy_draw.textbbox((0, 0), text, font=font, spacing=spacing)
+        bbox = dummy_draw.textbbox((0, 0), text, font=font)
         text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
 
@@ -347,7 +315,7 @@ class V3TextRenderer:
         # テキストマスクを作成
         text_mask = Image.new('L', (text_width, text_height), 0)
         text_mask_draw = ImageDraw.Draw(text_mask)
-        text_mask_draw.text((0, 0), text, font=font, fill=255, spacing=spacing)
+        text_mask_draw.text((0, 0), text, font=font, fill=255)
 
         # グラデーションをテキスト形状でマスク
         gradient_text = Image.new('RGBA', (text_width, text_height), (0, 0, 0, 0))
@@ -363,9 +331,7 @@ class V3TextRenderer:
         self,
         text: str,
         font: ImageFont.FreeTypeFont,
-        size: Tuple[int, int],
-        stroke_width: int,
-        spacing: int
+        size: Tuple[int, int]
     ) -> Image.Image:
         """
         テキスト用の半透明黒背景を作成
@@ -381,13 +347,7 @@ class V3TextRenderer:
         # テキストサイズを取得
         dummy_img = Image.new('RGBA', (1, 1))
         dummy_draw = ImageDraw.Draw(dummy_img)
-        bbox = dummy_draw.textbbox(
-            (0, 0),
-            text,
-            font=font,
-            stroke_width=stroke_width,
-            spacing=spacing
-        )
+        bbox = dummy_draw.textbbox((0, 0), text, font=font)
         text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
 
@@ -396,7 +356,7 @@ class V3TextRenderer:
         draw = ImageDraw.Draw(bg_layer)
 
         # 背景矩形の位置とサイズ（パディング20px）
-        padding = max(24, int(font.size * 0.25))
+        padding = 20
         bg_x1 = (size[0] - text_width) // 2 - padding
         bg_y1 = (size[1] - text_height) // 2 - padding
         bg_x2 = bg_x1 + text_width + padding * 2
@@ -409,63 +369,6 @@ class V3TextRenderer:
         )
 
         # ぼかしを適用
-        bg_layer = bg_layer.filter(ImageFilter.GaussianBlur(6))
+        bg_layer = bg_layer.filter(ImageFilter.GaussianBlur(5))
 
         return bg_layer
-
-    def _get_fitting_font(
-        self,
-        text: str,
-        max_width: int,
-        max_height: int,
-        initial_size: int,
-        min_size: int,
-        stroke_ratio: float,
-        line_spacing_ratio: float
-    ) -> Tuple[ImageFont.FreeTypeFont, int, int]:
-        """
-        指定範囲内に収まるフォントを取得
-
-        Args:
-            text: テキスト
-            max_width: 最大幅
-            max_height: 最大高さ
-            initial_size: 探索開始フォントサイズ
-            min_size: 最小フォントサイズ
-            stroke_ratio: フォントサイズに対するストローク割合
-            line_spacing_ratio: フォントサイズに対する行間割合
-
-        Returns:
-            (フォント, サイズ, 行間)
-        """
-        size = initial_size
-        dummy_img = Image.new('RGBA', (1, 1))
-        dummy_draw = ImageDraw.Draw(dummy_img)
-
-        while size >= min_size:
-            font = ImageFont.truetype(self.font_path, size)
-            stroke_width = max(1, int(size * stroke_ratio))
-            spacing = max(0, int(size * line_spacing_ratio))
-
-            bbox = dummy_draw.textbbox(
-                (0, 0),
-                text,
-                font=font,
-                stroke_width=stroke_width,
-                spacing=spacing
-            )
-
-            text_width = bbox[2] - bbox[0]
-            text_height = bbox[3] - bbox[1]
-
-            if text_width <= max_width and text_height <= max_height:
-                return font, size, spacing
-
-            size -= 4
-
-        self.logger.warning(
-            "Falling back to minimum font size for text '%s'", text
-        )
-        font = ImageFont.truetype(self.font_path, min_size)
-        spacing = max(0, int(min_size * line_spacing_ratio))
-        return font, min_size, spacing
