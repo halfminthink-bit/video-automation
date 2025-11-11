@@ -795,10 +795,11 @@ class Phase07Composition(PhaseBase):
         total_duration: float
     ) -> 'VideoFileClip':
         """
-        二分割レイアウトの動画を生成
+        二分割レイアウトの動画を生成（オーバーレイ方式）
 
-        上部: アニメ動画（1920x756, 70%）
-        下部: 黒背景 + 字幕（1920x324, 30%）
+        - 動画：1920x1080（フルサイズ）
+        - 下部に黒バー（1920x324）をオーバーレイ
+        - 黒バーの上に字幕を表示
 
         Args:
             animated_clips: Phase 4の動画ファイルパスリスト
@@ -806,33 +807,34 @@ class Phase07Composition(PhaseBase):
             total_duration: 全体の長さ（秒）
 
         Returns:
-            合成された二分割レイアウト動画
+            合成された動画（下部に黒バー+字幕がオーバーレイ）
         """
-        self.logger.info("Creating split layout video (vertical)...")
+        self.logger.info("Creating split layout video (overlay mode)...")
 
         # 比率を取得（デフォルト0.7 = 70%）
         ratio = self.split_config.get('ratio', 0.7)
         top_height = int(1080 * ratio)        # 756px (70%)
         bottom_height = 1080 - top_height     # 324px (30%)
 
-        self.logger.info(f"Layout: top={top_height}px (video), bottom={bottom_height}px (subtitle)")
+        self.logger.info(f"Layout: Full video 1920x1080 + Bottom overlay {bottom_height}px (subtitle)")
 
-        # Step 1: 上部（動画エリア）を生成
-        self.logger.info("Creating top video area...")
-        top_side = self._create_top_video_area(animated_clips, total_duration, top_height)
+        # Step 1: 動画を1920x1080のままロードして連結
+        self.logger.info("Loading video clips (full size 1920x1080)...")
+        video_clips = self._create_video_clips(animated_clips, total_duration)
+        base_video = self._concatenate_clips(video_clips, total_duration)
 
-        # Step 2: 下部（字幕バー）を生成
-        self.logger.info("Creating bottom subtitle bar...")
-        bottom_side = self._create_bottom_subtitle_bar(subtitles, total_duration, bottom_height)
+        # Step 2: 下部の字幕バー（オーバーレイ用）を生成
+        self.logger.info("Creating bottom subtitle overlay...")
+        bottom_overlay = self._create_bottom_subtitle_bar(subtitles, total_duration, bottom_height)
 
-        # Step 3: 上下を縦並びに配置
-        self.logger.info("Compositing top and bottom areas...")
+        # Step 3: 動画の上に下部バーをオーバーレイ
+        self.logger.info("Overlaying subtitle bar on video...")
         final_video = CompositeVideoClip([
-            top_side.with_position((0, 0)),              # 上部
-            bottom_side.with_position((0, top_height))   # 下部
+            base_video.with_position((0, 0)),                    # フルサイズ動画
+            bottom_overlay.with_position((0, top_height))        # 下部にオーバーレイ
         ], size=(1920, 1080))
 
-        self.logger.info("Vertical split layout video created successfully")
+        self.logger.info("Overlay layout video created successfully")
         return final_video
 
     def _create_bottom_subtitle_bar(
