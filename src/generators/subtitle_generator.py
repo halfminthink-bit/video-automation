@@ -1102,6 +1102,9 @@ class SubtitleGenerator:
         """
         テキストを \n で分割（明示的な改行を優先）
 
+        文字列マッチングで text と characters の対応を取る。
+        記号（カッコ類、空白）は除外してマッチング。句読点は含める。
+
         Args:
             text: 元のテキスト（\n を含む可能性がある）
             characters: 文字配列
@@ -1120,46 +1123,52 @@ class SubtitleGenerator:
             }]
 
         # text を \n で分割
-        text_parts = text.split('\n')
+        text_parts = [part.strip() for part in text.split('\n') if part.strip()]
 
-        # characters から \n の位置を検出
-        # （characters には \n が含まれていない可能性があるため、text と照合）
+        if len(text_parts) <= 1:
+            # 分割の必要がない
+            return [{
+                "characters": characters,
+                "start_times": start_times,
+                "end_times": end_times
+            }]
+
+        # characters を文字列に変換
+        chars_str = ''.join(characters)
+
+        # 除外する記号（カッコ類、空白のみ。句読点は含める）
+        exclude_symbols = set([' ', '　', '「', '」', '『', '』', '（', '）', '(', ')'])
+
         subsections = []
-        char_index = 0
+        search_start = 0
 
-        for part_idx, text_part in enumerate(text_parts):
-            if not text_part.strip():
-                # 空の部分はスキップ
+        for part in text_parts:
+            # part から記号を除外
+            part_clean = ''.join([c for c in part if c not in exclude_symbols])
+
+            if not part_clean:
                 continue
 
-            # この部分に対応する文字数を計算
-            # 記号を除外した文字数でマッチング
-            part_chars_count = len([c for c in text_part if c not in [' ', '　', '「', '」', '『', '』', '（', '）']])
+            # chars_str から part_clean を探す（search_start から）
+            pos = chars_str.find(part_clean, search_start)
 
-            # characters から対応する範囲を抽出
-            end_index = min(char_index + part_chars_count, len(characters))
+            if pos == -1:
+                # 見つからない場合は警告を出してスキップ
+                self.logger.warning(
+                    f"Could not match newline-separated part: '{part[:30]}...' "
+                    f"(cleaned: '{part_clean[:30]}...')"
+                )
+                continue
 
-            if char_index < len(characters):
-                subsections.append({
-                    "characters": characters[char_index:end_index],
-                    "start_times": start_times[char_index:end_index],
-                    "end_times": end_times[char_index:end_index]
-                })
+            end_pos = pos + len(part_clean)
 
-            char_index = end_index
-
-        # 残りの文字があれば最後のサブセクションに追加
-        if char_index < len(characters) and subsections:
-            subsections[-1]["characters"].extend(characters[char_index:])
-            subsections[-1]["start_times"].extend(start_times[char_index:])
-            subsections[-1]["end_times"].extend(end_times[char_index:])
-        elif char_index < len(characters):
-            # サブセクションがない場合は全体を返す
             subsections.append({
-                "characters": characters[char_index:],
-                "start_times": start_times[char_index:],
-                "end_times": end_times[char_index:]
+                "characters": characters[pos:end_pos],
+                "start_times": start_times[pos:end_pos],
+                "end_times": end_times[pos:end_pos]
             })
+
+            search_start = end_pos
 
         return subsections if subsections else [{
             "characters": characters,
