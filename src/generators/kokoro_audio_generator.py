@@ -13,10 +13,10 @@ import logging
 import tempfile
 import re
 import io
+import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
-from pydub import AudioSegment
 from src.utils.whisper_timing import WhisperTimingExtractor, WHISPER_AVAILABLE
 
 
@@ -175,6 +175,81 @@ class KokoroAudioGenerator:
             self.logger.error(f"Error generating audio: {e}", exc_info=True)
             raise
 
+    def _create_silence_file(self, duration: float, output_path: Path):
+        """
+        ffmpegを使用して無音ファイルを生成
+
+        Args:
+            duration: 無音の長さ（秒）
+            output_path: 出力ファイルパス
+        """
+        cmd = [
+            'ffmpeg',
+            '-f', 'lavfi',
+            '-i', f'anullsrc=r=44100:cl=mono',
+            '-t', str(duration),
+            '-acodec', 'libmp3lame',
+            '-b:a', '128k',
+            '-y',
+            str(output_path)
+        ]
+
+        try:
+            result = subprocess.run(
+                cmd,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            self.logger.debug(f"Created silence file: {output_path} ({duration}s)")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Failed to create silence: {e.stderr}")
+            raise
+
+    def _combine_audio_files_with_ffmpeg(self, file_list: List[Path], output_path: Path):
+        """
+        ffmpegを使用して複数の音声ファイルを結合
+
+        Args:
+            file_list: 結合する音声ファイルのリスト
+            output_path: 出力ファイルパス
+        """
+        # concat用のファイルリストを作成
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
+            for file_path in file_list:
+                # ffmpegのconcatはファイルパスをエスケープする必要がある
+                escaped_path = str(file_path).replace("'", "'\\''")
+                f.write(f"file '{escaped_path}'\n")
+            concat_list_path = f.name
+
+        try:
+            cmd = [
+                'ffmpeg',
+                '-f', 'concat',
+                '-safe', '0',
+                '-i', concat_list_path,
+                '-c', 'copy',
+                '-y',
+                str(output_path)
+            ]
+
+            result = subprocess.run(
+                cmd,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            self.logger.debug(f"Combined {len(file_list)} files to {output_path}")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Failed to combine audio files: {e.stderr}")
+            raise
+        finally:
+            # 一時ファイルを削除
+            try:
+                os.unlink(concat_list_path)
+            except Exception:
+                pass
+
     def _generate_with_punctuation_pause(self, text: str) -> Dict[str, Any]:
         """
         句点での間隔制御を使用して音声を生成
@@ -211,68 +286,78 @@ class KokoroAudioGenerator:
 
         self.logger.info(f"Splitting text by punctuation: {len(segments)} segments")
 
-        # 各セグメントを生成して結合
-        audio_segments = []
+        # 一時ディレクトリを作成
+        temp_dir = tempfile.mkdtemp(prefix='kokoro_punct_')
+        temp_files = []
 
-        for i, segment in enumerate(segments):
-            if not segment.strip():
-                continue
+        try:
+            # 各セグメントを生成
+            for i, segment in enumerate(segments):
+                if not segment.strip():
+                    continue
 
-            self.logger.info(f"Segment {i + 1}/{len(segments)}: {segment[:50]}...")
+                self.logger.info(f"Segment {i + 1}/{len(segments)}: {segment[:50]}...")
 
-            # 音声生成
-            audio_base64 = self._generate_single_audio(segment)
-            audio_bytes = base64.b64decode(audio_base64)
+                # 音声生成
+                audio_base64 = self._generate_single_audio(segment)
+                audio_bytes = base64.b64decode(audio_base64)
 
-            # AudioSegmentに変換
-            audio_seg = AudioSegment.from_file(io.BytesIO(audio_bytes), format=self.response_format)
-            audio_segments.append(audio_seg)
+                # 一時ファイルに保存
+                segment_file = Path(temp_dir) / f"segment_{i:03d}.{self.response_format}"
+                with open(segment_file, 'wb') as f:
+                    f.write(audio_bytes)
+                temp_files.append(segment_file)
 
-            # 無音を挿入（最後のセグメント以外、またはskip_section_end=falseの場合）
-            is_last = (i == len(segments) - 1)
-            should_add_pause = not (is_last and skip_section_end)
+                # 無音を挿入（最後のセグメント以外、またはskip_section_end=falseの場合）
+                is_last = (i == len(segments) - 1)
+                should_add_pause = not (is_last and skip_section_end)
 
-            if should_add_pause:
-                # 句読点に応じた無音時間を決定
-                if segment.endswith('。'):
-                    silence_duration = period_pause
-                elif segment.endswith('！'):
-                    silence_duration = exclamation_pause
-                elif segment.endswith('？'):
-                    silence_duration = question_pause
-                else:
-                    silence_duration = 0.0
+                if should_add_pause:
+                    # 句読点に応じた無音時間を決定
+                    if segment.endswith('。'):
+                        silence_duration = period_pause
+                    elif segment.endswith('！'):
+                        silence_duration = exclamation_pause
+                    elif segment.endswith('？'):
+                        silence_duration = question_pause
+                    else:
+                        silence_duration = 0.0
 
-                if silence_duration > 0:
-                    silence = AudioSegment.silent(duration=int(silence_duration * 1000))
-                    audio_segments.append(silence)
-                    self.logger.info(f"  + silence {silence_duration}s")
+                    if silence_duration > 0:
+                        silence_file = Path(temp_dir) / f"silence_{i:03d}.{self.response_format}"
+                        self._create_silence_file(silence_duration, silence_file)
+                        temp_files.append(silence_file)
+                        self.logger.info(f"  + silence {silence_duration}s")
 
-        # 全てのセグメントを結合
-        if not audio_segments:
-            raise ValueError("No audio segments generated")
+            # 全てのファイルを結合
+            if not temp_files:
+                raise ValueError("No audio segments generated")
 
-        combined_audio = audio_segments[0]
-        for seg in audio_segments[1:]:
-            combined_audio += seg
+            combined_file = Path(temp_dir) / f"combined.{self.response_format}"
+            self._combine_audio_files_with_ffmpeg(temp_files, combined_file)
 
-        self.logger.info(
-            f"Combined {len(audio_segments)} segments, "
-            f"total duration: {len(combined_audio) / 1000.0:.2f}s"
-        )
+            self.logger.info(f"Combined {len(temp_files)} files")
 
-        # Base64に変換
-        buffer = io.BytesIO()
-        combined_audio.export(buffer, format=self.response_format)
-        combined_audio_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+            # 結合したファイルをBase64に変換
+            with open(combined_file, 'rb') as f:
+                combined_audio_base64 = base64.b64encode(f.read()).decode('utf-8')
 
-        # Whisperでタイムスタンプ取得
-        alignment = self._extract_timestamps_with_whisper(combined_audio_base64, text)
+            # Whisperでタイムスタンプ取得
+            alignment = self._extract_timestamps_with_whisper(combined_audio_base64, text)
 
-        return {
-            'audio_base64': combined_audio_base64,
-            'alignment': alignment
-        }
+            return {
+                'audio_base64': combined_audio_base64,
+                'alignment': alignment
+            }
+
+        finally:
+            # 一時ファイルをクリーンアップ
+            try:
+                import shutil
+                shutil.rmtree(temp_dir)
+                self.logger.debug(f"Cleaned up temp directory: {temp_dir}")
+            except Exception as e:
+                self.logger.warning(f"Failed to clean up temp directory {temp_dir}: {e}")
 
     def generate_with_timestamps(
         self,
@@ -537,9 +622,16 @@ class KokoroAudioGenerator:
 
             # フォールバック: 音声の長さから推定
             try:
-                from pydub import AudioSegment
-                audio_seg = AudioSegment.from_file(tmp_file)
-                duration = len(audio_seg) / 1000.0  # ミリ秒を秒に変換
+                # ffprobeで音声の長さを取得
+                cmd = [
+                    'ffprobe',
+                    '-v', 'error',
+                    '-show_entries', 'format=duration',
+                    '-of', 'default=noprint_wrappers=1:nokey=1',
+                    str(tmp_file)
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                duration = float(result.stdout.strip())
 
                 self.logger.warning(
                     f"Using fallback: estimating timing from duration ({duration:.2f}s) "
