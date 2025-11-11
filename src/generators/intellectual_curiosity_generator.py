@@ -8,7 +8,7 @@ import logging
 import os
 from pathlib import Path
 from typing import Dict, Any, List, Optional
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 from openai import OpenAI
 import requests
 from io import BytesIO
@@ -117,7 +117,9 @@ class IntellectualCuriosityGenerator:
         subject: str,
         output_dir: Path,
         context: Optional[Dict[str, Any]] = None,
-        num_variations: int = 5
+        num_variations: int = 5,
+        upper_text: str = "",
+        lower_text: str = ""
     ) -> List[Path]:
         """
         サムネイルを生成
@@ -127,6 +129,8 @@ class IntellectualCuriosityGenerator:
             output_dir: 出力ディレクトリ
             context: 追加コンテキスト（台本など）
             num_variations: 生成するバリエーション数
+            upper_text: 上部テキスト（新規）
+            lower_text: 下部テキスト（新規）
 
         Returns:
             生成されたサムネイルのパスリスト
@@ -134,30 +138,21 @@ class IntellectualCuriosityGenerator:
         self.logger.info(
             f"Generating {num_variations} thumbnail variations for: {subject}"
         )
+        self.logger.info(f"Upper text: {upper_text}")
+        self.logger.info(f"Lower text: {lower_text}")
 
-        # 1. 2行構成の下部テキストを生成
-        bottom_texts = self.text_generator.generate_surprise_texts(
-            subject=subject,
-            context=context,
-            num_candidates=num_variations
-        )
-
-        if not bottom_texts:
-            self.logger.error("No bottom texts generated")
-            return []
-
-        # 2. 背景画像を生成（DALL-E 3）
+        # 1. 背景画像を生成（DALL-E または SD）
         background = self._generate_background_image(subject, context)
 
         if background is None:
             self.logger.error("Failed to generate background image")
             return []
 
-        # 3. 背景画像をリサイズ（1792x1024 → 1280x720）
+        # 2. 背景画像をリサイズ（1792x1024 → 1280x720）
         background = background.resize(self.canvas_size, Image.Resampling.LANCZOS)
         self.logger.info(f"Background resized to: {background.size}")
 
-        # 4. 背景を処理（明るく保つ、軽いビネット）
+        # 3. 背景を処理（明るく保つ、軽いビネット）
         bg_config = self.config.get("background", {})
         processed_background = self.background_processor.process_background(
             image=background,
@@ -166,20 +161,16 @@ class IntellectualCuriosityGenerator:
             enhance_brightness=bg_config.get("enhance_brightness", True)
         )
 
-        # 5. 各テキストペアでサムネイルを生成
+        # 4. 各バリエーションでサムネイルを生成
         output_paths = []
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        for i, text_data in enumerate(bottom_texts, 1):
+        for i in range(1, num_variations + 1):
             try:
-                # 固定フレーズを取得（インデックスで循環）
-                top_text = FixedTopTextPatterns.get_pattern_by_index(i - 1)
-
                 thumbnail_path = self._generate_single_thumbnail(
                     background=processed_background,
-                    top_text=top_text,
-                    line1=text_data.get("line1", ""),
-                    line2=text_data.get("line2", ""),
+                    upper_text=upper_text,
+                    lower_text=lower_text,
                     output_dir=output_dir,
                     index=i,
                     subject=subject
@@ -523,21 +514,19 @@ Purpose: YouTube thumbnail background - must grab attention immediately while le
     def _generate_single_thumbnail(
         self,
         background: Image.Image,
-        top_text: str,
-        line1: str,
-        line2: str,
+        upper_text: str,
+        lower_text: str,
         output_dir: Path,
         index: int,
         subject: str
     ) -> Optional[Path]:
         """
-        単一のサムネイルを生成
+        単一のサムネイルを生成（3分割レイアウト）
 
         Args:
             background: 処理済み背景画像
-            top_text: 上部テキスト（固定フレーズ）
-            line1: 下部1行目（衝撃的な事実）
-            line2: 下部2行目（詳細説明）
+            upper_text: 上部テキスト（黄色、90px）
+            lower_text: 下部テキスト（白色、70px）
             output_dir: 出力ディレクトリ
             index: インデックス番号
             subject: テーマ
@@ -546,36 +535,23 @@ Purpose: YouTube thumbnail background - must grab attention immediately while le
             生成されたサムネイルのパス
         """
         self.logger.debug(
-            f"Generating thumbnail {index}: Top='{top_text}', "
-            f"Line1='{line1}', Line2='{line2}'"
+            f"Generating thumbnail {index}: Upper='{upper_text}', "
+            f"Lower='{lower_text}'"
         )
 
         # キャンバスを作成（背景をコピー）
         canvas = background.copy()
 
-        # 上部テキストレイヤーを生成（金色、固定フレーズ）
-        top_layer = self.text_renderer.render_top_text(top_text)
-
-        # 下部テキストレイヤーを生成（白、2行構成）
-        bottom_layer = self.text_renderer.render_bottom_text(
-            line1=line1,
-            line2=line2
-        )
-
-        # 上部テキストレイヤーを配置
-        canvas.paste(top_layer, (0, 0), top_layer)
-
-        # 下部テキストレイヤーを配置（見切れ防止のため画面下端から配置）
-        bottom_layer_height = 330  # レイヤー高さ（intellectual_curiosity_text_renderer.pyと一致）
-        canvas.paste(
-            bottom_layer,
-            (0, canvas.size[1] - bottom_layer_height),  # = (0, 720 - 330) = (0, 390)
-            bottom_layer
+        # テキストオーバーレイを追加（3分割レイアウト）
+        canvas = self._add_text_overlay(
+            image=canvas,
+            upper_text=upper_text,
+            lower_text=lower_text
         )
 
         # ファイル名を生成
-        safe_line1 = "".join(c for c in line1 if c.isalnum() or c in (' ', '_'))[:10]
-        filename = f"curiosity_{subject}_{safe_line1}_v{index}.png"
+        safe_upper = "".join(c for c in upper_text if c.isalnum() or c in (' ', '_'))[:10]
+        filename = f"thumbnail_{subject}_{safe_upper}_v{index}.png"
         # ファイル名をクリーンアップ
         filename = filename.replace(" ", "_").replace("　", "_")
         output_path = output_dir / filename
@@ -584,6 +560,166 @@ Purpose: YouTube thumbnail background - must grab attention immediately while le
         canvas.convert('RGB').save(output_path, 'PNG', quality=95)
 
         return output_path
+
+    def _add_text_overlay(
+        self,
+        image: Image.Image,
+        upper_text: str,
+        lower_text: str
+    ) -> Image.Image:
+        """
+        3分割レイアウトでテキストを配置
+
+        配置:
+        - 上部25%: upper_text（黄色、90px、中央揃え）
+        - 中央50%: 画像のみ
+        - 下部25%: lower_text（白色、70px、中央揃え）
+
+        Args:
+            image: 背景画像
+            upper_text: 上部テキスト
+            lower_text: 下部テキスト
+
+        Returns:
+            テキスト配置済みの画像
+        """
+        width, height = image.size
+        draw = ImageDraw.Draw(image)
+
+        # ========================================
+        # 上部テキスト（黄色、90px、中央揃え）
+        # ========================================
+        if upper_text:
+            # フォント設定
+            upper_font_size = 90
+            upper_font = self._load_font(upper_font_size)
+
+            # 色設定
+            upper_color = (255, 215, 0)      # 黄色（ゴールド）
+            upper_shadow_color = (0, 0, 0)   # 黒影
+
+            # テキスト位置（上部25%の中央）
+            upper_y_position = int(height * 0.125)  # 12.5% = 25%の中央
+
+            # テキストを中央揃えで配置
+            self._draw_text_with_shadow(
+                draw=draw,
+                text=upper_text,
+                font=upper_font,
+                position=(width // 2, upper_y_position),
+                color=upper_color,
+                shadow_color=upper_shadow_color,
+                shadow_offset=5
+            )
+
+        # ========================================
+        # 下部テキスト（白色、70px、中央揃え）
+        # ========================================
+        if lower_text:
+            # フォント設定
+            lower_font_size = 70
+            lower_font = self._load_font(lower_font_size)
+
+            # 色設定
+            lower_color = (255, 255, 255)    # 白色
+            lower_shadow_color = (0, 0, 0)   # 黒影
+
+            # テキスト位置（下部25%の中央）
+            lower_y_position = int(height * 0.875)  # 87.5% = 75% + 12.5%
+
+            # テキストを中央揃えで配置
+            self._draw_text_with_shadow(
+                draw=draw,
+                text=lower_text,
+                font=lower_font,
+                position=(width // 2, lower_y_position),
+                color=lower_color,
+                shadow_color=lower_shadow_color,
+                shadow_offset=4
+            )
+
+        return image
+
+    def _draw_text_with_shadow(
+        self,
+        draw: ImageDraw.Draw,
+        text: str,
+        font: ImageFont.FreeTypeFont,
+        position: tuple,
+        color: tuple,
+        shadow_color: tuple,
+        shadow_offset: int
+    ):
+        """
+        影付きテキストを描画（中央揃え）
+
+        Args:
+            draw: ImageDrawオブジェクト
+            text: 描画するテキスト
+            font: フォント
+            position: (x, y) - 中央の座標
+            color: テキスト色
+            shadow_color: 影の色
+            shadow_offset: 影のオフセット（ピクセル）
+        """
+        x, y = position
+
+        # テキストのバウンディングボックスを取得
+        bbox = draw.textbbox((0, 0), text, font=font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+
+        # 中央揃えのため、左上座標を計算
+        text_x = x - text_width // 2
+        text_y = y - text_height // 2
+
+        # 影を描画（4方向）
+        for dx in [-shadow_offset, shadow_offset]:
+            for dy in [-shadow_offset, shadow_offset]:
+                draw.text(
+                    (text_x + dx, text_y + dy),
+                    text,
+                    font=font,
+                    fill=shadow_color
+                )
+
+        # メインテキストを描画
+        draw.text(
+            (text_x, text_y),
+            text,
+            font=font,
+            fill=color
+        )
+
+    def _load_font(self, size: int) -> ImageFont.FreeTypeFont:
+        """
+        フォントを読み込み
+
+        Args:
+            size: フォントサイズ
+
+        Returns:
+            フォントオブジェクト
+        """
+        # フォントパスのリスト（優先順位順）
+        font_paths = [
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+            "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        ]
+
+        # 利用可能なフォントを探す
+        for font_path in font_paths:
+            try:
+                if Path(font_path).exists():
+                    return ImageFont.truetype(font_path, size)
+            except Exception as e:
+                self.logger.debug(f"Could not load font {font_path}: {e}")
+
+        # フォールバック: デフォルトフォント
+        self.logger.warning(f"No custom font found, using default font")
+        return ImageFont.load_default()
 
     def _get_default_config(self) -> Dict[str, Any]:
         """デフォルト設定を取得"""
