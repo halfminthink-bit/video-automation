@@ -530,25 +530,17 @@ Purpose: YouTube thumbnail background - must grab attention immediately while le
         # キャンバスを作成（背景をコピー）
         canvas = background.copy()
 
-        # 上部テキストレイヤーを生成（金色、固定フレーズ）
-        top_layer = self.text_renderer.render_top_text(top_text)
+        # 右側縦書きテキストレイヤーを生成（赤文字＋黒縁）
+        right_layer = self.text_renderer.render_vertical_text_right(top_text)
 
-        # 下部テキストレイヤーを生成（白、2行構成）
-        bottom_layer = self.text_renderer.render_bottom_text(
-            line1=line1,
-            line2=line2
-        )
+        # 左側縦書きテキストレイヤーを生成（白文字＋黒縁）
+        left_layer = self.text_renderer.render_vertical_text_left(line1)
 
-        # 上部テキストレイヤーを配置
-        canvas.paste(top_layer, (0, 0), top_layer)
+        # 右側テキストレイヤーを配置
+        canvas.paste(right_layer, (0, 0), right_layer)
 
-        # 下部テキストレイヤーを配置（見切れ防止のため画面下端から配置）
-        bottom_layer_height = 330  # レイヤー高さ（intellectual_curiosity_text_renderer.pyと一致）
-        canvas.paste(
-            bottom_layer,
-            (0, canvas.size[1] - bottom_layer_height),  # = (0, 720 - 330) = (0, 390)
-            bottom_layer
-        )
+        # 左側テキストレイヤーを配置
+        canvas.paste(left_layer, (0, 0), left_layer)
 
         # ファイル名を生成（安全な文字のみ使用）
         safe_line1 = "".join(c for c in line1 if c.isalnum() or c in (' ', '_'))[:20]
