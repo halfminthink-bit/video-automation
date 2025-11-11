@@ -1,4 +1,4 @@
-# 偉人動画自動生成システム - 詳細設計書 v2.0
+# 偉人動画自動生成システム - 詳細設計書 v3.0
 
 **作成日**: 2025年10月28日
 **最終更新日**: 2025年11月11日
@@ -7,62 +7,65 @@
 
 ## 📋 更新履歴
 
+### v3.0 (2025年11月11日)
+- **Phase 2: 音声生成の改善**
+  - 句点（。！？）での間隔制御機能を追加
+  - `punctuation_pause`設定による自然な音声リズムの実現
+  - 句点後の無音時間を調整可能（デフォルト: 0.8秒）
+  - セクション間無音との区別を明確化
+
+- **Phase 6: 字幕生成の改善**
+  - フォントの太さ設定を詳細化
+  - `stroke_width`による縁取りの太さ調整（デフォルト: 2px）
+  - `font_weight`設定追加（regular/medium/bold/black）
+  - 視認性向上のための推奨設定を明記
+  - 改行（\n）の正確な処理ロジックを追加
+  - 長文の句読点分割（36文字超で「、」優先）
+
+- **Phase 7: 動画統合の改善**
+  - 字幕バーの高さを30%から20%に削減
+  - オーバーレイ方式による黒バー表示（右側の黒バーを解消）
+  - 1920x1080解像度で864px動画+216px字幕バー構成
+
+- **Phase 8: サムネイル生成の改善**
+  - 横顔・側面アングルを重視した構図
+  - 若々しいエネルギッシュな表現
+  - 壮大な背景（城、山、風景）の強調
+  - 実写過ぎない印象的なスタイル（cinematic artistic style）
+  - Stable Diffusion対応（Phase 3と同じ仕組み）
+
 ### v2.3 (2025年11月11日)
 - Phase 8にStable Diffusion対応を追加
-  - 背景画像生成にDALL-E 3とStable Diffusionの選択機能を実装
-  - `use_stable_diffusion`フラグで切り替え可能
-  - Phase 3と同じImageGeneratorを使用（一貫性確保）
-  - Claude APIによるSD用プロンプト最適化を実装
-  - 中央配置を重視したSD用プロンプト設計
-  - テキスト描画ロジック（フォント、位置、色、縁取り）は完全保持
-  - エラー処理の明確化（SDエラー時はフォールバックなし）
+- Claude APIによるSD用プロンプト最適化を実装
 
 ### v2.2 (2025年11月10日)
 - Phase 6の長文分割ロジックを改善
-  - 最小断片長保証（MIN_CHUNK_LENGTH = 10文字）を追加
-  - バランスペナルティを追加（なるべく均等に分割）
-  - テキスト欠落の防止（例: "この世を" が抜ける問題を修正）
-    - `_split_into_balanced_lines()`で短い行をスキップする処理を削除
-    - 最終行で文字を切り詰める処理を削除
-  - 極端に短い字幕の防止（例: "を去ります" のみの5文字字幕を回避）
-    - `_split_large_chunk()`で残りが10文字未満にならないよう調整
-    - 40文字のチャンクを分割する際、max_charsを30に調整（残り10文字以上を保証）
+- 最小断片長保証（MIN_CHUNK_LENGTH = 10文字）を追加
 
 ### v2.1 (2025年11月10日)
 - Phase 2とPhase 6の句読点処理を修正
-  - `audio_timing.json`のcharacters配列に句読点を含めるよう修正
-  - 句読点位置の検出ロジックを改善（_find_punctuation_positions_from_characters追加）
-  - 「、」の分割位置を修正（「、」の直後で分割するように変更）
-  - 空の字幕をフィルタリングする処理を追加
-- Phase 6の実装詳細を更新（文字レベルのタイミング情報の使用方法を明記）
+- 「、」の分割位置を修正（「、」の直後で分割）
+
+---
 
 ## 🔄 ワークフロー（まとめ）
 ```
 1. テンプレート作成
    ↓
    python scripts/create_script_template.py "グリゴリー・ラスプーチン"
-   
+
 2. YAMLファイルを編集（これがメイン作業）
    ↓
    data/input/manual_scripts/偉人名.yaml
-   
+
 3. JSONに変換（1コマンド）
    ↓
    python scripts/convert_manual_script.py "グリゴリー・ラスプーチン"
-   
+
 4. 動画生成（自動で手動台本が使われる）
    ↓
    python -m src.cli generate "グリゴリー・ラスプーチン"
-
-### v2.0 (2025年11月8日)
-- Phase 8 (サムネイル生成) の実装完了を反映
-- 日本語フォント対応の詳細を追加
-- Whisper対応による字幕タイミング取得機能を追加
-- BGM選択の固定3曲構成を反映
-- 不要な一時ファイルの削除とプロジェクト構造の整理
-
-### v1.0 (2025年10月28日)
-- 初版作成
+```
 
 ---
 
@@ -76,7 +79,7 @@
 
 理由:
 - 台本だけ修正したい
-- 音声だけ再生成したい  
+- 音声だけ再生成したい
 - 映像素材だけ差し替えたい
 → これらを個別に実行できる必要がある
 
@@ -86,1087 +89,157 @@
 - 前フェーズの出力が存在すれば、そのフェーズをスキップ可能
 ```
 
-#### 1.2 冪等性（Idempotency）
-```
-同じ入力で何度実行しても、同じ結果が得られる。
-
-理由:
-- デバッグ時に再現性が必須
-- 部分的な再実行が安全に行える
-
-実装:
-- ランダム性が必要な箇所はシードを記録
-- APIレスポンスはキャッシュ
-- タイムスタンプ等の可変要素は設定ファイル化
-```
-
-#### 1.3 可観測性（Observability）
-```
-どの処理がどこまで進んでいるか、常に把握可能とする。
-
-理由:
-- 2-3時間の長時間処理で進捗不明は不安
-- エラー発生箇所の特定が容易になる
-
-実装:
-- 各フェーズの進捗を%で表示
-- 推定残り時間の表示
-- 各処理の詳細ログ（DEBUG, INFO, WARNING, ERROR）
-- 処理完了時に統計情報を出力
-```
-
-#### 1.4 変更容易性（Changeability）
-```
-仕様変更や調整が発生しても、影響範囲を最小化する。
-
-理由:
-- BGMの音量調整
-- 字幕のフォントサイズ変更
-- AI動画の配置戦略変更
-→ これらが頻繁に発生する
-
-実装:
-- 設定値は全て外部化（YAML/JSON）
-- ハードコーディング禁止
-- プラグイン的な拡張機構
-```
-
----
-
-## 🏗️ システムアーキテクチャ
-
-### 2. 全体構成図
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      CLI / API Gateway                       │
-│                   (src/cli.py, src/api.py)                   │
-├─────────────────────────────────────────────────────────────┤
-│                     Command Dispatcher                       │
-│              各フェーズへのルーティングを担当                  │
-└─────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────┐
-│                    Phase Orchestrator                        │
-│               (src/core/orchestrator.py)                     │
-│                                                               │
-│  • 各フェーズの実行順序管理                                    │
-│  • スキップ判定（既存出力があればスキップ）                     │
-│  • エラーハンドリング（フェーズ単位でリトライ）                 │
-│  • 進捗管理・ログ記録                                          │
-└─────────────────────────────────────────────────────────────┘
-                              ↓
-        ┌─────────────────────────────────────┐
-        │   Individual Phase Executors        │
-        └─────────────────────────────────────┘
-                ↓          ↓          ↓
-    ┌──────────┐  ┌──────────┐  ┌──────────┐
-    │ Phase 1  │  │ Phase 2  │  │ Phase 3  │
-    │ 台本生成  │  │ 音声生成  │  │ 画像収集  │
-    └──────────┘  └──────────┘  └──────────┘
-                ↓          ↓          ↓
-    ┌──────────┐  ┌──────────┐  ┌──────────┐
-    │ Phase 4  │  │ Phase 5  │  │ Phase 6  │
-    │ 静止画    │  │ BGM選択  │  │ 字幕生成  │
-    │ アニメ化  │  │         │  │         │
-    └──────────┘  └──────────┘  └──────────┘
-                ↓          ↓          ↓
-                    ┌──────────┐
-                    │ Phase 7  │
-                    │ 動画統合  │
-                    └──────────┘
-                ↓          ↓          ↓
-    ┌──────────┐
-    │ Phase 8  │
-    │ サムネイル│
-    │ 生成     │
-    └──────────┘
-                    ↓
-        ┌─────────────────────────┐
-        │   Final Output          │
-        │   • 完成動画 (MP4)      │
-        │   • サムネイル (PNG)    │
-        │   • メタデータ (JSON)   │
-        └─────────────────────────┘
-```
-
-### 3. データフロー設計
-
-#### 3.1 ディレクトリ構造（確定版）
-
-```
-video-automation/
-│
-├── config/                              # 設定ファイル（全て外部化）
-│   ├── .env                             # APIキー（gitignore）
-│   ├── .env.example                     # 環境変数テンプレート
-│   ├── settings.yaml                    # システム全体設定
-│   ├── phases/                          # フェーズ別設定
-│   │   ├── script_generation.yaml       # 台本生成設定
-│   │   ├── audio_generation.yaml        # 音声生成設定
-│   │   ├── image_animation.yaml         # 静止画アニメ設定
-│   │   ├── ai_video_generation.yaml     # AI動画生成設定
-│   │   ├── bgm_selection.yaml           # BGM選択設定
-│   │   ├── subtitle_generation.yaml     # 字幕生成設定
-│   │   └── video_composition.yaml       # 動画統合設定
-│   └── templates/                       # テンプレート
-│       ├── script_template.yaml         # 台本構造テンプレート
-│       └── thumbnail_template.yaml      # サムネイルレイアウト
-│
-├── data/                                # データディレクトリ
-│   ├── input/                           # 入力データ
-│   │   ├── subjects.json                # 偉人リスト
-│   │   └── manual_overrides/            # 手動調整用
-│   │       ├── {subject}_script.json    # 台本の手動修正版
-│   │       └── {subject}_images.json    # 画像の手動選択
-│   │
-│   ├── working/                         # 作業ディレクトリ（中間データ）
-│   │   └── {subject}/                   # 偉人ごとのワークスペース
-│   │       ├── phase_status.json        # フェーズ実行状態
-│   │       ├── 01_script/               # Phase 1出力
-│   │       │   ├── script.json          # 構造化台本
-│   │       │   ├── metadata.json        # 生成メタデータ
-│   │       │   └── script.log           # 処理ログ
-│   │       ├── 02_audio/                # Phase 2出力
-│   │       │   ├── narration_full.mp3   # 完全版音声
-│   │       │   ├── sections/            # セクション別音声
-│   │       │   │   ├── section_00.mp3
-│   │       │   │   └── ...
-│   │       │   └── audio_analysis.json  # 音声解析結果
-│   │       ├── 03_images/               # Phase 3出力
-│   │       │   ├── collected/           # 収集画像
-│   │       │   │   ├── img_001.jpg
-│   │       │   │   └── ...
-│   │       │   ├── classified.json      # 画像分類結果
-│   │       │   └── download_log.json    # ダウンロード履歴
-│   │       ├── 04_animated/             # Phase 4出力
-│   │       │   ├── animated_001.mp4     # アニメ化動画
-│   │       │   └── ...
-│   │       ├── 05_bgm/                  # Phase 5出力
-│   │       │   ├── selected_tracks.json # 選択されたBGM
-│   │       │   └── bgm_timeline.json    # BGM配置情報
-│   │       ├── 06_subtitles/            # Phase 6出力
-│   │       │   ├── subtitles.srt        # 字幕ファイル
-│   │       │   ├── subtitle_timing.json # タイミング情報
-│   │       │   └── metadata.json        # 生成メタデータ
-│   │       ├── 07_composition/          # Phase 7出力
-│   │       │   ├── timeline.json        # 最終タイムライン
-│   │       │   └── composition.log      # 合成ログ
-│   │       └── 08_thumbnail/            # Phase 8出力
-│   │           ├── thumbnails/          # 生成されたサムネイル
-│   │           │   └── *.png
-│   │           ├── catchcopy_candidates.json  # キャッチコピー候補
-│   │           └── metadata.json        # 生成メタデータ
-│   │
-│   ├── output/                          # 最終出力
-│   │   ├── videos/                      # 完成動画
-│   │   │   └── {subject}.mp4
-│   │   ├── thumbnails/                  # サムネイル
-│   │   │   └── {subject}_thumbnail.jpg
-│   │   ├── metadata/                    # メタデータ
-│   │   │   └── {subject}_metadata.json
-│   │   └── reports/                     # 統計レポート
-│   │       └── {subject}_report.html
-│   │
-│   ├── cache/                           # 再利用可能キャッシュ
-│   │   ├── api_responses/               # API応答キャッシュ
-│   │   │   ├── claude/
-│   │   │   ├── elevenlabs/
-│   │   │   └── kling_ai/
-│   │   ├── downloaded_assets/           # ダウンロード済み素材
-│   │   │   ├── images/
-│   │   │   ├── bgm/
-│   │   │   └── fonts/
-│   │   └── models/                      # AIモデルキャッシュ
-│   │
-│   └── database.db                      # SQLite DB
-│
-├── src/                                 # ソースコード
-│   ├── __init__.py
-│   │
-│   ├── core/                            # コア機能
-│   │   ├── __init__.py
-│   │   ├── orchestrator.py              # フェーズ実行管理
-│   │   ├── config_manager.py            # 設定管理
-│   │   ├── phase_base.py                # 基底Phaseクラス
-│   │   ├── models.py                    # データモデル（Pydantic）
-│   │   ├── database.py                  # DB操作
-│   │   └── exceptions.py                # カスタム例外
-│   │
-│   ├── phases/                          # 各フェーズ実装
-│   │   ├── __init__.py
-│   │   ├── phase_01_script.py           # Phase 1: 台本生成
-│   │   ├── phase_02_audio.py            # Phase 2: 音声生成
-│   │   ├── phase_03_images.py           # Phase 3: 画像収集
-│   │   ├── phase_04_animation.py        # Phase 4: 静止画アニメ化
-│   │   ├── phase_05_bgm.py              # Phase 5: BGM選択
-│   │   ├── phase_06_subtitles.py        # Phase 6: 字幕生成
-│   │   ├── phase_07_composition.py      # Phase 7: 動画統合
-│   │   └── phase_08_thumbnail.py        # Phase 8: サムネイル生成
-│   │
-│   ├── generators/                      # 個別生成器（フェーズから呼ばれる）
-│   │   ├── __init__.py
-│   │   ├── script_generator.py          # Claude API呼び出し
-│   │   ├── audio_generator.py           # ElevenLabs呼び出し
-│   │   ├── image_collector.py           # 画像API呼び出し
-│   │   ├── ai_video_generator.py        # Kling AI呼び出し（未実装）
-│   │   ├── subtitle_generator.py        # 字幕生成ロジック
-│   │   ├── catchcopy_generator.py       # キャッチコピー生成（Claude）
-│   │   ├── gptimage_thumbnail_generator.py  # DALL-E 3サムネイル生成
-│   │   └── pillow_thumbnail_generator.py    # Pillowサムネイル生成
-│   │
-│   ├── processors/                      # 処理ユーティリティ
-│   │   ├── __init__.py
-│   │   ├── image_animator.py            # MoviePyでの画像アニメ化
-│   │   ├── audio_processor.py           # 音声解析・分割
-│   │   ├── video_compositor.py          # MoviePyでの動画合成
-│   │   ├── bgm_manager.py               # BGM選択・配置ロジック
-│   │
-│   ├── utils/                           # ユーティリティ
-│   │   ├── __init__.py
-│   │   ├── logger.py                    # ログ設定
-│   │   ├── whisper_timing.py            # Whisperによるタイミング情報取得
-│   │   ├── file_handler.py              # ファイル操作
-│   │   ├── cache_manager.py             # キャッシュ管理
-│   │   ├── progress_tracker.py          # 進捗管理
-│   │   ├── validator.py                 # バリデーション
-│   │   └── cost_calculator.py           # コスト計算
-│   │
-│   ├── cli.py                           # CLIエントリポイント
-│   └── api.py                           # API（将来的に）
-│
-├── assets/                              # 静的アセット
-│   ├── fonts/                           # フォントファイル
-│   │   ├── NotoSansJP-Bold.ttf
-│   │   └── YuGothic-Bold.ttc
-│   ├── bgm/                             # BGM音源（著作権フリー）
-│   │   ├── epic/
-│   │   │   ├── epic_01.mp3
-│   │   │   └── ...
-│   │   ├── calm/
-│   │   ├── hopeful/
-│   │   └── dramatic/
-│   └── templates/                       # 画像テンプレート
-│       └── thumbnail_base.psd
-│
-├── tests/                               # テストコード
-│   ├── __init__.py
-│   ├── unit/                            # ユニットテスト
-│   │   ├── test_script_generator.py
-│   │   └── ...
-│   ├── integration/                     # 統合テスト
-│   │   ├── test_phase_pipeline.py
-│   │   └── ...
-│   └── fixtures/                        # テストデータ
-│       ├── sample_script.json
-│       └── sample_images/
-│
-├── logs/                                # ログファイル
-│   ├── YYYYMMDD_HHMMSS_generation.log   # 実行ログ
-│   └── errors/                          # エラーログ
-│
-├── docs/                                # ドキュメント
-│   ├── ARCHITECTURE.md                  # 本ドキュメント
-│   ├── API_REFERENCE.md                 # API仕様
-│   ├── PHASE_DETAILS.md                 # 各フェーズの詳細
-│   ├── CONFIGURATION.md                 # 設定ガイド
-│   └── TROUBLESHOOTING.md               # トラブルシューティング
-│
-├── scripts/                             # 補助スクリプト
-│   ├── setup.sh                         # 環境セットアップ
-│   ├── download_assets.py               # アセットダウンロード
-│   └── cleanup.py                       # キャッシュクリーンアップ
-│
-├── requirements.txt                     # 依存パッケージ
-├── pyproject.toml                       # Poetryプロジェクト設定
-├── .gitignore
-├── README.md
-└── DESIGN.md                            # 本ドキュメント
-```
-
-#### 3.2 データモデル定義（Pydantic）
-
-```python
-# src/core/models.py
-
-from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
-from enum import Enum
-from datetime import datetime
-
-# ========================================
-# Enum定義
-# ========================================
-
-class PhaseStatus(str, Enum):
-    """フェーズの実行状態"""
-    PENDING = "pending"       # 未実行
-    RUNNING = "running"       # 実行中
-    COMPLETED = "completed"   # 完了
-    FAILED = "failed"         # 失敗
-    SKIPPED = "skipped"       # スキップ（既存出力あり）
-
-class AnimationType(str, Enum):
-    """静止画アニメーションタイプ"""
-    ZOOM_IN = "zoom_in"           # ゆっくりズームイン
-    ZOOM_OUT = "zoom_out"         # ゆっくりズームアウト
-    PAN_RIGHT = "pan_right"       # 右へパン
-    PAN_LEFT = "pan_left"         # 左へパン
-    TILT_CORRECT = "tilt_correct" # 傾き補正
-    STATIC = "static"             # 静止
-
-class TransitionType(str, Enum):
-    """トランジションタイプ"""
-    FADE = "fade"                 # フェード
-    CROSSFADE = "crossfade"       # クロスフェード
-    NONE = "none"                 # トランジションなし
-
-class BGMCategory(str, Enum):
-    """BGMカテゴリ"""
-    EPIC = "epic"                 # 壮大
-    CALM = "calm"                 # 静か
-    HOPEFUL = "hopeful"           # 希望
-    DRAMATIC = "dramatic"         # ドラマチック
-    TRAGIC = "tragic"             # 悲劇的
-
-# ========================================
-# Phase 1: 台本生成
-# ========================================
-
-class ScriptSection(BaseModel):
-    """台本の1セクション"""
-    section_id: int
-    title: str
-    narration: str                    # ナレーション原稿
-    estimated_duration: float         # 推定時間（秒）
-    image_keywords: List[str]         # 画像検索キーワード
-    atmosphere: str                   # セクションの雰囲気（BGM選択用）
-    requires_ai_video: bool = False   # AI動画が必要か
-    ai_video_prompt: Optional[str] = None  # AI動画用プロンプト
-    
-class VideoScript(BaseModel):
-    """完全な台本"""
-    subject: str                      # 偉人名
-    title: str                        # 動画タイトル
-    description: str                  # 説明文（YouTube用）
-    sections: List[ScriptSection]
-    total_estimated_duration: float   # 総推定時間
-    generated_at: datetime
-    model_version: str                # 使用したClaudeモデル
-
-# ========================================
-# Phase 2: 音声生成
-# ========================================
-
-class AudioSegment(BaseModel):
-    """音声セグメント"""
-    section_id: int
-    audio_path: str                   # MP3ファイルパス
-    duration: float                   # 実際の長さ（秒）
-    start_time: float = 0             # 開始時間（統合後）
-
-class AudioGeneration(BaseModel):
-    """音声生成結果"""
-    subject: str
-    full_audio_path: str              # 統合版音声
-    segments: List[AudioSegment]
-    total_duration: float
-    generated_at: datetime
-
-# ========================================
-# Phase 3: 画像収集
-# ========================================
-
-class ImageClassification(str, Enum):
-    """画像の分類"""
-    PORTRAIT = "portrait"             # 肖像画
-    LANDSCAPE = "landscape"           # 風景
-    ARCHITECTURE = "architecture"     # 建築物
-    DOCUMENT = "document"             # 古文書・資料
-    BATTLE = "battle"                 # 戦闘シーン
-    DAILY_LIFE = "daily_life"         # 日常風景
-
-class CollectedImage(BaseModel):
-    """収集した画像"""
-    image_id: str                     # 一意ID
-    file_path: str                    # ローカルパス
-    source_url: str                   # 元URL
-    source: str                       # Pexels, Wikimedia等
-    classification: ImageClassification
-    keywords: List[str]
-    resolution: tuple[int, int]       # (width, height)
-    aspect_ratio: float
-    quality_score: float              # 品質スコア（0-1）
-
-class ImageCollection(BaseModel):
-    """画像収集結果"""
-    subject: str
-    images: List[CollectedImage]
-    collected_at: datetime
-
-# ========================================
-# Phase 4: 静止画アニメーション
-# ========================================
-
-class AnimatedClip(BaseModel):
-    """アニメーション化されたクリップ"""
-    clip_id: str
-    source_image_id: str              # 元画像ID
-    output_path: str                  # 生成動画パス
-    animation_type: AnimationType
-    duration: float
-    resolution: tuple[int, int]
-    start_time: float = 0             # タイムライン上の開始時間
-
-class ImageAnimationResult(BaseModel):
-    """静止画アニメーション結果"""
-    subject: str
-    animated_clips: List[AnimatedClip]
-    generated_at: datetime
-
-# ========================================
-# Phase 5: BGM選択（注：AI動画生成機能は未実装）
-# ========================================
-
-class AIVideoClip(BaseModel):
-    """AI生成動画クリップ"""
-    clip_id: str
-    prompt: str                       # 生成プロンプト
-    output_path: str
-    duration: float
-    resolution: tuple[int, int]
-    cost_usd: float                   # 生成コスト
-    service: str                      # Kling AI等
-    start_time: float = 0             # タイムライン上の開始時間
-
-class AIVideoGeneration(BaseModel):
-    """AI動画生成結果"""
-    subject: str
-    clips: List[AIVideoClip]
-    total_duration: float
-    total_cost_usd: float
-    generated_at: datetime
-
-# ========================================
-# Phase 5: BGM選択
-# ========================================
-
-class BGMTrack(BaseModel):
-    """BGM音源"""
-    track_id: str
-    file_path: str                    # MP3ファイルパス
-    category: BGMCategory
-    duration: float
-    title: str
-    artist: Optional[str] = None
-
-class BGMSegment(BaseModel):
-    """BGMセグメント（タイムライン上の配置）"""
-    track_id: str
-    start_time: float                 # 動画内の開始時間
-    duration: float                   # 使用時間
-    volume: float = 0.3               # 音量（0-1、デフォルト30%）
-    fade_in: float = 2.0              # フェードイン時間
-    fade_out: float = 2.0             # フェードアウト時間
-
-class BGMSelection(BaseModel):
-    """BGM選択結果"""
-    subject: str
-    segments: List[BGMSegment]
-    tracks_used: List[BGMTrack]
-    selected_at: datetime
-
-# ========================================
-# Phase 6: 字幕生成
-# ========================================
-
-class SubtitleEntry(BaseModel):
-    """字幕エントリ"""
-    index: int
-    start_time: float                 # 秒
-    end_time: float                   # 秒
-    text_line1: str                   # 1行目
-    text_line2: str                   # 2行目（空の場合あり）
-
-class SubtitleGeneration(BaseModel):
-    """字幕生成結果"""
-    subject: str
-    subtitles: List[SubtitleEntry]
-    srt_path: str                     # SRTファイルパス
-    generated_at: datetime
-
-# ========================================
-# Phase 7: 動画統合
-# ========================================
-
-class TimelineClip(BaseModel):
-    """タイムライン上のクリップ"""
-    clip_type: str                    # "animated", "ai_video", "static"
-    source_path: str
-    start_time: float
-    duration: float
-    transition_in: TransitionType = TransitionType.FADE
-    transition_out: TransitionType = TransitionType.FADE
-    z_index: int = 0                  # レイヤー順序
-
-class VideoTimeline(BaseModel):
-    """最終タイムライン"""
-    subject: str
-    clips: List[TimelineClip]
-    audio_path: str
-    bgm_segments: List[BGMSegment]
-    subtitles: List[SubtitleEntry]
-    total_duration: float
-    resolution: tuple[int, int] = (1920, 1080)
-    fps: int = 30
-
-class VideoComposition(BaseModel):
-    """動画統合結果"""
-    subject: str
-    output_video_path: str
-    thumbnail_path: str
-    metadata_path: str
-    timeline: VideoTimeline
-    render_time_seconds: float
-    file_size_mb: float
-    completed_at: datetime
-
-# ========================================
-# 全体管理
-# ========================================
-
-class PhaseExecution(BaseModel):
-    """フェーズ実行情報"""
-    phase_number: int
-    phase_name: str
-    status: PhaseStatus
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    duration_seconds: Optional[float] = None
-    error_message: Optional[str] = None
-    output_paths: List[str] = []
-
-class ProjectStatus(BaseModel):
-    """プロジェクト全体の状態"""
-    subject: str
-    overall_status: PhaseStatus
-    phases: List[PhaseExecution]
-    created_at: datetime
-    updated_at: datetime
-    estimated_cost_jpy: float
-    actual_cost_jpy: Optional[float] = None
-
-class GenerationReport(BaseModel):
-    """生成レポート"""
-    subject: str
-    success: bool
-    total_duration_seconds: float
-    cost_breakdown: Dict[str, float]  # {"claude": 15, "elevenlabs": 120, ...}
-    total_cost_jpy: float
-    output_video_path: str
-    output_thumbnail_path: str
-    phases_summary: List[PhaseExecution]
-    generated_at: datetime
-```
-
 ---
 
 ## 🔄 フェーズ詳細設計
 
-### 4. Phase Base Class（基底クラス）
+### Phase 2: 音声生成（Audio Generation）
 
-全てのフェーズはこの基底クラスを継承する。
-
-```python
-# src/core/phase_base.py
-
-from abc import ABC, abstractmethod
-from typing import Any, Optional
-from pathlib import Path
-import logging
-from datetime import datetime
-
-from .models import PhaseStatus, PhaseExecution
-from .config_manager import ConfigManager
-
-class PhaseBase(ABC):
-    """
-    フェーズ基底クラス
-    
-    全てのフェーズはこのクラスを継承し、
-    以下のメソッドを実装する必要がある。
-    """
-    
-    def __init__(
-        self,
-        subject: str,
-        working_dir: Path,
-        config: ConfigManager,
-        logger: logging.Logger
-    ):
-        self.subject = subject
-        self.working_dir = working_dir
-        self.config = config
-        self.logger = logger
-        
-        # フェーズ固有のディレクトリ
-        self.phase_dir = self.get_phase_directory()
-        self.phase_dir.mkdir(parents=True, exist_ok=True)
-        
-        # 実行情報
-        self.execution = PhaseExecution(
-            phase_number=self.get_phase_number(),
-            phase_name=self.get_phase_name(),
-            status=PhaseStatus.PENDING
-        )
-    
-    @abstractmethod
-    def get_phase_number(self) -> int:
-        """フェーズ番号を返す（1-8）"""
-        pass
-    
-    @abstractmethod
-    def get_phase_name(self) -> str:
-        """フェーズ名を返す"""
-        pass
-    
-    @abstractmethod
-    def get_phase_directory(self) -> Path:
-        """フェーズのワーキングディレクトリを返す"""
-        pass
-    
-    @abstractmethod
-    def check_inputs_exist(self) -> bool:
-        """
-        前フェーズの出力（このフェーズの入力）が
-        存在するかチェック
-        """
-        pass
-    
-    @abstractmethod
-    def check_outputs_exist(self) -> bool:
-        """
-        このフェーズの出力が既に存在するかチェック
-        （存在すればスキップ可能）
-        """
-        pass
-    
-    @abstractmethod
-    def execute_phase(self) -> Any:
-        """
-        フェーズの実際の処理を実行
-        
-        Returns:
-            フェーズの出力データ（Pydanticモデル）
-        """
-        pass
-    
-    @abstractmethod
-    def validate_output(self, output: Any) -> bool:
-        """
-        出力データが正しいかバリデーション
-        """
-        pass
-    
-    def run(self, skip_if_exists: bool = True) -> PhaseExecution:
-        """
-        フェーズを実行（共通処理）
-        
-        Args:
-            skip_if_exists: 出力が既に存在する場合スキップするか
-            
-        Returns:
-            PhaseExecution: 実行結果
-        """
-        self.logger.info(f"=== Phase {self.get_phase_number()}: {self.get_phase_name()} ===")
-        
-        # 入力チェック
-        if not self.check_inputs_exist():
-            self.execution.status = PhaseStatus.FAILED
-            self.execution.error_message = "Required inputs do not exist"
-            self.logger.error(f"Phase {self.get_phase_number()} failed: inputs missing")
-            return self.execution
-        
-        # 既存出力チェック
-        if skip_if_exists and self.check_outputs_exist():
-            self.execution.status = PhaseStatus.SKIPPED
-            self.logger.info(f"Phase {self.get_phase_number()} skipped: outputs already exist")
-            return self.execution
-        
-        # 実行
-        try:
-            self.execution.status = PhaseStatus.RUNNING
-            self.execution.started_at = datetime.now()
-            self.logger.info(f"Phase {self.get_phase_number()} started")
-            
-            # 実際の処理
-            output = self.execute_phase()
-            
-            # バリデーション
-            if not self.validate_output(output):
-                raise ValueError("Output validation failed")
-            
-            # 成功
-            self.execution.status = PhaseStatus.COMPLETED
-            self.execution.completed_at = datetime.now()
-            self.execution.duration_seconds = (
-                self.execution.completed_at - self.execution.started_at
-            ).total_seconds()
-            
-            self.logger.info(
-                f"Phase {self.get_phase_number()} completed "
-                f"({self.execution.duration_seconds:.1f}s)"
-            )
-            
-            return self.execution
-            
-        except Exception as e:
-            self.execution.status = PhaseStatus.FAILED
-            self.execution.completed_at = datetime.now()
-            self.execution.error_message = str(e)
-            
-            self.logger.error(
-                f"Phase {self.get_phase_number()} failed: {e}",
-                exc_info=True
-            )
-            
-            return self.execution
-```
-
-### 5. 各フェーズの詳細設計
-
-#### Phase 1: 台本生成（Script Generation）
-
-**責務**: Claude APIを使用して構造化された台本を生成
-
-**入力**:
-- `subjects.json`: 偉人名リスト
-- `config/phases/script_generation.yaml`: 台本生成設定
-
-**処理**:
-1. Claude APIにプロンプトを送信
-2. JSON形式で台本を受け取る
-3. Pydanticモデルでバリデーション
-4. 各セクションの推定時間を計算
-5. AI動画が必要なシーンを特定
-
-**出力**:
-- `working/{subject}/01_script/script.json`: 構造化台本
-- `working/{subject}/01_script/metadata.json`: 生成メタデータ
-
-**設定例（config/phases/script_generation.yaml）**:
-```yaml
-model: "claude-sonnet-4-20250514"
-max_tokens: 8000
-temperature: 0.7
-
-sections:
-  count: 5-7
-  target_duration_per_section: 120-180  # 秒
-
-ai_video_trigger_keywords:
-  - "戦闘"
-  - "決戦"
-  - "襲撃"
-  - "建設"
-  - "革命"
-
-prompt_template: |
-  あなたは歴史解説動画の台本作家です。
-  {subject}について、15分（約900秒）の動画台本を作成してください。
-  
-  要件:
-  1. 全体を5-7個のセクションに分割
-  2. 各セクションは2-3分程度
-  3. 高齢者にも分かりやすい言葉遣い
-  4. ナレーションは自然な話し言葉
-  5. 重要なシーンではAI動画生成が必要か判定
-  
-  出力形式はJSON: ...
-```
-
-**スキップ条件**:
-- `working/{subject}/01_script/script.json`が存在する
-
-**エラーハンドリング**:
-- Claude API失敗 → 3回リトライ
-- JSON パース失敗 → 構造修正を試みる
-- バリデーション失敗 → エラーログに詳細記録
-
----
-
-#### Phase 2: 音声生成（Audio Generation）
-
-**責務**: ElevenLabsを使用してナレーション音声を生成
+**責務**: Kokoro TTS/ElevenLabsを使用してナレーション音声を生成
 
 **入力**:
 - `working/{subject}/01_script/script.json`
 
 **処理**:
 1. 台本からナレーション原稿を抽出
-2. セクションごとにElevenLabs APIで音声生成
-3. 生成した音声をpydubで結合
-4. 音声解析（実際の長さ、無音部分検出）
+2. セクションごとに音声生成
+3. 句点（。！？）での間隔制御
+4. 生成した音声をpydubで結合
+5. 音声解析（実際の長さ、無音部分検出）
+6. Whisperによる文字レベルタイミング情報の生成
 
 **出力**:
 - `working/{subject}/02_audio/narration_full.mp3`
 - `working/{subject}/02_audio/sections/section_XX.mp3`
+- `working/{subject}/02_audio/audio_timing.json` （文字レベルタイミング情報）
 - `working/{subject}/02_audio/audio_analysis.json`
+
+#### 📌 句点での間隔制御（重要な新機能）
+
+**目的**: 自然な音声リズムを作るため、句点後に適切な間隔を挿入
 
 **設定例（config/phases/audio_generation.yaml）**:
 ```yaml
-service: "elevenlabs"
-voice_id: "21m00Tcm4TlvDq8ikWAM"  # 要調整
-model: "eleven_multilingual_v2"
+# ========================================
+# 音声生成サービス選択
+# ========================================
+service: "kokoro"  # または "elevenlabs"
 
-settings:
-  stability: 0.5
-  similarity_boost: 0.75
-  style: 0
-  use_speaker_boost: true
+# ========================================
+# 句点での間隔制御（全サービス共通）
+# ========================================
+punctuation_pause:
+  enabled: true                    # 句点での間隔制御を有効化
 
-format:
-  codec: "mp3"
-  sample_rate: 44100
-  channels: 1  # モノラル
+  # 各句読点の後に挿入する無音時間（秒）
+  pause_duration:
+    period: 0.8                    # 「。」の後の無音時間
+    exclamation: 0.9               # 「！」の後の無音時間
+    question: 0.9                  # 「？」の後の無音時間
+    comma: 0.0                     # 「、」の後の無音時間（通常は挿入しない）
 
-# セクション間の無音時間（秒）
+  # セクション末尾の句点は間隔を挿入しない
+  skip_section_end: true           # セクション末尾の句点はスキップ
+
+# セクション間の無音時間（句点での間隔とは別）
 inter_section_silence: 0.5
+
+# ========================================
+# Kokoro TTS 設定
+# ========================================
+kokoro:
+  api_url: "http://localhost:8880"
+  voice: "jf_alpha"                # 日本語女性音声
+  speed: 1.0
+  response_format: "mp3"
+
+# ========================================
+# Whisper タイムスタンプ取得設定
+# ========================================
+whisper:
+  enabled: true                    # Whisper使用の有効化
+  model: "small"                   # 日本語認識精度向上のため推奨
+  language: "ja"
+  device: "auto"
 ```
 
-**スキップ条件**:
-- `working/{subject}/02_audio/narration_full.mp3`が存在する
+#### 実装の詳細
 
-**エラーハンドリング**:
-- ElevenLabs API失敗 → 5回リトライ（レート制限考慮）
-- 音声結合失敗 → pydub設定を調整して再試行
+**句点での間隔制御の仕組み**:
 
----
+1. **ナレーション原稿の分析**
+   ```python
+   # 句読点位置を検出
+   narration = "信長は尾張の大うつけと呼ばれた。しかし彼は天下統一を目指した！"
+   # → 「。」の位置: 18
+   # → 「！」の位置: 39
+   ```
 
-#### Phase 3: 画像収集（Image Collection）
+2. **無音クリップの挿入**
+   ```python
+   from pydub import AudioSegment
 
-**責務**: 台本に基づいて関連画像を収集・分類
+   # 音声生成
+   audio = kokoro_tts.generate(narration)
 
-**入力**:
-- `working/{subject}/01_script/script.json`
+   # 句点位置で分割
+   segments = []
+   for sentence in split_by_punctuation(narration):
+       segment_audio = kokoro_tts.generate(sentence)
+       segments.append(segment_audio)
 
-**処理**:
-1. 各セクションの`image_keywords`を抽出
-2. Pexels/Wikimedia/Unsplash APIで画像検索
-3. ダウンロード（並列処理で高速化）
-4. Claude APIで画像を分類（portrait, landscape等）
-5. 品質スコアリング（解像度、アスペクト比等）
+       # 句読点の種類に応じた無音を追加
+       if sentence.endswith('。'):
+           silence = AudioSegment.silent(duration=800)  # 0.8秒
+       elif sentence.endswith('！') or sentence.endswith('？'):
+           silence = AudioSegment.silent(duration=900)  # 0.9秒
+       else:
+           silence = AudioSegment.silent(duration=0)
 
-**出力**:
-- `working/{subject}/03_images/collected/*.jpg`
-- `working/{subject}/03_images/classified.json`
+       segments.append(silence)
 
-**設定例（config/phases/image_collection.yaml）**:
-```yaml
-sources:
-  - name: "pexels"
-    api_key_env: "PEXELS_API_KEY"
-    per_keyword_limit: 5
-    priority: 1
-    
-  - name: "wikimedia"
-    api_key_env: null  # 不要
-    per_keyword_limit: 3
-    priority: 2
-    
-  - name: "unsplash"
-    api_key_env: "UNSPLASH_API_KEY"
-    per_keyword_limit: 3
-    priority: 3
+   # 結合
+   final_audio = sum(segments)
+   ```
 
-target_count_per_section: 3-4
+3. **タイミング情報の調整**
+   ```python
+   # audio_timing.jsonに無音時間を反映
+   # 各文字のタイミング情報に無音時間のオフセットを追加
+   ```
 
-quality_filters:
-  min_width: 1920
-  min_height: 1080
-  aspect_ratio_range: [1.5, 1.9]  # 16:9付近
+**設定値の調整ガイドライン**:
 
-classification:
-  use_claude_api: true
-  model: "claude-sonnet-4-20250514"
-```
+| 句読点 | 推奨値（秒） | 説明 |
+|--------|-------------|------|
+| 。（句点） | 0.6 - 1.0 | 文の終わり。次の文への切り替わりを明確に |
+| ！（感嘆符） | 0.8 - 1.2 | 感情的な強調。やや長めの間 |
+| ？（疑問符） | 0.8 - 1.2 | 疑問。考える時間を与える |
+| 、（読点） | 0.0 - 0.3 | 文中の区切り。通常は無音を入れない |
 
-**スキップ条件**:
-- `working/{subject}/03_images/classified.json`が存在し、
-  十分な枚数の画像が収集されている
-
-**エラーハンドリング**:
-- API失敗 → 他のソースにフォールバック
-- ダウンロード失敗 → スキップして次へ
-- 画像不足 → 警告ログ、最低限の枚数確保
+**注意事項**:
+- **セクション末尾の句点**: `skip_section_end: true`の場合、セクション末尾の句点後には無音を挿入しない（`inter_section_silence`が代わりに適用される）
+- **Whisperタイミング情報**: 無音挿入後のタイミング情報はWhisperで再取得されるため、自動的に調整される
+- **字幕との同期**: Phase 6で生成される字幕は、無音時間を含むタイミング情報に基づいて正確に同期される
 
 ---
 
-#### Phase 4: 静止画アニメーション（Image Animation）
-
-**責務**: 収集した静止画をMoviePyでアニメーション化
-
-**入力**:
-- `working/{subject}/03_images/classified.json`
-- `working/{subject}/02_audio/audio_analysis.json`
-
-**処理**:
-1. 各画像に適したアニメーションタイプを決定
-   - 肖像画 → ゆっくりズームイン
-   - 風景 → パン
-   - 建築物 → ドリー（前進）
-2. MoviePyで各画像を動画クリップ化
-3. アニメーション効果を適用
-4. タイムライン上の配置時間を計算
-
-**出力**:
-- `working/{subject}/04_animated/animated_XXX.mp4`
-- `working/{subject}/04_animated/animation_plan.json`
-
-**設定例（config/phases/image_animation.yaml）**:
-```yaml
-default_clip_duration: 8  # 秒
-
-animation_patterns:
-  zoom_in:
-    zoom_factor: 1.1  # 10%拡大
-    duration: 8
-    easing: "ease_in_out"
-    
-  zoom_out:
-    zoom_factor: 0.9  # 10%縮小
-    duration: 8
-    easing: "ease_in_out"
-    
-  pan_right:
-    distance_percent: 10  # 画面幅の10%移動
-    duration: 8
-    easing: "linear"
-    
-  pan_left:
-    distance_percent: 10
-    duration: 8
-    easing: "linear"
-    
-  static:
-    duration: 6
-    # 完全静止
-
-# 画像分類ごとのデフォルトアニメーション
-classification_defaults:
-  portrait: "zoom_in"
-  landscape: "pan_right"
-  architecture: "zoom_in"
-  document: "static"
-  battle: "zoom_out"
-
-# アニメーションのバリエーション
-# 同じタイプが続かないようランダム化
-variation_enabled: true
-```
-
-**スキップ条件**:
-- `working/{subject}/04_animated/animation_plan.json`が存在し、
-  全ての動画クリップが生成済み
-
-**エラーハンドリング**:
-- MoviePy処理失敗 → その画像はスキップ
-- メモリ不足 → 解像度を下げて再試行
-
----
-
-**注意**: AI動画生成機能は現在未実装です。将来的な拡張として検討されています。
-
----
-
-#### Phase 5: BGM選択（BGM Selection）
-
-**責務**: 台本のbgm_suggestionに基づいてBGMを選択・配置
-
-**入力**:
-- `working/{subject}/01_script/script.json`（bgm_suggestionフィールドを含む）
-
-**処理**:
-1. 台本の各セクションの`bgm_suggestion`を読み取る（opening/main/ending）
-2. 固定の3曲構成から適切なBGMを選択
-   - opening: 導入部のBGM
-   - main: 展開～クライマックスのBGM
-   - ending: 余韻・締めのBGM
-3. タイムライン上の配置を決定
-4. BGM切り替え時のクロスフェードを設定
-5. フェードイン/アウトのタイミング計算
-
-**出力**:
-- `working/{subject}/05_bgm/selected_tracks.json`
-- `working/{subject}/05_bgm/bgm_timeline.json`
-
-**設定例（config/phases/bgm_selection.yaml）**:
-```yaml
-bgm_library_path: "assets/bgm/"
-
-# 固定BGM構造（起承転結対応）
-fixed_bgm_structure:
-  enabled: true
-  tracks:
-    opening:
-      file: "opening/intro_epic.mp3"
-      title: "Epic Introduction"
-    main:
-      file: "main/dramatic_journey.mp3"
-      title: "Dramatic Journey"
-    ending:
-      file: "ending/peaceful_resolution.mp3"
-      title: "Peaceful Resolution"
-
-default_settings:
-  volume: 0.3  # ナレーションの30%
-  fade_in_duration: 2.0
-  fade_out_duration: 2.0
-
-# BGM切り替え時のクロスフェード
-transition_between_tracks:
-  type: "crossfade"
-  duration: 3.0
-```
-
-**重要な変更点**:
-- 従来の`atmosphere`フィールドではなく、`bgm_suggestion`フィールドを使用
-- 台本生成時（Phase 1）に各セクションに`bgm_suggestion`（BGMType: opening/main/ending）が設定される
-- 固定の3曲構成により、動画全体で一貫した音楽の流れを作る
-
-**スキップ条件**:
-- `working/{subject}/05_bgm/bgm_timeline.json`が存在する
-
-**エラーハンドリング**:
-- BGMファイルなし → エラーログを記録、該当セクションをスキップ
-- fixed_bgm_structureが無効 → エラーを発生させる（必須設定）
-
----
-
-#### Phase 6: 字幕生成（Subtitle Generation）
+### Phase 6: 字幕生成（Subtitle Generation）
 
 **責務**: 音声に同期した字幕を生成
 
 **入力**:
 - `working/{subject}/01_script/script.json`
-- `working/{subject}/02_audio/audio_timing.json`（文字レベルのタイミング情報、Phase 2で生成）
-- `working/{subject}/02_audio/audio_analysis.json`（フォールバック用）
+- `working/{subject}/02_audio/audio_timing.json` （文字レベルタイミング情報）
+- `working/{subject}/02_audio/audio_analysis.json` （フォールバック用）
 
 **処理**:
-1. Phase 2で生成された文字レベルのタイミング情報（audio_timing.json）を読み込み
-   - characters配列に全ての文字（句読点を含む）が含まれる
-   - 各文字の開始・終了時刻が記録されている
-2. 句読点位置を検出し、文の境界を特定
-   - 「。」「！」「？」で文を分割
-   - 「、」では分割せず保持
+1. Phase 2で生成された文字レベルのタイミング情報を読み込み
+2. `\n`（改行）を検出し、改行位置で字幕を分割
 3. 長い文（36文字超）を適切な位置で分割
-   - 優先順位: 「、」の直後 > 助詞の後 > 文字種境界
-   - 「、」は前の部分に含めて分割（例: "礎は、" | "後の豊臣秀吉"）
+   - 優先順位: `\n`改行 > 「、」の直後 > 助詞の後 > 文字種境界
 4. 各文を2行（18文字×2）に分割
-   - 文字種境界や助詞位置を考慮して自然な分割
-5. 句読点を削除
-   - 「。」「！」「？」を削除
-   - 「、」は保持（読みやすさのため）
+5. 句読点を処理（「。」「！」「？」を削除、「、」は保持）
 6. 空の字幕をフィルタリング
 7. SRTファイル生成
 
@@ -1175,738 +248,666 @@ transition_between_tracks:
 - `working/{subject}/06_subtitles/subtitle_timing.json`
 - `working/{subject}/06_subtitles/metadata.json`
 
+#### 📌 字幕フォントの太さ設定（重要）
+
+**目的**: 視認性を高めるため、フォントの太さを調整可能にする
+
 **設定例（config/phases/subtitle_generation.yaml）**:
 ```yaml
-max_lines: 2  # 最大2行
-max_chars_per_line: 20  # 1行あたり最大文字数
+# ========================================
+# 字幕の基本設定
+# ========================================
+max_lines: 2                       # 最大2行
+max_chars_per_line: 18             # 1行あたり最大18文字
 
-timing:
-  min_display_duration: 4.0  # 最低表示時間（秒）
-  max_display_duration: 6.0  # 最大表示時間（秒）
-  lead_time: 0.2  # 音声より少し早く表示（秒）
-
-morphological_analysis:
-  use_mecab: false  # MeCabで形態素解析（オプション）
-  break_on: ["。", "、", "！", "？"]
-
-# Whisper設定（音声から正確なタイミング情報を取得）
-whisper:
-  enabled: true  # Whisperを使用してタイミング情報を取得するか
-  model: "base"  # Whisperモデル名（tiny, base, small, medium, large）
-
+# ========================================
+# フォント設定（重要）
+# ========================================
 font:
-  family: "Noto Sans JP Bold"
-  size: 60  # ピクセル
-  color: "#FFFFFF"  # 白
-  background_color: "#000000"  # 黒
-  background_opacity: 0.7
-  position: "bottom"  # 画面下部
-  margin_bottom: 80  # 下からのマージン（px）
+  # フォントファミリー
+  family: "Noto Sans JP Bold"      # 日本語フォント名
+
+  # フォントサイズ（ピクセル）
+  size: 60                         # デフォルト: 60px
+  # 推奨値:
+  # - 50-55px: やや小さめ（多くの文字を表示）
+  # - 60-65px: 標準（推奨）
+  # - 70-80px: 大きめ（高齢者向け）
+
+  # フォントの太さ（weight）
+  font_weight: "bold"              # regular/medium/bold/black
+  # - regular: 通常の太さ（400）
+  # - medium: やや太め（500-600）
+  # - bold: 太字（700）★推奨
+  # - black: 極太（900）
+
+  # 文字色
+  color: "#FFFFFF"                 # 白色
+
+  # 背景色と透明度
+  background_color: "#000000"      # 黒色
+  background_opacity: 0.7          # 0.0-1.0（0.7 = 70%不透明）
+
+  # 配置
+  position: "bottom"               # 画面下部
+  margin_bottom: 80                # 下からのマージン（px）
+
+  # ========================================
+  # 縁取り設定（視認性向上の鍵）
+  # ========================================
+  stroke_enabled: true             # 縁取りを有効化
+  stroke_color: "#000000"          # 黒色の縁取り
+  stroke_width: 3                  # 縁取りの太さ（ピクセル）
+  # 推奨値:
+  # - 2px: 標準の太さ（デフォルト）
+  # - 3px: やや太め ★推奨（視認性向上）
+  # - 4-5px: 太め（背景が明るい場合）
+  # - 6px以上: 極太（目立たせたい場合）
+
+  # ========================================
+  # シャドウ設定（さらなる視認性向上）
+  # ========================================
+  shadow_enabled: true             # シャドウを有効化
+  shadow_offset: [3, 3]            # シャドウのオフセット [x, y]（ピクセル）
+  # 推奨値:
+  # - [2, 2]: 標準
+  # - [3, 3]: やや強調 ★推奨
+  # - [4, 4]: 強調（背景が明るい場合）
+
+  shadow_color: "#000000"          # 黒色のシャドウ
+  shadow_opacity: 0.8              # 0.0-1.0（0.8 = 80%不透明）
+  shadow_blur: 2                   # シャドウのぼかし（ピクセル）
+  # 推奨値:
+  # - 0: ぼかしなし（シャープ）
+  # - 2: 軽いぼかし ★推奨
+  # - 4: 強いぼかし（柔らかい印象）
 ```
 
-**スキップ条件**:
-- `working/{subject}/06_subtitles/subtitles.srt`と`subtitle_timing.json`が存在する
+#### フォントの太さ設定の詳細ガイド
 
-**エラーハンドリング**:
-- Whisperのタイミング情報取得失敗 → 文字数比率で計算（フォールバック）
-- 形態素解析失敗 → 単純な句点で分割
-- タイミング計算エラー → 均等割り当てにフォールバック
+**1. フォントサイズ（size）**
+```yaml
+# 用途に応じた推奨値
+size: 60   # 標準（1920x1080で18文字が収まる）
+size: 65   # やや大きめ（視認性重視）
+size: 70   # 大きめ（高齢者向け、文字数制限注意）
+size: 55   # やや小さめ（多くの文字を表示）
+```
 
-**注意事項**:
-- Whisperを使用する場合、初回実行時にモデルをダウンロードします（baseモデルで約150MB）
-- 処理時間は音声の長さに比例します（約1分の音声で数秒〜数十秒）
-- Whisperが利用できない場合は、従来の文字数比率方式に自動的にフォールバックします
-- **FP16/FP32の処理**: CPU環境ではFP32を使用し、GPU環境ではFP16を使用します（自動判定）
-  - これにより、CPU環境でのFP16警告が解消されます（whisper_timing.py:88-96で実装）
+**2. フォントウェイト（font_weight）**
+```yaml
+# 太さの段階
+font_weight: "regular"  # 400 - 通常（細め）
+font_weight: "medium"   # 500-600 - やや太め
+font_weight: "bold"     # 700 - 太字 ★推奨
+font_weight: "black"    # 900 - 極太
+```
+
+**3. 縁取りの太さ（stroke_width）**
+
+縁取りは視認性を大きく左右します：
+
+```yaml
+# 背景が暗い場合（推奨）
+stroke_width: 2   # 標準
+stroke_width: 3   # やや太め ★推奨
+
+# 背景が明るい場合
+stroke_width: 4   # 太め
+stroke_width: 5   # かなり太め
+
+# 背景が複雑な場合
+stroke_width: 6   # 極太（目立たせたい）
+```
+
+**4. シャドウの設定（shadow_offset）**
+
+シャドウは立体感を出し、視認性を高めます：
+
+```yaml
+# 標準的な設定
+shadow_offset: [2, 2]   # 標準
+shadow_blur: 2          # 軽いぼかし
+
+# 強調したい場合
+shadow_offset: [3, 3]   # やや強調 ★推奨
+shadow_blur: 2          # 軽いぼかし
+shadow_opacity: 0.8     # やや濃い
+
+# さらに強調したい場合
+shadow_offset: [4, 4]   # 強調
+shadow_blur: 3          # 中程度のぼかし
+shadow_opacity: 0.9     # 濃い
+```
+
+#### 視認性を最大化する推奨設定
+
+```yaml
+font:
+  family: "Noto Sans JP Bold"
+  size: 65                         # やや大きめ
+  font_weight: "bold"              # 太字
+  color: "#FFFFFF"
+
+  # 縁取りを太くする
+  stroke_enabled: true
+  stroke_color: "#000000"
+  stroke_width: 3                  # ★ 標準より太め
+
+  # シャドウを強化
+  shadow_enabled: true
+  shadow_offset: [3, 3]            # ★ やや大きめ
+  shadow_color: "#000000"
+  shadow_opacity: 0.85             # ★ やや濃いめ
+  shadow_blur: 2
+
+  # 背景も調整
+  background_color: "#000000"
+  background_opacity: 0.75         # ★ やや濃いめ
+```
+
+#### 改行（\n）の処理ロジック
+
+**優先順位**:
+1. **`\n`（改行）**: 明示的な改行がある場合、その位置で必ず分割
+2. **長文分割（36文字超）**: 「、」の直後で優先的に分割
+3. **2行分割（18文字×2）**: 自然な位置で2行に分割
 
 **実装の詳細**:
-- `src/utils/whisper_timing.py`: Whisperによる単語レベルのタイミング抽出と文字レベルへの展開
-  - `align_text_with_whisper_timings()`: 元テキストとWhisper認識結果をアライメント
-  - 句読点を含む全ての文字にタイミング情報を割り当て
-  - 句読点は直前の文字の終了時刻を使用（音声には含まれないため）
-- `src/generators/subtitle_generator.py`: 文字レベルのタイミング情報を使用した字幕生成
-  - `_find_punctuation_positions_from_characters()`: characters配列から直接句読点位置を検出
-  - `_find_split_position_with_score()`: スコアリング方式で最適な分割位置を決定
-    - 「、」の場合: 直後で分割（「、」を含める）
-    - その他の句読点: 直後で分割
-  - `_split_by_punctuation()`: 「。」「！」「？」で文を分割（「、」では分割しない）
-  - `_remove_punctuation_from_subtitles()`: 「。」「！」「？」を削除、「、」は保持
-- 処理フロー:
-  1. audio_timing.jsonから文字レベルのタイミング情報を読み込み
-  2. 句読点位置を検出し、文の境界を特定
-  3. 長い文を適切な位置で分割（「、」の直後など）
-  4. 各文を2行に分割
-  5. 句読点を削除（「、」は保持）
-  6. 空の字幕をフィルタリング
-  7. SRTファイルとして出力
+```python
+# 1. \n改行の検出と分割
+def _split_section_by_newline(text, characters, start_times, end_times):
+    # textを\nで分割
+    text_parts = text.split('\n')
+
+    # characters配列から対応する部分を抽出
+    for part in text_parts:
+        # 記号を除外してマッチング
+        part_clean = ''.join([c for c in part if c not in exclude_symbols])
+        pos = chars_str.find(part_clean, search_start)
+
+        # subsectionを作成
+        subsections.append({
+            "characters": characters[pos:end_pos],
+            "start_times": start_times[pos:end_pos],
+            "end_times": end_times[pos:end_pos]
+        })
+
+# 2. 長文（36文字超）の分割
+def _split_large_chunk(remaining_chars, max_chars=36):
+    # 優先順位1: 36文字より前で最も後ろの「、」を探す
+    comma_positions = [i for i, c in enumerate(remaining_chars)
+                      if c == '、' and i < max_chars]
+
+    if comma_positions:
+        split_pos = comma_positions[-1] + 1  # 「、」の直後で分割
+        reason = "comma_split_priority"
+    else:
+        # 優先順位2: スコアリングロジック
+        split_pos, reason = _find_split_position_with_score(...)
+
+    return split_pos, reason
+```
 
 ---
 
-#### Phase 7: 動画統合（Video Composition）
+### Phase 7: 動画統合（Video Composition）
 
 **責務**: 全ての素材を統合して最終動画を生成
 
-**入力**:
-- Phase 1-6の全ての出力
-- `working/{subject}/01_script/script.json`（BGM情報取得用）
-- `working/{subject}/02_audio/narration_full.mp3`（音声）
-- `working/{subject}/04_animated/*.mp4`（アニメ化動画）
-- `working/{subject}/06_subtitles/subtitle_timing.json`（字幕）
+**最新の改善点**:
 
-**処理**:
-1. タイムラインの構築
-   - アニメ化静止画をループ配置
-   - 音声の長さに合わせて動画クリップを調整
-2. 音声トラックの統合（ナレーション + BGM）
-   - ナレーション音声を読み込み
-   - 台本のbgm_suggestionに基づいてBGMを配置
-   - BGMセグメントごとにクリップを作成（ループ、音量調整、フェード処理）
-   - ナレーションとBGMをCompositeAudioClipでミックス
-3. 字幕オーバーレイ
-4. トランジション効果の適用
-5. MoviePyでレンダリング
-6. サムネイル生成
-7. メタデータJSON生成
+#### 📌 字幕バーの高さ調整
 
-**出力**:
-- `output/videos/{subject}.mp4`
-- `output/thumbnails/{subject}_thumbnail.jpg`
-- `output/metadata/{subject}_metadata.json`
+**変更内容**: 字幕バーを30%から20%に削減
+
+**理由**:
+- max_lines: 2（最大2行）なので30%は過剰
+- 動画表示領域を広げることで視認性向上
 
 **設定例（config/phases/video_composition.yaml）**:
 ```yaml
-resolution: [1920, 1080]
-fps: 30
-codec: "libx264"
-audio_codec: "aac"
-preset: "medium"  # fast, medium, slow
-bitrate: "5000k"
+# ========================================
+# 動画レイアウト設定
+# ========================================
+layout:
+  type: "split"                    # 分割レイアウト
 
-transitions:
-  default: "fade"
-  fade_duration: 1.0
+  # 上下分割の比率
+  ratio: 0.8                       # 上部80%が動画、下部20%が字幕
+  # 1920x1080の場合:
+  # - 上部: 1920x864 (80%)
+  # - 下部: 1920x216 (20%)
 
-subtitle_style:
-  # Phase 6の設定を継承
-
-thumbnail:
-  template: "assets/templates/thumbnail_base.psd"
-  use_ai_generation: false  # 将来的にDALL-E等を使用可能
-  fallback: "first_frame"  # 最初のフレームをサムネに
-
-metadata:
-  include_generation_stats: true
-  include_cost_breakdown: true
+  # オーバーレイ方式（黒バーを画像の上に配置）
+  overlay_mode: true               # オーバーレイ方式を使用
+  # - 画像を1920x1080のままロード
+  # - 下部216pxに黒バーをオーバーレイ
+  # - 右側の黒バーが発生しない
 ```
 
-**スキップ条件**:
-- `output/videos/{subject}.mp4`が存在する
+#### オーバーレイ方式の実装
 
-**エラーハンドリング**:
-- メモリ不足 → チャンク分割してレンダリング
-- レンダリング失敗 → プリセットを"fast"に変更して再試行
-- FFmpegエラー → 詳細ログを記録、ユーザーに通知
+```python
+def _create_split_layout_video(self, animated_clips, subtitles, total_duration):
+    # Step 1: 動画を1920x1080のままロードして連結
+    video_clips = self._create_video_clips(animated_clips, total_duration)
+    base_video = self._concatenate_clips(video_clips, total_duration)
+
+    # Step 2: 下部の字幕バー（オーバーレイ用）を生成
+    bottom_height = int(1080 * 0.2)  # 216px
+    top_height = 1080 - bottom_height  # 864px
+
+    bottom_overlay = self._create_bottom_subtitle_bar(
+        subtitles, total_duration, bottom_height
+    )
+
+    # Step 3: 動画の上に下部バーをオーバーレイ
+    final_video = CompositeVideoClip([
+        base_video.with_position((0, 0)),
+        bottom_overlay.with_position((0, top_height))
+    ], size=(1920, 1080))
+
+    return final_video
+```
 
 ---
 
-#### Phase 8: サムネイル生成（Thumbnail Generation）
+### Phase 8: サムネイル生成（Thumbnail Generation）
 
 **責務**: 動画用のサムネイルを生成
 
-**入力**:
-- `working/{subject}/01_script/script.json`（台本情報）
-- `working/{subject}/03_images/classified.json`（画像リスト、Pillow方式の場合）
+**最新の改善点（v3.0）**:
 
-**処理**:
-1. **キャッチコピー生成**（Claude API使用）
-   - 台本内容からメインタイトルとサブタイトルを生成
-   - 複数候補（デフォルト5個）を生成
-   - トーンとターゲット層に応じたキャッチコピーを作成
-2. **背景画像生成**（DALL-E 3 または Stable Diffusion）
-   - **DALL-E 3方式**:
-     - テーマに基づいた背景画像をAI生成
-     - スタイル（dramatic, professional, minimalist, vibrant）を指定可能
-     - 1792x1024で生成後、1280x720にリサイズ
-   - **Stable Diffusion方式**（Phase 3と同じ仕組み）:
-     - ImageGeneratorを使用してSD生成
-     - Claude APIでプロンプト最適化（Phase 3と同様）
-     - 1344x768で生成後、1280x720にリサイズ
-     - 中央配置を重視したプロンプト設計
-   - `use_stable_diffusion`フラグで切り替え可能
-3. **テキストオーバーレイ**（完全に変更なし）
-   - 日本語フォントの読み込み（Windows/Linux/macOS対応）
-   - 上部テキスト: 赤グラデーション（金色、固定フレーズ）
-   - 下部テキスト: 白色＋黒縁（2行構成）
-   - テキストのフォント、位置、色、縁取りは既存実装を保持
+#### 📌 スタイリッシュな構図と表現
 
-**出力**:
-- `working/{subject}/08_thumbnail/thumbnails/*.png`
-- `working/{subject}/08_thumbnail/catchcopy_candidates.json`
-- `working/{subject}/08_thumbnail/metadata.json`
+**変更内容**: より印象的でかっこいいサムネイル生成
 
-**設定例（config/phases/thumbnail_generation.yaml）**:
+**新しい要件**:
+1. **横顔・側面アングル**: 正面ではなく、プロファイルビューや3/4アングル
+2. **若々しさ**: 渋い顔ではなく、エネルギッシュで若々しい表現
+3. **壮大な背景**: 城、山、自然など美しく壮大な景色
+4. **迫力**: 顔の表情ではなく、雰囲気と構図で迫力を表現
+5. **印象的スタイル**: 実写過ぎず、シネマティックでアーティスティック
+
+**プロンプト設定例**:
+
 ```yaml
-# ================================
+# ========================================
 # 背景画像生成方法の選択
-# ================================
-use_stable_diffusion: true  # true=SD, false=DALL-E 3
+# ========================================
+use_stable_diffusion: true        # true=SD, false=DALL-E 3
 
-# DALL-E 3設定（use_stable_diffusion: false の場合）
-dalle:
-  size: "1792x1024"        # 画像サイズ（YouTube最適: 1792x1024横長）
-  quality: "standard"       # 画質（standard or hd）
-  style: "dramatic"         # スタイル
-
-# Stable Diffusion設定（use_stable_diffusion: true の場合）
+# ========================================
+# Stable Diffusion設定
+# ========================================
 stable_diffusion:
-  api_key_env: "STABILITY_API_KEY"  # 環境変数名
+  # プロンプトテンプレート（v3.0対応）
+  prompt_template: |
+    Cinematic stylized scene of {subject} in profile or side angle,
+    standing majestically against grand scenic background.
 
-  # 画像生成パラメータ（64の倍数が必須）
-  width: 1344   # 1344 ÷ 64 = 21 ✓
-  height: 768   # 768 ÷ 64 = 12 ✓
+    CHARACTER PORTRAYAL (CRITICAL):
+    - {subject} shown with YOUTHFUL, ENERGETIC appearance - not old or stern-faced
+    - PROFILE VIEW, SIDE ANGLE, or THREE-QUARTER VIEW - NOT frontal face
+    - Full body or 3/4 body shot showing elegant stance
+    - Convey powerful PRESENCE and ATMOSPHERE, not facial details
+    - Dynamic posture creating visual impact
+    - Stylish, cool composition
 
-  # Stability AI 設定
-  model: "sdxl"  # Phase 3 と同じモデル
-  style: "photorealistic"
-  steps: 30
-  cfg_scale: 7.5
-  sampler: "DPM++ 2M Karras"
+    BACKGROUND - GRAND AND SCENIC (CRITICAL):
+    - MAGNIFICENT background: castle, mountain range, dramatic sky, vast natural landscape
+    - Grand architectural or natural elements emphasizing epic scale
+    - Beautiful, impressive environment that enhances atmosphere
+    - Period-appropriate setting with visual grandeur
+    - Create depth and scale with scenic elements
 
-# キャッチコピー生成設定
-catchcopy:
-  enabled: true
-  model: "gpt-4.1-mini"
-  tone: "dramatic"  # dramatic, professional, casual, emotional
-  target_audience: "一般"  # 一般, 若年層, 高齢者, 専門家
-  main_title_length: 20  # メインタイトルの最大文字数
-  sub_title_length: 10   # サブタイトルの最大文字数
-  num_candidates: 5      # 生成する候補数
+    VISUAL STYLE:
+    - Cinematic and artistic - stylized realism, NOT overly photorealistic
+    - Like epic movie poster or dramatic historical painting
+    - Professional quality with artistic flair
+    - Dramatic lighting highlighting atmosphere and scale
+    - Rich, vibrant colors with artistic balance
+    - Impressive but not documentary-style photo
 
-# サムネイル基本設定
-output:
-  resolution: [1280, 720]    # YouTubeサムネイル標準解像度（16:9）
-  format: "png"              # PNG形式（高品質）
-  quality: 95                # 品質（0-100）
-  patterns: 5                # 生成するパターン数
+    COMPOSITION REQUIREMENTS (CRITICAL):
+    - DYNAMIC, STYLISH ANGLE - not static frontal view
+    - Subject positioned impressively against grand background
+    - 16:9 horizontal landscape format
+    - Emphasize SCALE and GRANDEUR of the scene
+    - Profile or side view preferred for cool factor
+    - Atmospheric depth and visual interest
+
+    CRITICAL REQUIREMENTS:
+    1. Youthful, energetic - NOT old or stern
+    2. Profile/side angle - NOT frontal face
+    3. Grand scenic background (castle, nature, mountains)
+    4. Atmospheric presence - NOT facial focus
+    5. Stylish composition - NOT static pose
+    6. Artistic cinematic style - NOT overly photorealistic
+
+  # ネガティブプロンプト
+  negative_prompt: |
+    frontal face view, facial close-up, old appearance, stern expression,
+    plain background, static centered pose, overly photorealistic,
+    documentary style, modern elements, multiple subjects
 ```
 
-**日本語フォント対応**:
-- Windows: MS Gothic, Meiryo, Yu Gothic を自動検出
-- Linux: Noto Sans CJK を自動検出
-- macOS: ヒラギノ角ゴシックを自動検出
-- フォールバック: 日本語フォントが見つからない場合はデフォルトフォント使用
-
-**テキスト配置の特徴（IntellectualCuriosityGenerator）**:
-- 上部テキスト（固定フレーズ）:
-  - 赤グラデーション（#FF0000→#FF6B6B→#FFAAAA）
-  - フォントサイズ: 140-180px（文字数で自動調整）
-  - 配置: 画面上部25%エリア
-- 下部テキスト（2行構成）:
-  - 白色＋黒縁（グラデーションなし）
-  - フォントサイズ: 50px
-  - 配置: 画面下部25%エリア（下から390px）
-  - 半透明黒背景付き
-- **注意**: テキスト描画ロジックは一切変更せず、背景画像の生成方法のみを変更
-
-**スキップ条件**:
-- `working/{subject}/08_thumbnail/metadata.json`が存在し、
-  サムネイル画像が生成済み
-
-**エラーハンドリング**:
-- **DALL-E 3方式**:
-  - DALL-E 3 API失敗 → エラーログを記録、Noneを返す
-- **Stable Diffusion方式**:
-  - Stability API key不足 → ValueError発生（明示的エラー）
-  - SD生成失敗 → Exception発生、フォールバックなし
-  - Claude API失敗（プロンプト最適化） → 警告ログ、最適化なしで続行
-- **共通**:
-  - 日本語フォント読み込み失敗 → デフォルトフォントにフォールバック、警告ログ
-  - Claude API失敗（キャッチコピー生成） → デフォルトタイトル（subject名）を使用
-  - Pillow処理失敗 → エラーログを記録、処理を中断
-
-**重要な実装ポイント**:
-- **Phase 3との一貫性**: Stable Diffusion方式はPhase 3と同じImageGeneratorを使用
-- **背景生成のみを変更**: テキスト描画ロジック（フォント、位置、色、縁取り）は完全保持
-- **プロンプト最適化**: Claude APIによるSD用プロンプト最適化（Phase 3と同様）
-- **中央配置重視**: SD用プロンプトで被写体の中央配置を明確に指示
-- **解像度の統一**: 最終的に1280x720にリサイズ（DALL-E: 1792x1024→, SD: 1344x768→）
-- **エラー処理の明確化**: SDエラー時はフォールバックせず明示的にエラーを返す
-
----
-
-## 🎛️ 設定管理システム
-
-### 6. 設定ファイルの階層構造
+#### DALL-E 3プロンプトの例
 
 ```yaml
-# config/settings.yaml（最上位設定）
+dalle:
+  # DALL-E 3用プロンプト（v3.0対応）
+  prompt_template: |
+    A stylish, cinematic scene of {subject} standing majestically
+    against a grand scenic background.
 
-project:
-  name: "historical-figure-video-automation"
-  version: "1.0.0"
+    CHARACTER PORTRAYAL:
+    - Show {subject} with a YOUTHFUL, ENERGETIC presence - not old or stern
+    - Profile view, side angle, or three-quarter view - NOT frontal face
+    - Full body or 3/4 body shot showing stylish stance
+    - Convey PRESENCE and ATMOSPHERE rather than facial expression
+    - Dynamic, cool posture that creates visual impact
 
-paths:
-  working_dir: "data/working"
-  output_dir: "data/output"
-  cache_dir: "data/cache"
-  assets_dir: "assets"
-  logs_dir: "logs"
+    BACKGROUND - GRAND AND SCENIC (CRITICAL):
+    - MAGNIFICENT natural or architectural background
+    - Examples: Castle silhouette, mountain range, dramatic sky, vast landscape
+    - Grand scale that emphasizes the epic atmosphere
+    - Beautiful, impressive environment that enhances the mood
+    - Period-appropriate setting with visual grandeur
 
-execution:
-  skip_existing_outputs: true  # 既存出力があればスキップ
-  parallel_processing: false   # 並列処理（将来実装）
-  max_retries: 3              # API失敗時のリトライ回数
-  
-logging:
-  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
-  format: "[{levelname}] {asctime} - {name} - {message}"
-  to_file: true
-  to_console: true
+    VISUAL STYLE:
+    - Cinematic and artistic - impressive but not overly photorealistic
+    - Stylized realism with artistic flair
+    - Like an epic movie poster or dramatic painting
+    - Rich colors and dramatic lighting
 
-cost_tracking:
+    COMPOSITION (CRITICAL):
+    - Dynamic, stylish angle - NOT static frontal pose
+    - Subject positioned impressively against grand background
+    - Horizontal 16:9 format
+    - Space at top and bottom for text overlay
+    - Emphasize the SCALE and GRANDEUR of the scene
+
+    CRITICAL REQUIREMENTS:
+    1. Youthful, energetic portrayal - NOT stern or aged
+    2. Profile/side angle - NOT frontal face view
+    3. Grand scenic background (castle, nature, mountains, etc.)
+    4. Atmospheric presence - NOT facial expression focus
+    5. Stylish, dynamic composition - NOT static pose
+    6. Cinematic and impressive - NOT overly photorealistic
+```
+
+---
+
+## 🎛️ 設定ファイルの完全な例
+
+### config/phases/audio_generation.yaml（完全版）
+
+```yaml
+# ========================================
+# Phase 2: 音声生成設定
+# ========================================
+
+# ========================================
+# 音声生成サービス選択
+# ========================================
+service: "kokoro"  # または "elevenlabs"
+
+# ========================================
+# 句点での間隔制御（重要）
+# ========================================
+punctuation_pause:
+  enabled: true                    # 句点での間隔制御を有効化
+
+  # 各句読点の後に挿入する無音時間（秒）
+  pause_duration:
+    period: 0.8                    # 「。」の後
+    exclamation: 0.9               # 「！」の後
+    question: 0.9                  # 「？」の後
+    comma: 0.0                     # 「、」の後（通常は挿入しない）
+
+  # セクション末尾の句点は間隔を挿入しない
+  skip_section_end: true
+
+# セクション間の無音時間（句点での間隔とは別）
+inter_section_silence: 0.5
+
+# ========================================
+# Kokoro TTS 設定
+# ========================================
+kokoro:
+  api_url: "http://localhost:8880"
+  voice: "jf_alpha"                # 日本語女性音声
+  speed: 1.0
+  response_format: "mp3"
+
+# ========================================
+# Whisper タイムスタンプ取得設定
+# ========================================
+whisper:
   enabled: true
-  alert_threshold_jpy: 2000  # 予算超過アラート
+  model: "small"                   # 日本語認識精度向上
+  language: "ja"
+  device: "auto"
 
-# 各フェーズの設定は個別ファイルで管理
-phases:
-  01_script: "config/phases/script_generation.yaml"
-  02_audio: "config/phases/audio_generation.yaml"
-  03_images: "config/phases/image_collection.yaml"
-  04_animation: "config/phases/image_animation.yaml"
-  05_bgm: "config/phases/bgm_selection.yaml"
-  06_subtitles: "config/phases/subtitle_generation.yaml"
-  07_composition: "config/phases/video_composition.yaml"
-  08_thumbnail: "config/phases/thumbnail_generation.yaml"
+# ========================================
+# ElevenLabs設定（service: "elevenlabs"の場合）
+# ========================================
+voice_id: "3JDquces8E8bkmvbh6Bc"
+model: "eleven_turbo_v2_5"
+with_timestamps: true
+
+settings:
+  stability: 0.7
+  similarity_boost: 0.75
+  style: 0
+  use_speaker_boost: true
+  speed: 1.0
+
+format:
+  codec: "mp3_44100_128"
+  sample_rate: 44100
+  channels: 1
+
+# リトライ設定
+retry:
+  max_attempts: 5
+  delay_seconds: 10
+
+# キャッシュ設定
+cache:
+  enabled: true
+  use_cached_audio: true
 ```
 
-### 7. 設定管理クラス
+### config/phases/subtitle_generation.yaml（完全版）
 
-```python
-# src/core/config_manager.py
+```yaml
+# ========================================
+# Phase 6: 字幕生成設定
+# ========================================
 
-import yaml
-from pathlib import Path
-from typing import Any, Dict
-from dotenv import load_dotenv
-import os
+# 字幕の最大行数と文字数
+max_lines: 2
+max_chars_per_line: 18
 
-class ConfigManager:
-    """
-    設定ファイルを階層的に管理するクラス
-    
-    使用例:
-        config = ConfigManager("config/settings.yaml")
-        claude_key = config.get_api_key("CLAUDE_API_KEY")
-        script_config = config.get_phase_config(1)
-    """
-    
-    def __init__(self, main_config_path: str = "config/settings.yaml"):
-        # .envファイル読み込み
-        load_dotenv("config/.env")
-        
-        # メイン設定読み込み
-        with open(main_config_path, 'r', encoding='utf-8') as f:
-            self.main_config = yaml.safe_load(f)
-        
-        # 各フェーズの設定を読み込み
-        self.phase_configs = {}
-        for phase_num, config_path in self.main_config['phases'].items():
-            with open(config_path, 'r', encoding='utf-8') as f:
-                self.phase_configs[phase_num] = yaml.safe_load(f)
-    
-    def get(self, key_path: str, default: Any = None) -> Any:
-        """
-        ドット記法で設定値を取得
-        
-        例: config.get("execution.skip_existing_outputs")
-        """
-        keys = key_path.split('.')
-        value = self.main_config
-        
-        for key in keys:
-            if isinstance(value, dict) and key in value:
-                value = value[key]
-            else:
-                return default
-        
-        return value
-    
-    def get_api_key(self, env_var_name: str) -> str:
-        """環境変数からAPIキーを取得"""
-        key = os.getenv(env_var_name)
-        if not key:
-            raise ValueError(f"API key not found: {env_var_name}")
-        return key
-    
-    def get_phase_config(self, phase_number: int) -> Dict[str, Any]:
-        """フェーズの設定を取得"""
-        phase_key = f"{phase_number:02d}_*"
-        for key, config in self.phase_configs.items():
-            if key.startswith(f"{phase_number:02d}"):
-                return config
-        raise ValueError(f"Phase {phase_number} config not found")
-    
-    def update_phase_config(
-        self,
-        phase_number: int,
-        key_path: str,
-        value: Any
-    ):
-        """
-        フェーズ設定を動的に更新
-        （実行時にパラメータ調整する場合）
-        """
-        # 実装省略（必要に応じて）
-        pass
-```
+# ========================================
+# フォント設定（詳細）
+# ========================================
+font:
+  # フォントファミリー
+  family: "Noto Sans JP Bold"
 
----
+  # フォントサイズ（ピクセル）
+  size: 65                         # 標準より少し大きめ
 
-## 🔍 デバッグ・監視システム
+  # フォントの太さ
+  font_weight: "bold"              # bold推奨
 
-### 8. ロギングシステム
+  # 文字色
+  color: "#FFFFFF"                 # 白色
 
-```python
-# src/utils/logger.py
+  # 背景
+  background_color: "#000000"
+  background_opacity: 0.75         # やや濃いめ
 
-import logging
-import sys
-from pathlib import Path
-from datetime import datetime
-from rich.logging import RichHandler
-from rich.console import Console
+  # 配置
+  position: "bottom"
+  margin_bottom: 80
 
-def setup_logger(
-    name: str,
-    log_dir: Path,
-    level: str = "INFO",
-    to_console: bool = True,
-    to_file: bool = True
-) -> logging.Logger:
-    """
-    リッチなロギング設定
-    
-    - コンソール: Rich形式でカラフル表示
-    - ファイル: 詳細なテキストログ
-    """
-    logger = logging.getLogger(name)
-    logger.setLevel(getattr(logging, level))
-    logger.handlers = []  # 既存ハンドラをクリア
-    
-    # フォーマット
-    file_format = logging.Formatter(
-        "[{levelname}] {asctime} - {name} - {message}",
-        style='{',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    
-    # コンソールハンドラ（Rich）
-    if to_console:
-        console_handler = RichHandler(
-            console=Console(stderr=True),
-            rich_tracebacks=True,
-            tracebacks_show_locals=True
-        )
-        console_handler.setLevel(logging.INFO)
-        logger.addHandler(console_handler)
-    
-    # ファイルハンドラ
-    if to_file:
-        log_dir.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_file = log_dir / f"{timestamp}_{name}.log"
-        
-        file_handler = logging.FileHandler(log_file, encoding='utf-8')
-        file_handler.setLevel(logging.DEBUG)  # ファイルは全て記録
-        file_handler.setFormatter(file_format)
-        logger.addHandler(file_handler)
-    
-    return logger
-```
+  # 縁取り設定（重要）
+  stroke_enabled: true
+  stroke_color: "#000000"
+  stroke_width: 3                  # 太め（視認性向上）
 
-### 9. 進捗トラッカー
+  # シャドウ設定（重要）
+  shadow_enabled: true
+  shadow_offset: [3, 3]            # やや大きめ
+  shadow_color: "#000000"
+  shadow_opacity: 0.85
+  shadow_blur: 2
 
-```python
-# src/utils/progress_tracker.py
+# ========================================
+# タイミング設定
+# ========================================
+timing:
+  min_display_duration: 1.0
+  max_display_duration: 6.0
+  lead_time: 0.2
 
-from rich.progress import (
-    Progress,
-    SpinnerColumn,
-    TextColumn,
-    BarColumn,
-    TimeRemainingColumn,
-    TaskID
-)
-from typing import Optional
+# ========================================
+# 形態素解析設定
+# ========================================
+morphological_analysis:
+  use_mecab: true
+  break_on:
+    - "。"
+    - "！"
+    - "？"
 
-class ProgressTracker:
-    """
-    各フェーズの進捗を視覚的に表示
-    
-    使用例:
-        with ProgressTracker() as tracker:
-            task = tracker.add_task("Phase 1: Script", total=100)
-            for i in range(100):
-                # 処理
-                tracker.update(task, advance=1)
-    """
-    
-    def __init__(self):
-        self.progress = Progress(
-            SpinnerColumn(),
-            TextColumn("[bold blue]{task.description}"),
-            BarColumn(),
-            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-            TimeRemainingColumn(),
-        )
-        self.tasks = {}
-    
-    def __enter__(self):
-        self.progress.__enter__()
-        return self
-    
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.progress.__exit__(exc_type, exc_val, exc_tb)
-    
-    def add_task(self, description: str, total: float) -> TaskID:
-        """タスクを追加"""
-        task_id = self.progress.add_task(description, total=total)
-        self.tasks[description] = task_id
-        return task_id
-    
-    def update(self, task_id: TaskID, advance: float = 1):
-        """進捗を更新"""
-        self.progress.update(task_id, advance=advance)
-    
-    def complete(self, task_id: TaskID):
-        """タスクを完了状態に"""
-        self.progress.update(task_id, completed=True)
+# ========================================
+# 分割戦略
+# ========================================
+splitting:
+  window_size: 3
+
+  priority_scores:
+    punctuation: 120
+    morpheme_boundary: 150
+    particle: 100
+    hiragana_to_kanji: 80
+    kanji_to_hiragana: 60
+    katakana_boundary: 40
+
+  penalties:
+    distance_from_ideal: 5
+    ends_with_n_tsu: 20
+    splits_number: 50
+    splits_alphabet: 50
+    splits_verb_adjective: 500
+
+  particles:
+    - "は"
+    - "が"
+    - "を"
+    - "に"
+    - "で"
+    - "と"
+    - "も"
+    - "や"
+    - "から"
+    - "まで"
+    - "より"
+
+  balance_lines: true
+  min_line_length: 3
+
+# 句読点除去
+remove_punctuation_in_display: true
+
+# Whisper設定
+whisper:
+  enabled: true
+  model: "base"
 ```
 
 ---
 
-## 🧪 テスト戦略
+## 🎯 実装のベストプラクティス
 
-### 10. テストの構造
+### Phase 2: 音声生成のベストプラクティス
 
-```python
-# tests/unit/test_script_generator.py
+1. **句点での間隔は控えめに**
+   - 0.8-0.9秒程度が自然
+   - 長すぎると不自然に聞こえる
 
-import pytest
-from unittest.mock import Mock, patch
-from src.generators.script_generator import ScriptGenerator
-from src.core.models import VideoScript
+2. **セクション間無音との使い分け**
+   - 句点での間隔: 文レベルの区切り
+   - セクション間無音: 話題の切り替わり
 
-@pytest.fixture
-def mock_claude_api():
-    """Claude APIのモック"""
-    with patch('anthropic.Anthropic') as mock:
-        # モックレスポンスの設定
-        mock_response = Mock()
-        mock_response.content = [Mock(text='{"title": "test", ...}')]
-        mock.return_value.messages.create.return_value = mock_response
-        yield mock
+3. **Whisperモデルの選択**
+   - 日本語の場合は`small`以上を推奨
+   - `tiny`は認識精度が低い
 
-def test_script_generation(mock_claude_api):
-    """台本生成の基本テスト"""
-    generator = ScriptGenerator(api_key="test_key")
-    script = generator.generate("織田信長")
-    
-    assert isinstance(script, VideoScript)
-    assert script.subject == "織田信長"
-    assert len(script.sections) > 0
-    assert script.total_estimated_duration > 0
+### Phase 6: 字幕生成のベストプラクティス
 
-def test_script_validation():
-    """台本のバリデーションテスト"""
-    # 不正なデータでエラーが出るか確認
-    with pytest.raises(ValueError):
-        VideoScript(
-            subject="",  # 空文字はNG
-            title="test",
-            sections=[]
-        )
+1. **フォントの太さ設定**
+   ```yaml
+   # 推奨設定
+   font_weight: "bold"
+   stroke_width: 3
+   shadow_offset: [3, 3]
+   ```
+
+2. **視認性テスト**
+   - 様々な背景で字幕が読めるか確認
+   - 明るい背景でもテスト必須
+
+3. **改行（\n）の活用**
+   - 台本で意図的に改行を入れることで、字幕の分割を制御可能
+   - 例: `"是非に及ばず\n49歳で散った革命児"`
+
+---
+
+## 📚 トラブルシューティング
+
+### Phase 2: 音声生成
+
+**問題**: 句点後の間隔が長すぎる
+```yaml
+# 解決: pause_durationを短くする
+punctuation_pause:
+  pause_duration:
+    period: 0.6  # 0.8 → 0.6に変更
+```
+
+**問題**: セクション末尾に不要な無音が入る
+```yaml
+# 解決: skip_section_endを有効化
+punctuation_pause:
+  skip_section_end: true
+```
+
+### Phase 6: 字幕生成
+
+**問題**: 字幕が読みにくい
+```yaml
+# 解決: 縁取りとシャドウを強化
+font:
+  stroke_width: 4      # 2 → 4
+  shadow_offset: [4, 4]  # [2, 2] → [4, 4]
+```
+
+**問題**: フォントが細すぎる
+```yaml
+# 解決: font_weightを太くする
+font:
+  font_weight: "black"  # "bold" → "black"
 ```
 
 ---
 
-## 📝 使用例とコマンド
-
-### 11. CLI使用例
-
-```bash
-# ========================================
-# 基本的な使用例
-# ========================================
-
-# 1本生成（全フェーズ実行）
-python -m src.cli generate "織田信良"
-
-# バッチ生成
-python -m src.cli batch data/input/subjects.json
-
-# ========================================
-# フェーズ指定実行
-# ========================================
-
-# 特定のフェーズのみ実行
-python -m src.cli run-phase "織田信長" --phase 1  # 台本のみ
-python -m src.cli run-phase "織田信長" --phase 2  # 音声のみ
-
-# 特定のフェーズから実行
-python -m src.cli generate "織田信長" --from-phase 5  # Phase 5から
-
-# 特定のフェーズまで実行
-python -m src.cli generate "織田信長" --until-phase 3  # Phase 3まで
-
-# ========================================
-# スキップ制御
-# ========================================
-
-# 既存出力を無視して強制再生成
-python -m src.cli generate "織田信長" --force
-
-# 特定フェーズのみ再生成
-python -m src.cli regenerate "織田信長" --phase 7  # 字幕のみ再生成
-
-# ========================================
-# デバッグモード
-# ========================================
-
-# 詳細ログ出力
-python -m src.cli generate "織田信長" --verbose
-
-# ドライラン（実際の処理はしない）
-python -m src.cli generate "織田信長" --dry-run
-
-# ========================================
-# 検査・確認コマンド
-# ========================================
-
-# プロジェクト状態確認
-python -m src.cli status "織田信長"
-
-# 出力例:
-# Subject: 織田信長
-# Status: Phase 5 / 8
-# Progress: ████████░░░░ 62%
-# 
-# Phase Status:
-#   [✓] Phase 1: Script Generation (12.3s)
-#   [✓] Phase 2: Audio Generation (45.2s)
-#   [✓] Phase 3: Image Collection (23.1s)
-#   [✓] Phase 4: Image Animation (156.7s)
-#   [✓] Phase 5: BGM Selection (5.2s)
-#   [ ] Phase 6: Subtitle Generation
-#   [ ] Phase 7: Video Composition
-
-# キャッシュ確認
-python -m src.cli cache-info
-
-# コスト試算
-python -m src.cli estimate-cost "織田信長"
-
-# ========================================
-# ユーティリティコマンド
-# ========================================
-
-# キャッシュクリア
-python -m src.cli clear-cache "織田信長"
-python -m src.cli clear-cache --all
-
-# ログ表示
-python -m src.cli logs --date 2025-10-28
-python -m src.cli logs --subject "織田信長"
-
-# 統計情報
-python -m src.cli stats
-python -m src.cli stats --subject "織田信長"
-```
-
----
-
-## 🎯 実装優先度とマイルストーン
-
-### Week 1: 基盤構築
-- [ ] Day 1-2: プロジェクト構造作成、設定システム
-- [ ] Day 3-4: Phase 1-3（台本、音声、画像）実装
-- [ ] Day 5-7: Phase 4（静止画アニメ）実装・テスト
-
-### Week 2: 動画生成
-- [ ] Day 1-2: Phase 5（BGM選択）実装
-- [ ] Day 3-4: Phase 6（字幕生成）実装
-- [ ] Day 5-7: Phase 7（動画統合）実装・テスト
-
-### Week 3: 統合・最適化
-- [ ] Day 1-2: エンドツーエンドテスト
-- [ ] Day 3-4: エラーハンドリング強化
-- [ ] Day 5: ドキュメント作成
-- [ ] Day 6-7: バッファ・調整
-
----
-
-## 💡 設計上の重要な決定事項
-
-### 決定1: フェーズ独立性を最優先
-**理由**: デバッグと修正を容易にするため  
-**影響**: 各フェーズは完全に疎結合、ファイルシステム経由で通信
-
-### 決定2: 設定の完全外部化
-**理由**: コード変更なしでパラメータ調整可能にするため  
-**影響**: YAMLファイルで全ての調整可能な値を管理
-
-### 決定3: SQLite + ファイルシステムのハイブリッド
-**理由**: シンプルさと拡張性のバランス  
-**影響**: 中間データはファイル、メタデータはDB
-
-### 決定4: MoviePyを主力とする
-**理由**: Pythonネイティブで制御しやすい  
-**影響**: 複雑な編集はFFmpegに頼らずMoviePyで実装
-
-### 決定5: AI動画は最小限に
-**理由**: コスト削減  
-**影響**: 60秒のみAI生成、残りは静止画アニメ
-
----
-
-## 📚 参考資料・依存関係
-
-### 主要ライブラリ
-- `anthropic`: Claude API
-- `elevenlabs`: 音声合成
-- `requests`: HTTP通信
-- `moviepy`: 動画編集
-- `pydantic`: データバリデーション
-- `pyyaml`: 設定管理
-- `rich`: リッチCLI
-- `pytest`: テスト
-
-### ドキュメント
-- MoviePy: https://zulko.github.io/moviepy/
-- Pydantic: https://docs.pydantic.dev/
-- Rich: https://rich.readthedocs.io/
-
----
-
-## ✅ この設計書の使い方
-
-### 開発者向け
-1. 各フェーズの実装時に該当セクションを参照
-2. データモデルを見て入出力を確認
-3. 設定ファイルのサンプルを参考に実装
-
-### AI補助ツール向け
-1. この設計書を全文読み込んで理解
-2. 実装時にデータモデルと設定を参照
-3. エラーハンドリングの方針に従ってコード生成
-
-### 今後の拡張
-- この設計書は生きたドキュメント
-- 実装中に判明した変更は随時反映
-- バージョン管理で変更履歴を追跡
-
----
-
-**設計書バージョン**: 1.0.0  
-**最終更新日**: 2025年10月28日  
-**次回レビュー予定**: 実装開始後1週間
+**設計書バージョン**: 3.0
+**最終更新日**: 2025年11月11日
+**次回レビュー予定**: 新機能追加時
