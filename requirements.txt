@@ -15,7 +15,6 @@ opencv-python>=4.8.0
 pillow>=10.0.0
 
 # Audio Processing
-pydub>=0.25.1              # Kokoro TTS の音声処理に使用
 openai-whisper>=20231117   # 音声認識とタイミング情報取得用
 mecab-python3>=1.0.0       # 字幕生成での形態素解析に使用
 ipadic>=1.0.0             # MeCab用標準辞書データ
@@ -32,7 +31,3 @@ pytest-cov>=4.1.0
 black>=23.0.0
 flake8>=6.0.0
 mypy>=1.5.0
-
-# Audio Processing
-pydub>=0.25.1              # Kokoro TTS の音声処理に使用
-openai-whisper>=20231117   # 音声認識とタイミング情報取得用
