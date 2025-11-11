@@ -28,6 +28,22 @@ context_awareness:
 service: "kokoro"
 
 # ========================================
+# 句点での間隔制御
+# ========================================
+punctuation_pause:
+  enabled: true                    # 句点での間隔制御を有効化
+
+  # 各句読点の後に挿入する無音時間（秒）
+  pause_duration:
+    period: 0.8                    # 「。」の後
+    exclamation: 0.9               # 「！」の後
+    question: 0.9                  # 「？」の後
+    comma: 0.0                     # 「、」の後（通常は挿入しない）
+
+  # セクション末尾の句点は間隔を挿入しない
+  skip_section_end: true
+
+# ========================================
 # Kokoro TTS 設定（service: "kokoro" の場合）
 # ========================================
 kokoro:
