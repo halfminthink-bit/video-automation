@@ -13,10 +13,8 @@ from openai import OpenAI
 import requests
 from io import BytesIO
 
-from .intellectual_curiosity_text_generator import IntellectualCuriosityTextGenerator
 from .intellectual_curiosity_text_renderer import IntellectualCuriosityTextRenderer
 from .bright_background_processor import BrightBackgroundProcessor
-from .fixed_top_text_patterns import FixedTopTextPatterns
 from .image_generator import ImageGenerator
 
 
@@ -44,11 +42,6 @@ class IntellectualCuriosityGenerator:
         )
 
         # 各コンポーネントを初期化
-        self.text_generator = IntellectualCuriosityTextGenerator(
-            model=self.config.get("text_generation", {}).get("model", "gpt-4o-mini"),
-            logger=self.logger
-        )
-
         self.text_renderer = IntellectualCuriosityTextRenderer(
             canvas_size=self.canvas_size,
             logger=self.logger
@@ -126,25 +119,19 @@ class IntellectualCuriosityGenerator:
             subject: 対象人物・テーマ
             output_dir: 出力ディレクトリ
             context: 追加コンテキスト（台本など）
-            num_variations: 生成するバリエーション数
+            num_variations: 生成するバリエーション数（使用されない - 常に1つ生成）
 
         Returns:
             生成されたサムネイルのパスリスト
         """
-        self.logger.info(
-            f"Generating {num_variations} thumbnail variations for: {subject}"
-        )
+        self.logger.info(f"Generating thumbnail for: {subject}")
 
-        # 1. 2行構成の下部テキストを生成
-        bottom_texts = self.text_generator.generate_surprise_texts(
-            subject=subject,
-            context=context,
-            num_candidates=num_variations
-        )
+        # 1. contextからthumbnailフィールドを取得
+        thumbnail_data = context.get("thumbnail", {}) if context else {}
+        upper_text = thumbnail_data.get("upper_text", subject)  # フォールバック: 人物名
+        lower_text = thumbnail_data.get("lower_text", "")       # フォールバック: 空文字列
 
-        if not bottom_texts:
-            self.logger.error("No bottom texts generated")
-            return []
+        self.logger.info(f"Thumbnail text - Upper: '{upper_text}', Lower: '{lower_text}'")
 
         # 2. 背景画像を生成（DALL-E または SD）
         background = self._generate_background_image(subject, context)
@@ -166,39 +153,29 @@ class IntellectualCuriosityGenerator:
             enhance_brightness=bg_config.get("enhance_brightness", True)
         )
 
-        # 5. 各テキストペアでサムネイルを生成
+        # 5. サムネイルを生成（1つのみ）
         output_paths = []
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        for i, text_data in enumerate(bottom_texts, 1):
-            try:
-                # 固定フレーズを取得（インデックスで循環）
-                top_text = FixedTopTextPatterns.get_pattern_by_index(i - 1)
+        try:
+            thumbnail_path = self._generate_single_thumbnail(
+                background=processed_background,
+                top_text=upper_text,      # script.jsonから取得
+                line1=lower_text,         # script.jsonから取得（1行のみ）
+                line2="",                 # 空文字列（2行目は使わない）
+                output_dir=output_dir,
+                index=1,
+                subject=subject
+            )
 
-                thumbnail_path = self._generate_single_thumbnail(
-                    background=processed_background,
-                    top_text=top_text,
-                    line1=text_data.get("line1", ""),
-                    line2=text_data.get("line2", ""),
-                    output_dir=output_dir,
-                    index=i,
-                    subject=subject
-                )
+            if thumbnail_path:
+                output_paths.append(thumbnail_path)
+                self.logger.info(f"✅ Thumbnail generated: {thumbnail_path.name}")
 
-                if thumbnail_path:
-                    output_paths.append(thumbnail_path)
-                    self.logger.info(
-                        f"✅ Thumbnail {i}/{num_variations} generated: "
-                        f"{thumbnail_path.name}"
-                    )
+        except Exception as e:
+            self.logger.error(f"Failed to generate thumbnail: {e}", exc_info=True)
 
-            except Exception as e:
-                self.logger.error(
-                    f"Failed to generate thumbnail {i}: {e}",
-                    exc_info=True
-                )
-
-        self.logger.info(f"Generated {len(output_paths)} thumbnails successfully")
+        self.logger.info(f"Generated {len(output_paths)} thumbnail successfully")
 
         return output_paths
 
