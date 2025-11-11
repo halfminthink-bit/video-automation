@@ -314,7 +314,7 @@ class Phase08Thumbnail(PhaseBase):
         知的好奇心サムネイル生成（デフォルト）
 
         DALL-E 3で明るい人物写真を生成し、
-        台本からキャッチコピーを読み取る
+        AIでキャッチコピーを自動生成
 
         Args:
             script_data: 台本データ
@@ -323,20 +323,6 @@ class Phase08Thumbnail(PhaseBase):
             生成結果
         """
         self.logger.info("🧠 Using Intellectual Curiosity Thumbnail Generator (Bright Photos)")
-
-        # 台本からキャッチコピーを読み取る
-        thumbnail_config = script_data.get("thumbnail", {})
-        upper_text = thumbnail_config.get("upper_text", script_data.get("subject", ""))
-        lower_text = thumbnail_config.get("lower_text", "")
-
-        # ログ出力
-        self.logger.info(f"Upper text: {upper_text}")
-        self.logger.info(f"Lower text: {lower_text}")
-
-        # upper_textが空の場合は警告
-        if not upper_text:
-            self.logger.warning("⚠️  upper_text is empty, using subject name as fallback")
-            upper_text = script_data.get("subject", "")
 
         # 出力ディレクトリを作成
         thumbnail_dir = self.phase_dir / "thumbnails"
@@ -348,16 +334,14 @@ class Phase08Thumbnail(PhaseBase):
             logger=self.logger
         )
 
-        # サムネイルを生成（キャッチコピーを渡す）
+        # サムネイルを生成（AIが自動的にキャッチコピーを生成）
         num_variations = self.phase_config.get("num_variations", 5)
 
         thumbnail_paths = generator.generate_thumbnails(
             subject=self.subject,
             output_dir=thumbnail_dir,
             context=script_data,
-            num_variations=num_variations,
-            upper_text=upper_text,
-            lower_text=lower_text
+            num_variations=num_variations
         )
 
         if not thumbnail_paths:
