@@ -316,8 +316,8 @@ class IntellectualCuriosityTextRenderer:
         """
         self.logger.debug(f"Rendering vertical right text: '{text}'")
 
-        # フォントサイズ: 100px（5文字用）
-        font_size = 100
+        # フォントサイズ: 90px（5文字用）
+        font_size = 90
         font = ImageFont.truetype(self.font_path, font_size)
 
         # レイヤーサイズ
@@ -327,7 +327,7 @@ class IntellectualCuriosityTextRenderer:
         # 赤色設定（画像2のような赤）
         text_color = (220, 20, 60)  # Crimson #DC143C
         stroke_color = (0, 0, 0)     # 黒
-        stroke_width = 18            # 縁の太さ
+        stroke_width = 15            # 縁の太さ
 
         # 開始Y座標（上部マージン）
         y_start = 100
@@ -393,8 +393,8 @@ class IntellectualCuriosityTextRenderer:
         """
         self.logger.debug(f"Rendering vertical left text: '{text}'")
 
-        # フォントサイズ: 80px（より大きく）
-        font_size = 80
+        # フォントサイズ: 70px（より大きく）
+        font_size = 70
         font = ImageFont.truetype(self.font_path, font_size)
 
         # レイヤーサイズ
@@ -404,7 +404,7 @@ class IntellectualCuriosityTextRenderer:
         # 白色設定
         text_color = (255, 255, 255)  # 白
         stroke_color = (0, 0, 0)       # 黒
-        stroke_width = 15              # 縁の太さ
+        stroke_width = 12              # 縁の太さ
 
         # 開始Y座標（上部マージン）
         y_start = 100
