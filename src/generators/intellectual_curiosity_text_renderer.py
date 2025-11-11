@@ -316,8 +316,8 @@ class IntellectualCuriosityTextRenderer:
         """
         self.logger.debug(f"Rendering vertical right text: '{text}'")
 
-        # フォントサイズ: 90px
-        font_size = 90
+        # フォントサイズ: 100px（5文字用）
+        font_size = 100
         font = ImageFont.truetype(self.font_path, font_size)
 
         # レイヤーサイズ
@@ -333,7 +333,7 @@ class IntellectualCuriosityTextRenderer:
         y_start = 100
 
         # 文字間隔
-        char_spacing = font_size + 10  # 90 + 10 = 100px
+        char_spacing = font_size + 10  # 100 + 10 = 110px
 
         # 改行で列を分割
         columns = text.split('\n')
@@ -393,7 +393,7 @@ class IntellectualCuriosityTextRenderer:
         """
         self.logger.debug(f"Rendering vertical left text: '{text}'")
 
-        # フォントサイズ: 70px（右側より少し小さめ）
+        # フォントサイズ: 70px（7文字用）
         font_size = 70
         font = ImageFont.truetype(self.font_path, font_size)
 
@@ -410,7 +410,7 @@ class IntellectualCuriosityTextRenderer:
         y_start = 100
 
         # 文字間隔
-        char_spacing = font_size + 10  # 70 + 10 = 80px
+        char_spacing = font_size + 4  # 70 + 4 = 74px
 
         # 改行で列を分割
         columns = text.split('\n')
