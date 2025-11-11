@@ -11,9 +11,12 @@ import json
 import os
 import logging
 import tempfile
+import re
+import io
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
+from pydub import AudioSegment
 from src.utils.whisper_timing import WhisperTimingExtractor, WHISPER_AVAILABLE
 
 
@@ -32,7 +35,8 @@ class KokoroAudioGenerator:
         speed: float = 1.0,
         response_format: str = "mp3",
         logger: Optional[logging.Logger] = None,
-        whisper_config: Optional[Dict[str, Any]] = None
+        whisper_config: Optional[Dict[str, Any]] = None,
+        punctuation_pause_config: Optional[Dict[str, Any]] = None
     ):
         """
         初期化
@@ -44,6 +48,7 @@ class KokoroAudioGenerator:
             response_format: 出力形式（mp3, wav, opus, flac）
             logger: ロガー
             whisper_config: Whisper設定 {"enabled": bool, "model": str, "language": str}
+            punctuation_pause_config: 句点での間隔制御設定
 
         Raises:
             ConnectionError: APIサーバーに接続できない場合
@@ -57,6 +62,9 @@ class KokoroAudioGenerator:
 
         # Whisper設定（初期化はしない）
         self.whisper_config = whisper_config or {"enabled": True, "model": "base", "language": "ja"}
+
+        # 句点での間隔制御設定
+        self.punctuation_pause_config = punctuation_pause_config or {"enabled": False}
 
         # 🔥 変更：__init__での初期化は不要（各セクションで都度初期化）
         # Whisperが利用可能かだけチェック
@@ -94,6 +102,178 @@ class KokoroAudioGenerator:
             self.logger.error(f"Kokoro API接続失敗: {e}")
             raise ConnectionError(f"Kokoro API接続失敗: {e}")
 
+    def _split_by_punctuation(self, text: str) -> List[str]:
+        """
+        句点で文を分割
+
+        Args:
+            text: 分割対象のテキスト
+
+        Returns:
+            句点で分割された文のリスト
+        """
+        # 「。」「！」「？」で分割し、区切り文字を保持
+        segments = re.split(r'([。！？])', text)
+
+        # 区切り文字を前の文に結合
+        result = []
+        for i in range(0, len(segments) - 1, 2):
+            if segments[i]:
+                result.append(segments[i] + segments[i + 1])
+
+        # 最後の文（区切り文字がない場合）
+        if len(segments) % 2 == 1 and segments[-1]:
+            result.append(segments[-1])
+
+        return result
+
+    def _generate_single_audio(self, text: str) -> str:
+        """
+        単一のテキストに対して音声を生成（Base64を返す）
+
+        Args:
+            text: 生成するテキスト
+
+        Returns:
+            Base64エンコードされた音声データ
+        """
+        url = f"{self.api_url}/v1/audio/speech"
+
+        payload = {
+            "model": "kokoro",
+            "input": text,
+            "voice": self.voice,
+            "speed": self.speed,
+            "response_format": self.response_format
+        }
+
+        try:
+            response = requests.post(url, json=payload, timeout=60)
+            response.raise_for_status()
+
+            # レスポンスタイプを確認
+            content_type = response.headers.get('content-type', '')
+
+            # 音声データを取得
+            if 'application/json' in content_type:
+                # JSONレスポンスの場合（Base64エンコード済み）
+                result = response.json()
+                audio_base64 = result.get("audio", "")
+                if not audio_base64:
+                    raise ValueError("API returned empty audio field")
+            else:
+                # バイナリレスポンスの場合（OpenAI互換API）
+                audio_bytes = response.content
+                if not audio_bytes:
+                    raise ValueError("API returned empty audio data")
+                # Base64エンコード
+                audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+
+            return audio_base64
+
+        except Exception as e:
+            self.logger.error(f"Error generating audio: {e}", exc_info=True)
+            raise
+
+    def _generate_with_punctuation_pause(self, text: str) -> Dict[str, Any]:
+        """
+        句点での間隔制御を使用して音声を生成
+
+        Args:
+            text: 生成するテキスト
+
+        Returns:
+            {
+                'audio_base64': str,
+                'alignment': {...}
+            }
+        """
+        # 設定を取得
+        pause_duration = self.punctuation_pause_config.get("pause_duration", {})
+        skip_section_end = self.punctuation_pause_config.get("skip_section_end", True)
+
+        period_pause = pause_duration.get("period", 0.8)
+        exclamation_pause = pause_duration.get("exclamation", 0.9)
+        question_pause = pause_duration.get("question", 0.9)
+
+        self.logger.info(
+            f"Punctuation pause enabled: period={period_pause}s, "
+            f"exclamation={exclamation_pause}s, question={question_pause}s"
+        )
+
+        # 句点で分割
+        segments = self._split_by_punctuation(text)
+
+        if not segments:
+            # 分割できなかった場合は、通常の処理
+            self.logger.warning("No punctuation found, using normal generation")
+            segments = [text]
+
+        self.logger.info(f"Splitting text by punctuation: {len(segments)} segments")
+
+        # 各セグメントを生成して結合
+        audio_segments = []
+
+        for i, segment in enumerate(segments):
+            if not segment.strip():
+                continue
+
+            self.logger.info(f"Segment {i + 1}/{len(segments)}: {segment[:50]}...")
+
+            # 音声生成
+            audio_base64 = self._generate_single_audio(segment)
+            audio_bytes = base64.b64decode(audio_base64)
+
+            # AudioSegmentに変換
+            audio_seg = AudioSegment.from_file(io.BytesIO(audio_bytes), format=self.response_format)
+            audio_segments.append(audio_seg)
+
+            # 無音を挿入（最後のセグメント以外、またはskip_section_end=falseの場合）
+            is_last = (i == len(segments) - 1)
+            should_add_pause = not (is_last and skip_section_end)
+
+            if should_add_pause:
+                # 句読点に応じた無音時間を決定
+                if segment.endswith('。'):
+                    silence_duration = period_pause
+                elif segment.endswith('！'):
+                    silence_duration = exclamation_pause
+                elif segment.endswith('？'):
+                    silence_duration = question_pause
+                else:
+                    silence_duration = 0.0
+
+                if silence_duration > 0:
+                    silence = AudioSegment.silent(duration=int(silence_duration * 1000))
+                    audio_segments.append(silence)
+                    self.logger.info(f"  + silence {silence_duration}s")
+
+        # 全てのセグメントを結合
+        if not audio_segments:
+            raise ValueError("No audio segments generated")
+
+        combined_audio = audio_segments[0]
+        for seg in audio_segments[1:]:
+            combined_audio += seg
+
+        self.logger.info(
+            f"Combined {len(audio_segments)} segments, "
+            f"total duration: {len(combined_audio) / 1000.0:.2f}s"
+        )
+
+        # Base64に変換
+        buffer = io.BytesIO()
+        combined_audio.export(buffer, format=self.response_format)
+        combined_audio_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+
+        # Whisperでタイムスタンプ取得
+        alignment = self._extract_timestamps_with_whisper(combined_audio_base64, text)
+
+        return {
+            'audio_base64': combined_audio_base64,
+            'alignment': alignment
+        }
+
     def generate_with_timestamps(
         self,
         text: str,
@@ -124,53 +304,23 @@ class KokoroAudioGenerator:
         """
         self.logger.info(f"Generating audio with timestamps: {text[:50]}...")
 
+        # 句点での間隔制御が有効な場合は専用の処理を使用
+        if self.punctuation_pause_config.get("enabled", False):
+            return self._generate_with_punctuation_pause(text)
+
+        # 従来の処理（句点制御なし）
         # Step 1: Kokoro APIで音声のみ生成
-        url = f"{self.api_url}/v1/audio/speech"
+        audio_base64 = self._generate_single_audio(text)
 
-        payload = {
-            "model": "kokoro",
-            "input": text,
-            "voice": self.voice,
-            "speed": self.speed,
-            "response_format": self.response_format
+        self.logger.info(f"Audio generated successfully from Kokoro API ({len(audio_base64)} bytes base64)")
+
+        # Step 2: Whisperでタイムスタンプ取得
+        alignment = self._extract_timestamps_with_whisper(audio_base64, text)
+
+        return {
+            'audio_base64': audio_base64,
+            'alignment': alignment
         }
-
-        try:
-            response = requests.post(url, json=payload, timeout=60)
-            response.raise_for_status()
-
-            # レスポンスタイプを確認
-            content_type = response.headers.get('content-type', '')
-            self.logger.debug(f"Response content-type: {content_type}")
-
-            # 音声データを取得
-            if 'application/json' in content_type:
-                # JSONレスポンスの場合（Base64エンコード済み）
-                result = response.json()
-                audio_base64 = result.get("audio", "")
-                if not audio_base64:
-                    raise ValueError("API returned empty audio field")
-            else:
-                # バイナリレスポンスの場合（OpenAI互換API）
-                audio_bytes = response.content
-                if not audio_bytes:
-                    raise ValueError("API returned empty audio data")
-                # Base64エンコード
-                audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
-
-            self.logger.info(f"Audio generated successfully from Kokoro API ({len(audio_base64)} bytes base64)")
-
-            # Step 2: Whisperでタイムスタンプ取得
-            alignment = self._extract_timestamps_with_whisper(audio_base64, text)
-
-            return {
-                'audio_base64': audio_base64,
-                'alignment': alignment
-            }
-
-        except Exception as e:
-            self.logger.error(f"Error generating audio: {e}", exc_info=True)
-            raise
 
     def _estimate_char_timings_from_duration(
         self,
