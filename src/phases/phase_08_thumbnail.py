@@ -25,8 +25,6 @@ from src.core.exceptions import (
 )
 # 保持: 知的好奇心ジェネレーター（デフォルト）
 from src.generators.intellectual_curiosity_generator import create_intellectual_curiosity_generator
-# 保持: キャッチコピージェネレーター
-from src.generators.catchcopy_generator import CatchcopyGenerator
 
 # 従来の方法用（互換性のため保持）
 from src.generators.thumbnail_generator import create_thumbnail_generator
@@ -316,7 +314,7 @@ class Phase08Thumbnail(PhaseBase):
         知的好奇心サムネイル生成（デフォルト）
 
         DALL-E 3で明るい人物写真を生成し、
-        Claude APIで上下のテキストを自動生成
+        台本からキャッチコピーを読み取る
 
         Args:
             script_data: 台本データ
@@ -325,6 +323,20 @@ class Phase08Thumbnail(PhaseBase):
             生成結果
         """
         self.logger.info("🧠 Using Intellectual Curiosity Thumbnail Generator (Bright Photos)")
+
+        # 台本からキャッチコピーを読み取る
+        thumbnail_config = script_data.get("thumbnail", {})
+        upper_text = thumbnail_config.get("upper_text", script_data.get("subject", ""))
+        lower_text = thumbnail_config.get("lower_text", "")
+
+        # ログ出力
+        self.logger.info(f"Upper text: {upper_text}")
+        self.logger.info(f"Lower text: {lower_text}")
+
+        # upper_textが空の場合は警告
+        if not upper_text:
+            self.logger.warning("⚠️  upper_text is empty, using subject name as fallback")
+            upper_text = script_data.get("subject", "")
 
         # 出力ディレクトリを作成
         thumbnail_dir = self.phase_dir / "thumbnails"
@@ -336,14 +348,16 @@ class Phase08Thumbnail(PhaseBase):
             logger=self.logger
         )
 
-        # サムネイルを生成（内部でDALL-E 3 + Claude API呼び出し）
+        # サムネイルを生成（キャッチコピーを渡す）
         num_variations = self.phase_config.get("num_variations", 5)
 
         thumbnail_paths = generator.generate_thumbnails(
             subject=self.subject,
             output_dir=thumbnail_dir,
             context=script_data,
-            num_variations=num_variations
+            num_variations=num_variations,
+            upper_text=upper_text,
+            lower_text=lower_text
         )
 
         if not thumbnail_paths:
@@ -379,93 +393,6 @@ class Phase08Thumbnail(PhaseBase):
 
         return result
 
-    def _generate_catchcopy_candidates(
-        self,
-        script_data: Dict[str, Any],
-        catchcopy_config: Dict[str, Any]
-    ) -> List[Dict[str, str]]:
-        """
-        Claudeでキャッチコピー候補を生成(複数)
-
-        Args:
-            script_data: 台本データ
-            catchcopy_config: キャッチコピー設定
-
-        Returns:
-            キャッチコピー候補のリスト
-        """
-        if not catchcopy_config.get("enabled", True):
-            # キャッチコピー生成が無効の場合はデフォルトを返す
-            self.logger.info("Catchcopy generation disabled, using default title")
-            return [{
-                "main_title": self.subject,
-                "sub_title": None,
-                "emotion": "dramatic",
-                "reasoning": "Default (catchcopy generation disabled)"
-            }]
-
-        # キャッチコピージェネレーターを作成
-        generator = CatchcopyGenerator(
-            model=catchcopy_config.get("model", "gpt-4.1-mini"),
-            logger=self.logger
-        )
-
-        # キャッチコピーを生成
-        candidates = generator.generate_catchcopy(
-            subject=self.subject,
-            script_data=script_data,
-            tone=catchcopy_config.get("tone", "dramatic"),
-            target_audience=catchcopy_config.get("target_audience", "一般"),
-            main_length=catchcopy_config.get("main_title_length", 7),
-            sub_length=catchcopy_config.get("sub_title_length", 10),
-            num_candidates=catchcopy_config.get("num_candidates", 5)
-        )
-
-        # 候補を保存
-        self._save_catchcopy_candidates(candidates)
-
-        self.logger.info(f"Generated {len(candidates)} catchcopy candidates")
-
-        return candidates
-
-    def _generate_catchcopy(
-        self,
-        script_data: Dict[str, Any],
-        catchcopy_config: Dict[str, Any]
-    ) -> tuple:
-        """
-        Claudeでキャッチコピーを生成(レガシーメソッド)
-
-        Args:
-            script_data: 台本データ
-            catchcopy_config: キャッチコピー設定
-
-        Returns:
-            (title, subtitle) のタプル
-        """
-        # 複数候補を生成
-        candidates = self._generate_catchcopy_candidates(script_data, catchcopy_config)
-
-        # 最初の候補を選択
-        selected = candidates[0] if candidates else {"main_title": self.subject, "sub_title": None}
-
-        self.logger.info(f"Selected catchcopy: {selected.get('main_title')} / {selected.get('sub_title')}")
-
-        return (selected.get("main_title"), selected.get("sub_title"))
-    
-    def _save_catchcopy_candidates(self, candidates: List[Dict[str, str]]) -> None:
-        """
-        キャッチコピーの候補を保存
-        
-        Args:
-            candidates: キャッチコピーの候補リスト
-        """
-        candidates_path = self.phase_dir / "catchcopy_candidates.json"
-        
-        with open(candidates_path, 'w', encoding='utf-8') as f:
-            json.dump({"candidates": candidates}, f, ensure_ascii=False, indent=2)
-        
-        self.logger.info(f"Saved {len(candidates)} catchcopy candidates to {candidates_path}")
     
     def _generate_with_pillow(
         self,
