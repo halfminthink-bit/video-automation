@@ -305,8 +305,11 @@ class IntellectualCuriosityTextRenderer:
         """
         右側縦書きテキストをレンダリング（赤文字＋黒縁）
 
+        改行（\n）で区切ると横に複数列を並べることができます。
+        例: "革命か\n破壊か" → 2列表示
+
         Args:
-            text: 縦書きテキスト
+            text: 縦書きテキスト（\nで列を区切る）
 
         Returns:
             テキストレイヤー（RGBA）
@@ -326,40 +329,52 @@ class IntellectualCuriosityTextRenderer:
         stroke_color = (0, 0, 0)     # 黒
         stroke_width = 18            # 縁の太さ
 
-        # 右端からの位置（X座標）
-        x_position = self.width - 120  # 右端から120px内側
-
         # 開始Y座標（上部マージン）
         y_start = 100
 
         # 文字間隔
         char_spacing = font_size + 10  # 90 + 10 = 100px
 
-        # 1文字ずつ縦に描画
-        for i, char in enumerate(text):
-            y_position = y_start + (i * char_spacing)
+        # 改行で列を分割
+        columns = text.split('\n')
 
-            # シャドウ効果（控えめ）
-            for offset in range(8, 0, -2):
-                shadow_opacity = int(150 * (offset / 8))
+        # 列間隔
+        column_spacing = 120  # 列と列の間隔
+
+        # 右端からの開始位置（X座標）- 列数に応じて調整
+        total_width = len(columns) * column_spacing
+        x_start = self.width - 120  # 右端から120px内側
+
+        # 各列を描画（右から左へ）
+        for col_index, column_text in enumerate(columns):
+            # 列のX座標（右から左へ配置）
+            x_position = x_start - (col_index * column_spacing)
+
+            # 1文字ずつ縦に描画
+            for char_index, char in enumerate(column_text):
+                y_position = y_start + (char_index * char_spacing)
+
+                # シャドウ効果（控えめ）
+                for offset in range(8, 0, -2):
+                    shadow_opacity = int(150 * (offset / 8))
+                    draw.text(
+                        (x_position + offset, y_position + offset),
+                        char,
+                        font=font,
+                        fill=(0, 0, 0, shadow_opacity)
+                    )
+
+                # メインテキスト（赤文字＋黒縁）
                 draw.text(
-                    (x_position + offset, y_position + offset),
+                    (x_position, y_position),
                     char,
                     font=font,
-                    fill=(0, 0, 0, shadow_opacity)
+                    fill=text_color,
+                    stroke_width=stroke_width,
+                    stroke_fill=stroke_color
                 )
 
-            # メインテキスト（赤文字＋黒縁）
-            draw.text(
-                (x_position, y_position),
-                char,
-                font=font,
-                fill=text_color,
-                stroke_width=stroke_width,
-                stroke_fill=stroke_color
-            )
-
-        self.logger.debug(f"✅ Vertical right text rendered: {layer.size}")
+        self.logger.debug(f"✅ Vertical right text rendered: {layer.size}, {len(columns)} columns")
 
         return layer
 
@@ -367,8 +382,11 @@ class IntellectualCuriosityTextRenderer:
         """
         左側縦書きテキストをレンダリング（白文字＋黒縁）
 
+        改行（\n）で区切ると横に複数列を並べることができます。
+        例: "戦国の\n常識を\n覆した男" → 3列表示
+
         Args:
-            text: 縦書きテキスト
+            text: 縦書きテキスト（\nで列を区切る）
 
         Returns:
             テキストレイヤー（RGBA）
@@ -388,40 +406,51 @@ class IntellectualCuriosityTextRenderer:
         stroke_color = (0, 0, 0)       # 黒
         stroke_width = 15              # 縁の太さ
 
-        # 左端からの位置（X座標）
-        x_position = 100  # 左端から100px内側
-
         # 開始Y座標（上部マージン）
         y_start = 100
 
         # 文字間隔
         char_spacing = font_size + 10  # 70 + 10 = 80px
 
-        # 1文字ずつ縦に描画
-        for i, char in enumerate(text):
-            y_position = y_start + (i * char_spacing)
+        # 改行で列を分割
+        columns = text.split('\n')
 
-            # シャドウ効果（控えめ）
-            for offset in range(8, 0, -2):
-                shadow_opacity = int(150 * (offset / 8))
+        # 列間隔
+        column_spacing = 100  # 列と列の間隔
+
+        # 左端からの開始位置（X座標）
+        x_start = 100  # 左端から100px内側
+
+        # 各列を描画（左から右へ）
+        for col_index, column_text in enumerate(columns):
+            # 列のX座標（左から右へ配置）
+            x_position = x_start + (col_index * column_spacing)
+
+            # 1文字ずつ縦に描画
+            for char_index, char in enumerate(column_text):
+                y_position = y_start + (char_index * char_spacing)
+
+                # シャドウ効果（控えめ）
+                for offset in range(8, 0, -2):
+                    shadow_opacity = int(150 * (offset / 8))
+                    draw.text(
+                        (x_position + offset, y_position + offset),
+                        char,
+                        font=font,
+                        fill=(0, 0, 0, shadow_opacity)
+                    )
+
+                # メインテキスト（白文字＋黒縁）
                 draw.text(
-                    (x_position + offset, y_position + offset),
+                    (x_position, y_position),
                     char,
                     font=font,
-                    fill=(0, 0, 0, shadow_opacity)
+                    fill=text_color,
+                    stroke_width=stroke_width,
+                    stroke_fill=stroke_color
                 )
 
-            # メインテキスト（白文字＋黒縁）
-            draw.text(
-                (x_position, y_position),
-                char,
-                font=font,
-                fill=text_color,
-                stroke_width=stroke_width,
-                stroke_fill=stroke_color
-            )
-
-        self.logger.debug(f"✅ Vertical left text rendered: {layer.size}")
+        self.logger.debug(f"✅ Vertical left text rendered: {layer.size}, {len(columns)} columns")
 
         return layer
 
