@@ -25,11 +25,26 @@ def convert_yaml_to_json(yaml_path: Path, output_path: Path):
     with open(yaml_path, 'r', encoding='utf-8') as f:
         data = yaml.safe_load(f)
 
+    # サムネイル情報の取得（フォールバック付き）
+    thumbnail_data = data.get("thumbnail")
+    if thumbnail_data is None:
+        print(f"⚠️  Warning: 'thumbnail' field not found in {yaml_path.name}, using fallback values")
+        thumbnail = {
+            "upper_text": data["subject"],  # フォールバック: 偉人名
+            "lower_text": ""                # フォールバック: 空文字
+        }
+    else:
+        thumbnail = {
+            "upper_text": thumbnail_data.get("upper_text", data["subject"]),
+            "lower_text": thumbnail_data.get("lower_text", "")
+        }
+
     # JSON形式に変換
     script_json = {
         "subject": data["subject"],
         "title": data["title"],
         "description": data["description"],
+        "thumbnail": thumbnail,
         "sections": [],
         "total_estimated_duration": 0,
         "generated_at": datetime.now().isoformat(),

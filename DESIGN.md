@@ -1,11 +1,21 @@
 # 偉人動画自動生成システム - 詳細設計書 v2.0
 
 **作成日**: 2025年10月28日
-**最終更新日**: 2025年11月10日
+**最終更新日**: 2025年11月11日
 **対象読者**: 開発者、AI補助ツール
 **設計方針**: 変更容易性、デバッグ性、フェーズ独立実行を最優先
 
 ## 📋 更新履歴
+
+### v2.3 (2025年11月11日)
+- Phase 8にStable Diffusion対応を追加
+  - 背景画像生成にDALL-E 3とStable Diffusionの選択機能を実装
+  - `use_stable_diffusion`フラグで切り替え可能
+  - Phase 3と同じImageGeneratorを使用（一貫性確保）
+  - Claude APIによるSD用プロンプト最適化を実装
+  - 中央配置を重視したSD用プロンプト設計
+  - テキスト描画ロジック（フォント、位置、色、縁取り）は完全保持
+  - エラー処理の明確化（SDエラー時はフォールバックなし）
 
 ### v2.2 (2025年11月10日)
 - Phase 6の長文分割ロジックを改善
@@ -1312,15 +1322,22 @@ metadata:
    - 台本内容からメインタイトルとサブタイトルを生成
    - 複数候補（デフォルト5個）を生成
    - トーンとターゲット層に応じたキャッチコピーを作成
-2. **背景画像生成**（DALL-E 3 / gpt-image-1使用）
-   - テーマに基づいた背景画像をAI生成
-   - スタイル（dramatic, professional, minimalist, vibrant）を指定可能
-   - 1024x1024で生成後、1280x720にリサイズ
-3. **テキストオーバーレイ**（Pillow使用）
+2. **背景画像生成**（DALL-E 3 または Stable Diffusion）
+   - **DALL-E 3方式**:
+     - テーマに基づいた背景画像をAI生成
+     - スタイル（dramatic, professional, minimalist, vibrant）を指定可能
+     - 1792x1024で生成後、1280x720にリサイズ
+   - **Stable Diffusion方式**（Phase 3と同じ仕組み）:
+     - ImageGeneratorを使用してSD生成
+     - Claude APIでプロンプト最適化（Phase 3と同様）
+     - 1344x768で生成後、1280x720にリサイズ
+     - 中央配置を重視したプロンプト設計
+   - `use_stable_diffusion`フラグで切り替え可能
+3. **テキストオーバーレイ**（完全に変更なし）
    - 日本語フォントの読み込み（Windows/Linux/macOS対応）
-   - テキストを画面下部に大きく配置
-   - 影付きテキストで可読性を向上
-   - レイアウト（center, left, right）を選択可能
+   - 上部テキスト: 赤グラデーション（金色、固定フレーズ）
+   - 下部テキスト: 白色＋黒縁（2行構成）
+   - テキストのフォント、位置、色、縁取りは既存実装を保持
 
 **出力**:
 - `working/{subject}/08_thumbnail/thumbnails/*.png`
@@ -1329,17 +1346,31 @@ metadata:
 
 **設定例（config/phases/thumbnail_generation.yaml）**:
 ```yaml
-# サムネイル生成方式
-use_dalle: true  # DALL-E 3 / gpt-image-1を使用するか
+# ================================
+# 背景画像生成方法の選択
+# ================================
+use_stable_diffusion: true  # true=SD, false=DALL-E 3
 
-# GPT Image設定（use_dalle: true の場合）
-gptimage:
-  model: "dall-e-3"  # dall-e-3 または gpt-image-1
-  width: 1280
-  height: 720
-  style: "dramatic"  # dramatic, professional, minimalist, vibrant
-  quality: "medium"  # low, medium, high
-  layout: "center"  # center, left, right（テキスト配置）
+# DALL-E 3設定（use_stable_diffusion: false の場合）
+dalle:
+  size: "1792x1024"        # 画像サイズ（YouTube最適: 1792x1024横長）
+  quality: "standard"       # 画質（standard or hd）
+  style: "dramatic"         # スタイル
+
+# Stable Diffusion設定（use_stable_diffusion: true の場合）
+stable_diffusion:
+  api_key_env: "STABILITY_API_KEY"  # 環境変数名
+
+  # 画像生成パラメータ（64の倍数が必須）
+  width: 1344   # 1344 ÷ 64 = 21 ✓
+  height: 768   # 768 ÷ 64 = 12 ✓
+
+  # Stability AI 設定
+  model: "sdxl"  # Phase 3 と同じモデル
+  style: "photorealistic"
+  steps: 30
+  cfg_scale: 7.5
+  sampler: "DPM++ 2M Karras"
 
 # キャッチコピー生成設定
 catchcopy:
@@ -1351,14 +1382,12 @@ catchcopy:
   sub_title_length: 10   # サブタイトルの最大文字数
   num_candidates: 5      # 生成する候補数
 
-# Pillow方式設定（use_dalle: false の場合）
-pillow:
-  width: 1280
-  height: 720
-  title_patterns:
-    - "{subject}の生涯"
-    - "{subject}とは？"
-    - "知られざる{subject}"
+# サムネイル基本設定
+output:
+  resolution: [1280, 720]    # YouTubeサムネイル標準解像度（16:9）
+  format: "png"              # PNG形式（高品質）
+  quality: 95                # 品質（0-100）
+  patterns: 5                # 生成するパターン数
 ```
 
 **日本語フォント対応**:
@@ -1367,28 +1396,41 @@ pillow:
 - macOS: ヒラギノ角ゴシックを自動検出
 - フォールバック: 日本語フォントが見つからない場合はデフォルトフォント使用
 
-**テキスト配置の特徴**:
-- タイトルフォントサイズ: 120px（大きく目立つように）
-- サブタイトルフォントサイズ: 60px
-- 配置: 画面下部（下から80-100pxのマージン）
-- 影: オフセット6px（タイトル）、4px（サブタイトル）で可読性向上
-- 半透明の黒いオーバーレイで背景とのコントラストを改善
+**テキスト配置の特徴（IntellectualCuriosityGenerator）**:
+- 上部テキスト（固定フレーズ）:
+  - 赤グラデーション（#FF0000→#FF6B6B→#FFAAAA）
+  - フォントサイズ: 140-180px（文字数で自動調整）
+  - 配置: 画面上部25%エリア
+- 下部テキスト（2行構成）:
+  - 白色＋黒縁（グラデーションなし）
+  - フォントサイズ: 50px
+  - 配置: 画面下部25%エリア（下から390px）
+  - 半透明黒背景付き
+- **注意**: テキスト描画ロジックは一切変更せず、背景画像の生成方法のみを変更
 
 **スキップ条件**:
 - `working/{subject}/08_thumbnail/metadata.json`が存在し、
   サムネイル画像が生成済み
 
 **エラーハンドリング**:
-- DALL-E 3 API失敗 → エラーログを記録、処理を中断
-- 日本語フォント読み込み失敗 → デフォルトフォントにフォールバック、警告ログ
-- Claude API失敗（キャッチコピー生成） → デフォルトタイトル（subject名）を使用
-- Pillow処理失敗 → エラーログを記録、処理を中断
+- **DALL-E 3方式**:
+  - DALL-E 3 API失敗 → エラーログを記録、Noneを返す
+- **Stable Diffusion方式**:
+  - Stability API key不足 → ValueError発生（明示的エラー）
+  - SD生成失敗 → Exception発生、フォールバックなし
+  - Claude API失敗（プロンプト最適化） → 警告ログ、最適化なしで続行
+- **共通**:
+  - 日本語フォント読み込み失敗 → デフォルトフォントにフォールバック、警告ログ
+  - Claude API失敗（キャッチコピー生成） → デフォルトタイトル（subject名）を使用
+  - Pillow処理失敗 → エラーログを記録、処理を中断
 
 **重要な実装ポイント**:
-- マルチプラットフォーム対応のフォント検出機構
-- DALL-E 3とPillowの組み合わせによる高品質なサムネイル生成
-- Claudeによる魅力的なキャッチコピーの自動生成
-- 下部配置の大きなテキストで視認性を最大化
+- **Phase 3との一貫性**: Stable Diffusion方式はPhase 3と同じImageGeneratorを使用
+- **背景生成のみを変更**: テキスト描画ロジック（フォント、位置、色、縁取り）は完全保持
+- **プロンプト最適化**: Claude APIによるSD用プロンプト最適化（Phase 3と同様）
+- **中央配置重視**: SD用プロンプトで被写体の中央配置を明確に指示
+- **解像度の統一**: 最終的に1280x720にリサイズ（DALL-E: 1792x1024→, SD: 1344x768→）
+- **エラー処理の明確化**: SDエラー時はフォールバックせず明示的にエラーを返す
 
 ---
 
