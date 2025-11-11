@@ -13,7 +13,7 @@ output:
 split_layout:
   enabled: true             # 二分割レイアウトを有効化
   direction: "vertical"     # レイアウト方向: "horizontal" (左右) or "vertical" (上下)
-  ratio: 0.7                # 上部エリアの比率（0.7 = 70%）
+  ratio: 0.8                # 上部エリアの比率（0.8 = 80%, 下部20%は字幕）
 
   # 上部（動画側）の設定
   top_side:
