@@ -25,7 +25,9 @@ timing:
 # 形態素解析設定
 morphological_analysis:
   # MeCabを使用するか（より自然な分割）
-  use_mecab: false
+  # MeCabを使うと、動詞・形容詞の途中で分割されなくなります
+  # インストール: pip install python-mecab (Ubuntu: sudo apt install mecab libmecab-dev mecab-ipadic-utf8)
+  use_mecab: true
 
   # 文の区切り文字（「。」のみで分割）
   break_on:
@@ -40,6 +42,7 @@ splitting:
   # 優先順位とスコア
   priority_scores:
     punctuation: 120       # 句読点（最優先）
+    morpheme_boundary: 150 # 形態素境界（MeCab使用時）
     particle: 100          # 助詞の後
     hiragana_to_kanji: 80  # ひらがな→漢字
     kanji_to_hiragana: 60  # 漢字→ひらがな
@@ -47,10 +50,11 @@ splitting:
 
   # ペナルティ
   penalties:
-    distance_from_ideal: 5   # 理想位置から1文字離れるごとに-5
-    ends_with_n_tsu: 20      # 「ん」「っ」で終わると-20
-    splits_number: 50        # 数字を分割すると-50
-    splits_alphabet: 50      # 英字を分割すると-50
+    distance_from_ideal: 5        # 理想位置から1文字離れるごとに-5
+    ends_with_n_tsu: 20           # 「ん」「っ」で終わると-20
+    splits_number: 50             # 数字を分割すると-50
+    splits_alphabet: 50           # 英字を分割すると-50
+    splits_verb_adjective: 500    # 動詞・形容詞の途中で分割すると-500（MeCab使用時）
 
   # 助詞リスト
   particles:

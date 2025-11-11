@@ -54,6 +54,7 @@ class SubtitleGenerator:
         self.window_size = splitting.get("window_size", 3)
         self.priority_scores = splitting.get("priority_scores", {
             "punctuation": 120,
+            "morpheme_boundary": 150,  # 形態素境界（最優先）
             "particle": 100,
             "hiragana_to_kanji": 80,
             "kanji_to_hiragana": 60,
@@ -63,7 +64,8 @@ class SubtitleGenerator:
             "distance_from_ideal": 5,
             "ends_with_n_tsu": 20,
             "splits_number": 50,
-            "splits_alphabet": 50
+            "splits_alphabet": 50,
+            "splits_verb_adjective": 500  # 動詞・形容詞の途中で分割するペナルティ
         })
         self.particles = splitting.get("particles", [
             "は", "が", "を", "に", "で", "と", "も", "や", "から", "まで", "より"
@@ -613,23 +615,111 @@ class SubtitleGenerator:
 
         return boundaries
 
+    def _detect_morpheme_boundaries(
+        self,
+        characters: List[str]
+    ) -> Dict[str, Any]:
+        """
+        MeCabを使って形態素境界を検出
+
+        Returns:
+            {
+                'boundaries': [3, 7, 12, ...],  # 形態素の境界位置
+                'morphemes': [
+                    {'surface': '戦国', 'pos': '名詞', 'start': 0, 'end': 2},
+                    {'surface': '時代', 'pos': '名詞', 'start': 2, 'end': 4},
+                    ...
+                ],
+                'verb_adjective_positions': set([5, 6, 7, ...])  # 動詞・形容詞の内部位置
+            }
+        """
+        if not self.use_mecab or self.mecab is None:
+            # MeCabが利用できない場合は空の結果を返す
+            return {
+                'boundaries': [],
+                'morphemes': [],
+                'verb_adjective_positions': set()
+            }
+
+        try:
+            text = "".join(characters)
+
+            # MeCabで解析
+            node = self.mecab.parseToNode(text)
+
+            morphemes = []
+            boundaries = []
+            verb_adjective_positions = set()
+            current_pos = 0
+
+            while node:
+                surface = node.surface
+                features = node.feature.split(',')
+                pos = features[0] if features else "未知語"
+
+                if surface:  # 空文字列でない場合
+                    morpheme_len = len(surface)
+                    morpheme_end = current_pos + morpheme_len
+
+                    morphemes.append({
+                        'surface': surface,
+                        'pos': pos,
+                        'start': current_pos,
+                        'end': morpheme_end
+                    })
+
+                    # 形態素の終わり位置を境界として記録
+                    if morpheme_end < len(characters):
+                        boundaries.append(morpheme_end)
+
+                    # 動詞・形容詞の内部位置を記録（境界以外の位置）
+                    if pos in ['動詞', '形容詞']:
+                        for i in range(current_pos + 1, morpheme_end):
+                            verb_adjective_positions.add(i)
+
+                    current_pos = morpheme_end
+
+                node = node.next
+
+            self.logger.debug(
+                f"MeCab detected {len(morphemes)} morphemes, "
+                f"{len(boundaries)} boundaries, "
+                f"{len(verb_adjective_positions)} verb/adj internal positions"
+            )
+
+            return {
+                'boundaries': boundaries,
+                'morphemes': morphemes,
+                'verb_adjective_positions': verb_adjective_positions
+            }
+
+        except Exception as e:
+            self.logger.warning(f"MeCab analysis failed: {e}")
+            return {
+                'boundaries': [],
+                'morphemes': [],
+                'verb_adjective_positions': set()
+            }
+
     def _find_split_position_with_score(
         self,
         text: str,
         characters: List[str],
         max_chars: int,
         punctuation_positions: Dict[int, str],
-        boundaries: Dict[str, List[int]]
+        boundaries: Dict[str, List[int]],
+        morpheme_info: Optional[Dict[str, Any]] = None
     ) -> tuple[int, str]:
         """
         最適な分割位置をスコアリング方式で決定
 
         優先順位:
         1. 句読点（スコア: 120）
-        2. 助詞の後（スコア: 100）
-        3. ひらがな→漢字（スコア: 80）
-        4. 漢字→ひらがな（スコア: 60）
-        5. カタカナ境界（スコア: 40）
+        2. 形態素境界（スコア: 150） ← NEW
+        3. 助詞の後（スコア: 100）
+        4. ひらがな→漢字（スコア: 80）
+        5. 漢字→ひらがな（スコア: 60）
+        6. カタカナ境界（スコア: 40）
 
         ペナルティ:
         - 理想位置から離れるごとに -5点/文字
@@ -637,6 +727,7 @@ class SubtitleGenerator:
         - 数字・英字を分割: -50点
         - 分割後の断片が短すぎる: -200点
         - 分割バランスが悪い: 最大-50点
+        - 動詞・形容詞の途中で分割: -500点 ← NEW
 
         Returns:
             (分割位置, 分割理由)
@@ -657,6 +748,13 @@ class SubtitleGenerator:
         best_score = -99999
         best_pos = ideal_pos
         best_reason = "forced"
+
+        # 形態素情報の取得
+        morpheme_boundaries = []
+        verb_adjective_positions = set()
+        if morpheme_info:
+            morpheme_boundaries = morpheme_info.get('boundaries', [])
+            verb_adjective_positions = morpheme_info.get('verb_adjective_positions', set())
 
         for pos in range(search_start, search_end):
             score = 0
@@ -696,25 +794,40 @@ class SubtitleGenerator:
                     score += self.priority_scores.get("punctuation", 120)
                     reason = f"punctuation_{punct}"
 
+            # 形態素境界（句読点の次に優先）
+            if pos in morpheme_boundaries:
+                score += self.priority_scores.get("morpheme_boundary", 150)
+                if not reason:  # 句読点がない場合のみ理由を設定
+                    reason = "morpheme_boundary"
+
             # 助詞の後
             if pos in boundaries.get("particles", []):
                 score += self.priority_scores.get("particle", 100)
-                reason = "particle"
+                if not reason:
+                    reason = "particle"
 
             # ひらがな→漢字
             elif pos in boundaries.get("hiragana_to_kanji", []):
                 score += self.priority_scores.get("hiragana_to_kanji", 80)
-                reason = "hiragana_to_kanji"
+                if not reason:
+                    reason = "hiragana_to_kanji"
 
             # 漢字→ひらがな
             elif pos in boundaries.get("kanji_to_hiragana", []):
                 score += self.priority_scores.get("kanji_to_hiragana", 60)
-                reason = "kanji_to_hiragana"
+                if not reason:
+                    reason = "kanji_to_hiragana"
 
             # カタカナ境界
             elif pos in boundaries.get("katakana_boundary", []):
                 score += self.priority_scores.get("katakana_boundary", 40)
-                reason = "katakana_boundary"
+                if not reason:
+                    reason = "katakana_boundary"
+
+            # 動詞・形容詞の途中で分割するペナルティ
+            if pos in verb_adjective_positions:
+                score -= self.penalties.get("splits_verb_adjective", 500)
+                self.logger.debug(f"Position {pos} splits verb/adjective, penalty applied")
 
             # 距離ペナルティ
             distance = abs(pos - ideal_pos)
@@ -776,15 +889,34 @@ class SubtitleGenerator:
         remaining_chars = characters.copy()
         remaining_punct = punctuation_positions.copy()
 
+        # 形態素境界を検出（全体で一度だけ）
+        morpheme_info = self._detect_morpheme_boundaries(characters)
+
         while remaining_chars and len(lines) < max_lines:
-            # 最終行は残りをすべて入れる（切り詰めない）
+            # 最終行の処理
             if len(lines) == max_lines - 1:
                 line_text = "".join(remaining_chars)
+
+                # 最終行が長すぎる場合は警告を出す
+                if len(remaining_chars) > max_chars_per_line * 1.5:
+                    self.logger.warning(
+                        f"Last line is too long ({len(remaining_chars)} chars). "
+                        f"Text may be truncated or split improperly. "
+                        f"Consider using longer max_chars or multiple subtitles."
+                    )
+
                 if self.remove_punctuation:
                     # 句読点を除去（「、」と「」は残す）
                     line_text = "".join([c for c in line_text if c not in ["。", "！", "？", "…"]])
                 lines.append(line_text)
                 break
+
+            # 残りのテキストに対する形態素情報を更新
+            offset = len(characters) - len(remaining_chars)
+            remaining_morpheme_info = {
+                'boundaries': [b - offset for b in morpheme_info.get('boundaries', []) if b >= offset],
+                'verb_adjective_positions': set([p - offset for p in morpheme_info.get('verb_adjective_positions', set()) if p >= offset])
+            }
 
             # 分割位置を決定
             split_pos, reason = self._find_split_position_with_score(
@@ -792,7 +924,8 @@ class SubtitleGenerator:
                 characters=remaining_chars,
                 max_chars=max_chars_per_line,
                 punctuation_positions=remaining_punct,
-                boundaries=self._detect_character_boundaries(remaining_chars)
+                boundaries=self._detect_character_boundaries(remaining_chars),
+                morpheme_info=remaining_morpheme_info
             )
 
             # この行のテキストを取得
@@ -1012,6 +1145,9 @@ class SubtitleGenerator:
         remaining_starts = start_times.copy()
         remaining_ends = end_times.copy()
 
+        # 形態素境界を検出（全体で一度だけ）
+        morpheme_info = self._detect_morpheme_boundaries(characters)
+
         while remaining_chars:
             if len(remaining_chars) <= max_chars:
                 # 残りをそのまま追加
@@ -1038,6 +1174,13 @@ class SubtitleGenerator:
                 })
                 break
 
+            # 残りのテキストに対する形態素情報を更新
+            offset = len(characters) - len(remaining_chars)
+            remaining_morpheme_info = {
+                'boundaries': [b - offset for b in morpheme_info.get('boundaries', []) if b >= offset],
+                'verb_adjective_positions': set([p - offset for p in morpheme_info.get('verb_adjective_positions', set()) if p >= offset])
+            }
+
             # 分割位置を決定
             sub_boundaries = self._detect_character_boundaries(remaining_chars)
             split_pos, reason = self._find_split_position_with_score(
@@ -1045,7 +1188,8 @@ class SubtitleGenerator:
                 characters=remaining_chars,
                 max_chars=adjusted_max_chars,
                 punctuation_positions={},  # 句読点は既に処理済み
-                boundaries=sub_boundaries
+                boundaries=sub_boundaries,
+                morpheme_info=remaining_morpheme_info
             )
 
             # チャンクを追加
