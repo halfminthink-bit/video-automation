@@ -1,0 +1,59 @@
+{
+  "subject": "織田信長",
+  "title": "革命児・織田信長",
+  "description": "戦国の世を変えた男、織田信長の生涯を45秒で",
+  "thumbnail": {
+    "upper_text": "革命か、破壊か",
+    "lower_text": "戦国の常識を覆した男"
+  },
+  "sections": [
+    {
+      "section_id": 1,
+      "title": "起：うつけから天下人へ",
+      "narration": "「うつけ者」と呼ばれた若き日の信長。\n誰もが侮った男が、天下統一を目指す戦国最大の革命児となった。\n桶狭間の戦いで今川義元を討ち、その名を轟かせる。",
+      "estimated_duration": 15.0,
+      "image_keywords": [
+        "織田信長",
+        "桶狭間の戦い",
+        "革命児"
+      ],
+      "atmosphere": "劇的",
+      "requires_ai_video": false,
+      "ai_video_prompt": null,
+      "bgm_suggestion": "opening"
+    },
+    {
+      "section_id": 2,
+      "title": "承転：破壊と創造",
+      "narration": "延暦寺焼き討ち、長篠の戦い。\n古い権威を容赦なく破壊し、鉄砲を駆使した新時代の戦術で天下を席巻。\n安土城を築き、天下布武を掲げた信長の前に、誰も立ちはだかることはできなかった。\nしかし、その絶頂期、本能寺の変が彼を襲う。",
+      "estimated_duration": 20.0,
+      "image_keywords": [
+        "織田信長",
+        "本能寺の変",
+        "天下布武"
+      ],
+      "atmosphere": "壮大",
+      "requires_ai_video": false,
+      "ai_video_prompt": null,
+      "bgm_suggestion": "main"
+    },
+    {
+      "section_id": 3,
+      "title": "結：伝説の誕生",
+      "narration": "「是非に及ばず」\n49歳で散った革命児。\nしかし、その遺志は秀吉、家康へと受け継がれ、日本の歴史を永遠に変えた。",
+      "estimated_duration": 10.0,
+      "image_keywords": [
+        "織田信長",
+        "是非に及ばず",
+        "遺志"
+      ],
+      "atmosphere": "悲劇的",
+      "requires_ai_video": false,
+      "ai_video_prompt": null,
+      "bgm_suggestion": "ending"
+    }
+  ],
+  "total_estimated_duration": 45,
+  "generated_at": "2025-11-11T10:36:38.482004",
+  "model_version": "manual"
+}

@@ -1,0 +1,59 @@
+{
+  "subject": "グリゴリーラスプーチン",
+  "title": "不死身の怪僧ラスプーチン",
+  "description": "毒殺されても死ななかった男の衝撃の最期",
+  "thumbnail": {
+    "upper_text": "死なない男？",
+    "lower_text": "ロシア帝国を滅ぼした謎の怪僧"
+  },
+  "sections": [
+    {
+      "section_id": 1,
+      "title": "不死身の男",
+      "narration": "1916年、ロシア帝国。\n貴族たちは、ある男の暗殺を決意した。\n彼の名はグリゴリー・ラスプーチン。\n皇后を操る怪僧として恐れられていた。\nだが、彼らは知らなかった。\nこの男が、簡単には死なないことを。",
+      "estimated_duration": 20.0,
+      "image_keywords": [
+        "ラスプーチン",
+        "ロシア帝国",
+        "怪僧"
+      ],
+      "atmosphere": "劇的",
+      "requires_ai_video": false,
+      "ai_video_prompt": null,
+      "bgm_suggestion": "opening"
+    },
+    {
+      "section_id": 2,
+      "title": "壮絶な暗殺劇",
+      "narration": "毒入りケーキを食べても平然としていた。\n銃で撃たれても立ち上がり、襲撃者を追いかけた。\n何度も撃たれ、殴られ、最後は氷点下の川に投げ込まれた。\n検死の結果は驚くべきものだった。\n死因は、溺死。\n川の中でまだ生きていたのだ。",
+      "estimated_duration": 25.0,
+      "image_keywords": [
+        "暗殺",
+        "不死身",
+        "驚異"
+      ],
+      "atmosphere": "劇的",
+      "requires_ai_video": false,
+      "ai_video_prompt": null,
+      "bgm_suggestion": "main"
+    },
+    {
+      "section_id": 3,
+      "title": "予言された崩壊",
+      "narration": "死の直前、彼は予言を残した。\n「私が貴族に殺されたら、ロシア帝国は2年以内に滅びる」\n予言は的中した。\n翌年、ロシア革命が起き、帝国は崩壊した。",
+      "estimated_duration": 15.0,
+      "image_keywords": [
+        "予言",
+        "ロシア革命",
+        "崩壊"
+      ],
+      "atmosphere": "悲劇的",
+      "requires_ai_video": false,
+      "ai_video_prompt": null,
+      "bgm_suggestion": "ending"
+    }
+  ],
+  "total_estimated_duration": 60,
+  "generated_at": "2025-11-11T21:30:30.571387",
+  "model_version": "manual"
+}

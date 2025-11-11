@@ -1,22 +1,10 @@
-#!/usr/bin/env python3
-"""
-手動台本のテンプレートファイルを生成（15分版）
-
-使い方:
-    python scripts/create_script_template.py 織田信長
-    python scripts/create_script_template.py "グリゴリー・ラスプーチン"
-"""
-
-import sys
-from pathlib import Path
-
-TEMPLATE = """# ========================================
+# ========================================
 # 手動台本テンプレート（15分版）
 # ========================================
 
-subject: "{subject}"
-title: "{subject}の生涯"
-description: "{subject}について15分で解説する動画です"
+subject: "グリゴリーラスプーチン"
+title: "グリゴリーラスプーチンの生涯"
+description: "グリゴリーラスプーチンについて15分で解説する動画です"
 
 # ========================================
 # サムネイル用キャッチコピー
@@ -31,8 +19,6 @@ thumbnail:
 
 # ========================================
 # セクション（目安：6セクション × 150秒 = 900秒 = 15分）
-改行は
-\n
 # ========================================
 
 sections:
@@ -52,7 +38,7 @@ sections:
       - インパクトある出だし
 
     keywords:
-      - "{subject}"
+      - "グリゴリーラスプーチン"
       - "生い立ち"
       - "時代背景"
 
@@ -71,7 +57,7 @@ sections:
       - 人格形成に影響を与えた出来事
 
     keywords:
-      - "{subject}"
+      - "グリゴリーラスプーチン"
       - "青年期"
       - "試練"
 
@@ -90,7 +76,7 @@ sections:
       - 決断の瞬間
 
     keywords:
-      - "{subject}"
+      - "グリゴリーラスプーチン"
       - "転機"
       - "出会い"
 
@@ -109,7 +95,7 @@ sections:
       - 歴史に残る瞬間
 
     keywords:
-      - "{subject}"
+      - "グリゴリーラスプーチン"
       - "最盛期"
       - "功績"
 
@@ -128,7 +114,7 @@ sections:
       - 最期の瞬間
 
     keywords:
-      - "{subject}"
+      - "グリゴリーラスプーチン"
       - "晩年"
       - "苦悩"
 
@@ -147,43 +133,6 @@ sections:
       - 感動的な余韻を残す
 
     keywords:
-      - "{subject}"
+      - "グリゴリーラスプーチン"
       - "遺産"
       - "影響"
-"""
-
-def main():
-    if len(sys.argv) < 2:
-        print("Usage: python scripts/create_script_template.py <偉人名>")
-        print("\n例:")
-        print("  python scripts/create_script_template.py 織田信長")
-        print('  python scripts/create_script_template.py "グリゴリー・ラスプーチン"')
-        sys.exit(1)
-
-    subject = sys.argv[1]
-    output_dir = Path("data/input/manual_scripts")
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    output_path = output_dir / f"{subject}.yaml"
-
-    if output_path.exists():
-        print(f"⚠️  File already exists: {output_path}")
-        overwrite = input("Overwrite? (y/n): ")
-        if overwrite.lower() != 'y':
-            print("Cancelled")
-            sys.exit(0)
-
-    # テンプレート生成
-    content = TEMPLATE.format(subject=subject)
-
-    with open(output_path, 'w', encoding='utf-8') as f:
-        f.write(content)
-
-    print(f"✅ Template created: {output_path}")
-    print(f"\n📝 15分版テンプレート（6セクション × 150秒 = 900秒）")
-    print(f"\n次のステップ:")
-    print(f"1. {output_path} を編集")
-    print(f"2. python scripts/convert_manual_script.py \"{subject}\"")
-
-if __name__ == "__main__":
-    main()
