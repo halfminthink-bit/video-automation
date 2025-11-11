@@ -985,95 +985,187 @@ class SubtitleGenerator:
                 self.logger.warning(f"Section {section.get('section_id')} has invalid timing data")
                 continue
 
-            # 句読点位置をマッピング
-            # 修正後: charactersに句読点が含まれるため、直接検出
-            punctuation_positions = self._find_punctuation_positions_from_characters(characters)
-
-            # 文字種境界を検出
-            boundaries = self._detect_character_boundaries(characters)
-
-            # まず句読点で大まかに分割
-            chunks = self._split_by_punctuation(
+            # ステップ1: まず \n で分割（明示的な改行を優先）
+            subsections = self._split_section_by_newline(
+                text,
                 characters,
-                punctuation_positions,
                 char_start_times,
-                char_end_times,
-                offset
+                char_end_times
             )
 
-            # 各チャンクを処理
-            for chunk in chunks:
-                chunk_chars = chunk["characters"]
-                chunk_start_times = chunk["start_times"]
-                chunk_end_times = chunk["end_times"]
+            # 各サブセクションを処理
+            for subsection in subsections:
+                subsection_chars = subsection["characters"]
+                subsection_start_times = subsection["start_times"]
+                subsection_end_times = subsection["end_times"]
 
-                if not chunk_chars:
+                if not subsection_chars:
                     continue
 
-                # チャンクがmax_charsを超える場合は再分割
-                if len(chunk_chars) > max_chars:
-                    sub_chunks = self._split_large_chunk(
-                        chunk_chars,
-                        chunk_start_times,
-                        chunk_end_times,
-                        max_chars,
-                        boundaries
-                    )
-                else:
-                    sub_chunks = [chunk]
+                # 句読点位置をマッピング
+                # 修正後: charactersに句読点が含まれるため、直接検出
+                punctuation_positions = self._find_punctuation_positions_from_characters(subsection_chars)
 
-                # 各サブチャンクを字幕エントリに変換
-                for sub_chunk in sub_chunks:
-                    sub_chars = sub_chunk["characters"]
-                    sub_start_times = sub_chunk["start_times"]
-                    sub_end_times = sub_chunk["end_times"]
+                # 文字種境界を検出
+                boundaries = self._detect_character_boundaries(subsection_chars)
 
-                    if not sub_chars:
+                # ステップ2: 句読点で大まかに分割
+                chunks = self._split_by_punctuation(
+                    subsection_chars,
+                    punctuation_positions,
+                    subsection_start_times,
+                    subsection_end_times,
+                    offset
+                )
+
+                # 各チャンクを処理
+                for chunk in chunks:
+                    chunk_chars = chunk["characters"]
+                    chunk_start_times = chunk["start_times"]
+                    chunk_end_times = chunk["end_times"]
+
+                    if not chunk_chars:
                         continue
 
-                    # 開始・終了時刻
-                    subtitle_start = sub_start_times[0]
-                    subtitle_end = sub_end_times[-1]
+                    # チャンクがmax_charsを超える場合は再分割
+                    if len(chunk_chars) > max_chars:
+                        sub_chunks = self._split_large_chunk(
+                            chunk_chars,
+                            chunk_start_times,
+                            chunk_end_times,
+                            max_chars,
+                            boundaries
+                        )
+                    else:
+                        sub_chunks = [chunk]
 
-                    # 表示時間の制約を適用
-                    duration = subtitle_end - subtitle_start
-                    if duration < min_duration:
-                        subtitle_end = subtitle_start + min_duration
-                    elif duration > max_duration:
-                        subtitle_end = subtitle_start + max_duration
+                    # 各サブチャンクを字幕エントリに変換
+                    for sub_chunk in sub_chunks:
+                        sub_chars = sub_chunk["characters"]
+                        sub_start_times = sub_chunk["start_times"]
+                        sub_end_times = sub_chunk["end_times"]
 
-                    # 句読点位置と境界を再計算（サブチャンク用）
-                    # 修正後: charactersに句読点が含まれるため、直接検出
-                    sub_punct = self._find_punctuation_positions_from_characters(sub_chars)
-                    sub_boundaries = self._detect_character_boundaries(sub_chars)
+                        if not sub_chars:
+                            continue
 
-                    # 複数行に分割
-                    lines = self._split_into_balanced_lines(
-                        text="".join(sub_chars),
-                        characters=sub_chars,
-                        max_chars_per_line=self.max_chars_per_line,
-                        max_lines=self.max_lines,
-                        punctuation_positions=sub_punct,
-                        boundaries=sub_boundaries
-                    )
+                        # 開始・終了時刻
+                        subtitle_start = sub_start_times[0]
+                        subtitle_end = sub_end_times[-1]
 
-                    # 空行を埋める
-                    while len(lines) < 3:
-                        lines.append("")
+                        # 表示時間の制約を適用
+                        duration = subtitle_end - subtitle_start
+                        if duration < min_duration:
+                            subtitle_end = subtitle_start + min_duration
+                        elif duration > max_duration:
+                            subtitle_end = subtitle_start + max_duration
 
-                    subtitles.append(SubtitleEntry(
-                        index=subtitle_index,
-                        start_time=subtitle_start,
-                        end_time=subtitle_end,
-                        text_line1=lines[0] if len(lines) > 0 else "",
-                        text_line2=lines[1] if len(lines) > 1 else "",
-                        text_line3=lines[2] if len(lines) > 2 else ""
-                    ))
+                        # 句読点位置と境界を再計算（サブチャンク用）
+                        # 修正後: charactersに句読点が含まれるため、直接検出
+                        sub_punct = self._find_punctuation_positions_from_characters(sub_chars)
+                        sub_boundaries = self._detect_character_boundaries(sub_chars)
 
-                    subtitle_index += 1
+                        # 複数行に分割
+                        lines = self._split_into_balanced_lines(
+                            text="".join(sub_chars),
+                            characters=sub_chars,
+                            max_chars_per_line=self.max_chars_per_line,
+                            max_lines=self.max_lines,
+                            punctuation_positions=sub_punct,
+                            boundaries=sub_boundaries
+                        )
+
+                        # 空行を埋める
+                        while len(lines) < 3:
+                            lines.append("")
+
+                        subtitles.append(SubtitleEntry(
+                            index=subtitle_index,
+                            start_time=subtitle_start,
+                            end_time=subtitle_end,
+                            text_line1=lines[0] if len(lines) > 0 else "",
+                            text_line2=lines[1] if len(lines) > 1 else "",
+                            text_line3=lines[2] if len(lines) > 2 else ""
+                        ))
+
+                        subtitle_index += 1
 
         self.logger.info(f"Generated {len(subtitles)} subtitles from character timings")
         return subtitles
+
+    def _split_section_by_newline(
+        self,
+        text: str,
+        characters: List[str],
+        start_times: List[float],
+        end_times: List[float]
+    ) -> List[Dict[str, Any]]:
+        """
+        テキストを \n で分割（明示的な改行を優先）
+
+        Args:
+            text: 元のテキスト（\n を含む可能性がある）
+            characters: 文字配列
+            start_times: 各文字の開始時間
+            end_times: 各文字の終了時間
+
+        Returns:
+            サブセクションのリスト（各サブセクションは characters, start_times, end_times を持つ）
+        """
+        if '\n' not in text:
+            # \n がない場合はそのまま返す
+            return [{
+                "characters": characters,
+                "start_times": start_times,
+                "end_times": end_times
+            }]
+
+        # text を \n で分割
+        text_parts = text.split('\n')
+
+        # characters から \n の位置を検出
+        # （characters には \n が含まれていない可能性があるため、text と照合）
+        subsections = []
+        char_index = 0
+
+        for part_idx, text_part in enumerate(text_parts):
+            if not text_part.strip():
+                # 空の部分はスキップ
+                continue
+
+            # この部分に対応する文字数を計算
+            # 記号を除外した文字数でマッチング
+            part_chars_count = len([c for c in text_part if c not in [' ', '　', '「', '」', '『', '』', '（', '）']])
+
+            # characters から対応する範囲を抽出
+            end_index = min(char_index + part_chars_count, len(characters))
+
+            if char_index < len(characters):
+                subsections.append({
+                    "characters": characters[char_index:end_index],
+                    "start_times": start_times[char_index:end_index],
+                    "end_times": end_times[char_index:end_index]
+                })
+
+            char_index = end_index
+
+        # 残りの文字があれば最後のサブセクションに追加
+        if char_index < len(characters) and subsections:
+            subsections[-1]["characters"].extend(characters[char_index:])
+            subsections[-1]["start_times"].extend(start_times[char_index:])
+            subsections[-1]["end_times"].extend(end_times[char_index:])
+        elif char_index < len(characters):
+            # サブセクションがない場合は全体を返す
+            subsections.append({
+                "characters": characters[char_index:],
+                "start_times": start_times[char_index:],
+                "end_times": end_times[char_index:]
+            })
+
+        return subsections if subsections else [{
+            "characters": characters,
+            "start_times": start_times,
+            "end_times": end_times
+        }]
 
     def _split_by_punctuation(
         self,
@@ -1174,23 +1266,40 @@ class SubtitleGenerator:
                 })
                 break
 
-            # 残りのテキストに対する形態素情報を更新
-            offset = len(characters) - len(remaining_chars)
-            remaining_morpheme_info = {
-                'boundaries': [b - offset for b in morpheme_info.get('boundaries', []) if b >= offset],
-                'verb_adjective_positions': set([p - offset for p in morpheme_info.get('verb_adjective_positions', set()) if p >= offset])
-            }
+            # 優先順位1: 36文字（max_chars）より前で最も後ろの「、」を探す
+            comma_positions = [i for i, c in enumerate(remaining_chars) if c == '、' and i < max_chars]
 
-            # 分割位置を決定
-            sub_boundaries = self._detect_character_boundaries(remaining_chars)
-            split_pos, reason = self._find_split_position_with_score(
-                text="".join(remaining_chars),
-                characters=remaining_chars,
-                max_chars=adjusted_max_chars,
-                punctuation_positions={},  # 句読点は既に処理済み
-                boundaries=sub_boundaries,
-                morpheme_info=remaining_morpheme_info
-            )
+            split_pos = None
+            reason = ""
+
+            if comma_positions:
+                # 最も後ろの「、」で分割（「、」を含める）
+                split_pos = comma_positions[-1] + 1
+                reason = "comma_split_priority"
+
+                self.logger.debug(
+                    f"Found comma at position {comma_positions[-1]} "
+                    f"(text length: {len(remaining_chars)}, max_chars: {max_chars})"
+                )
+            else:
+                # 優先順位2: 「、」がない場合は既存のスコアリングロジックを使用
+                # 残りのテキストに対する形態素情報を更新
+                offset = len(characters) - len(remaining_chars)
+                remaining_morpheme_info = {
+                    'boundaries': [b - offset for b in morpheme_info.get('boundaries', []) if b >= offset],
+                    'verb_adjective_positions': set([p - offset for p in morpheme_info.get('verb_adjective_positions', set()) if p >= offset])
+                }
+
+                # 分割位置を決定
+                sub_boundaries = self._detect_character_boundaries(remaining_chars)
+                split_pos, reason = self._find_split_position_with_score(
+                    text="".join(remaining_chars),
+                    characters=remaining_chars,
+                    max_chars=adjusted_max_chars,
+                    punctuation_positions={},  # 句読点は既に処理済み
+                    boundaries=sub_boundaries,
+                    morpheme_info=remaining_morpheme_info
+                )
 
             # チャンクを追加
             chunks.append({
