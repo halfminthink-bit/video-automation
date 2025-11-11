@@ -22,6 +22,17 @@ timing:
   # リードタイム（音声より少し早く表示する時間、秒）
   lead_time: 0.2
 
+  # 字幕間のバッファ（秒）- 字幕の切り替わりをスムーズにする
+  subtitle_gap: 0.1
+
+  # 字幕の重なり防止を有効化（推奨: true）
+  prevent_overlap: true
+
+  # 重なり時の優先度
+  # "next_subtitle": 次の字幕を優先（重ならないように調整）
+  # "min_duration": min_durationを優先（重なっても延長）
+  overlap_priority: "next_subtitle"
+
 # 形態素解析設定
 morphological_analysis:
   # MeCabを使用するか（より自然な分割）

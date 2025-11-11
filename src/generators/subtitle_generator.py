@@ -44,6 +44,9 @@ class SubtitleGenerator:
         self.min_display_duration = timing.get("min_display_duration", 4.0)
         self.max_display_duration = timing.get("max_display_duration", 6.0)
         self.lead_time = timing.get("lead_time", 0.2)
+        self.subtitle_gap = timing.get("subtitle_gap", 0.1)
+        self.prevent_overlap = timing.get("prevent_overlap", True)
+        self.overlap_priority = timing.get("overlap_priority", "next_subtitle")
         
         morphological = config.get("morphological_analysis", {})
         self.use_mecab = morphological.get("use_mecab", False)
@@ -971,8 +974,8 @@ class SubtitleGenerator:
         max_duration = self.max_display_duration
         min_duration = self.min_display_duration
 
-        subtitles = []
-        subtitle_index = 1
+        # 一時的に全字幕候補を保存（終了時刻調整前）
+        temp_subtitles = []
 
         for section in audio_timing_data:
             text = section.get("text", "")
@@ -1039,7 +1042,7 @@ class SubtitleGenerator:
                     else:
                         sub_chunks = [chunk]
 
-                    # 各サブチャンクを字幕エントリに変換
+                    # 各サブチャンクを字幕エントリに変換（一時保存）
                     for sub_chunk in sub_chunks:
                         sub_chars = sub_chunk["characters"]
                         sub_start_times = sub_chunk["start_times"]
@@ -1051,13 +1054,7 @@ class SubtitleGenerator:
                         # 開始・終了時刻
                         subtitle_start = sub_start_times[0]
                         subtitle_end = sub_end_times[-1]
-
-                        # 表示時間の制約を適用
-                        duration = subtitle_end - subtitle_start
-                        if duration < min_duration:
-                            subtitle_end = subtitle_start + min_duration
-                        elif duration > max_duration:
-                            subtitle_end = subtitle_start + max_duration
+                        original_duration = subtitle_end - subtitle_start
 
                         # 句読点位置と境界を再計算（サブチャンク用）
                         # 修正後: charactersに句読点が含まれるため、直接検出
@@ -1078,16 +1075,76 @@ class SubtitleGenerator:
                         while len(lines) < 3:
                             lines.append("")
 
-                        subtitles.append(SubtitleEntry(
-                            index=subtitle_index,
-                            start_time=subtitle_start,
-                            end_time=subtitle_end,
-                            text_line1=lines[0] if len(lines) > 0 else "",
-                            text_line2=lines[1] if len(lines) > 1 else "",
-                            text_line3=lines[2] if len(lines) > 2 else ""
-                        ))
+                        # 一時的に保存（調整前）
+                        temp_subtitles.append({
+                            "start": subtitle_start,
+                            "end": subtitle_end,
+                            "original_duration": original_duration,
+                            "lines": lines
+                        })
 
-                        subtitle_index += 1
+        # 全字幕の終了時刻を調整（重なり防止）
+        subtitles = []
+        subtitle_index = 1
+
+        for i, temp_sub in enumerate(temp_subtitles):
+            subtitle_start = temp_sub["start"]
+            subtitle_end = temp_sub["end"]
+            original_duration = temp_sub["original_duration"]
+            lines = temp_sub["lines"]
+
+            # 次の字幕があるか確認
+            next_start = None
+            if i + 1 < len(temp_subtitles):
+                next_start = temp_subtitles[i + 1]["start"]
+
+            # 表示時間の制約を適用（次の字幕を考慮）
+            duration = subtitle_end - subtitle_start
+
+            if duration < min_duration:
+                # min_display_duration を適用
+                ideal_end = subtitle_start + min_duration
+
+                if self.prevent_overlap and next_start is not None:
+                    # 次の字幕との重なりを防ぐ
+                    max_allowed_end = next_start - self.subtitle_gap
+
+                    if self.overlap_priority == "next_subtitle":
+                        # 次の字幕を優先（重ならないように調整）
+                        subtitle_end = min(ideal_end, max_allowed_end)
+                    else:
+                        # min_duration を優先（重なっても延長）
+                        subtitle_end = ideal_end
+                else:
+                    subtitle_end = ideal_end
+
+            elif duration > max_duration:
+                # max_display_duration を適用
+                ideal_end = subtitle_start + max_duration
+
+                if self.prevent_overlap and next_start is not None:
+                    max_allowed_end = next_start - self.subtitle_gap
+                    subtitle_end = min(ideal_end, max_allowed_end)
+                else:
+                    subtitle_end = ideal_end
+
+            else:
+                # duration が min と max の範囲内にある場合
+                if self.prevent_overlap and next_start is not None:
+                    max_allowed_end = next_start - self.subtitle_gap
+                    if subtitle_end > max_allowed_end:
+                        subtitle_end = max_allowed_end
+
+            # 最終的な字幕を作成
+            subtitles.append(SubtitleEntry(
+                index=subtitle_index,
+                start_time=subtitle_start,
+                end_time=subtitle_end,
+                text_line1=lines[0] if len(lines) > 0 else "",
+                text_line2=lines[1] if len(lines) > 1 else "",
+                text_line3=lines[2] if len(lines) > 2 else ""
+            ))
+            subtitle_index += 1
 
         self.logger.info(f"Generated {len(subtitles)} subtitles from character timings")
         return subtitles
