@@ -25,6 +25,7 @@ from src.core.exceptions import (
 )
 # 保持: 知的好奇心ジェネレーター（デフォルト）
 from src.generators.intellectual_curiosity_generator import create_intellectual_curiosity_generator
+from src.utils.image_resizer import resize_images_to_1920x1080
 
 # 従来の方法用（互換性のため保持）
 from src.generators.thumbnail_generator import create_thumbnail_generator
@@ -110,29 +111,39 @@ class Phase08Thumbnail(PhaseBase):
             # デフォルトは知的好奇心ジェネレーター
             use_intellectual_curiosity = self.phase_config.get("use_intellectual_curiosity", True)
 
+            result = None
+
             if use_intellectual_curiosity:
                 # 知的好奇心サムネイル生成（デフォルト）
-                return self._generate_with_intellectual_curiosity(script_data)
-
-            # 画像リストを読み込み（従来の方法の場合のみ）
-            images = self._load_classified_images()
-            self.logger.info(f"Loaded {len(images)} images")
-
-            if not images:
-                raise PhaseExecutionError(
-                    self.get_phase_number(),
-                    "No images available for thumbnail generation"
-                )
-
-            # 従来の方法を確認
-            use_dalle = self.phase_config.get("use_dalle", False)
-
-            if use_dalle:
-                # DALL-E 3を使用してサムネイルを生成
-                return self._generate_with_dalle(script_data)
+                result = self._generate_with_intellectual_curiosity(script_data)
             else:
-                # 従来の方法（Pillow）でサムネイルを生成
-                return self._generate_with_pillow(script_data, images)
+                # 画像リストを読み込み（従来の方法の場合のみ）
+                images = self._load_classified_images()
+                self.logger.info(f"Loaded {len(images)} images")
+
+                if not images:
+                    raise PhaseExecutionError(
+                        self.get_phase_number(),
+                        "No images available for thumbnail generation"
+                    )
+
+                # 従来の方法を確認
+                use_dalle = self.phase_config.get("use_dalle", False)
+
+                if use_dalle:
+                    # DALL-E 3を使用してサムネイルを生成
+                    result = self._generate_with_dalle(script_data)
+                else:
+                    # 従来の方法（Pillow）でサムネイルを生成
+                    result = self._generate_with_pillow(script_data, images)
+
+            # 3. 生成したサムネイルを1920x1080にリサイズ
+            self.logger.info("Resizing generated thumbnails to 1920x1080...")
+            thumbnails_dir = self.phase_dir / "thumbnails"
+            resize_images_to_1920x1080(thumbnails_dir, logger=self.logger)
+            self.logger.info("✓ Thumbnail resizing complete")
+
+            return result
 
         except Exception as e:
             self.logger.error(f"Thumbnail generation failed: {e}", exc_info=True)

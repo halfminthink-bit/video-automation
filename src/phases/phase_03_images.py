@@ -24,6 +24,7 @@ from src.core.models import (
 )
 from src.core.config_manager import ConfigManager
 from src.generators.image_generator import ImageGenerator
+from src.utils.image_resizer import resize_images_to_1920x1080
 
 
 class Phase03Images(PhaseBase):
@@ -202,12 +203,18 @@ class Phase03Images(PhaseBase):
             images=all_images,
             collected_at=datetime.now()
         )
-        
+
         self._save_results(result, total_cost)
-        
-        # 6. 統計情報をログ出力
+
+        # 6. 生成した画像を1920x1080にリサイズ
+        self.logger.info("Resizing generated images to 1920x1080...")
+        generated_dir = self.phase_dir / "generated"
+        resize_images_to_1920x1080(generated_dir, logger=self.logger)
+        self.logger.info("✓ Image resizing complete")
+
+        # 7. 統計情報をログ出力
         self._log_statistics(result, total_cost)
-        
+
         return result
     
     def validate_output(self, output: ImageCollection) -> bool:
