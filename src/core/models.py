@@ -104,6 +104,7 @@ class VideoScript(BaseModel):
     total_estimated_duration: float   # 総推定時間
     generated_at: datetime = Field(default_factory=datetime.now)
     model_version: str = "claude-sonnet-4-20250514"  # 使用したClaudeモデル
+    thumbnail: Optional[Dict[str, str]] = None  # サムネイル用テキスト (upper_text, lower_text)
 
     @field_validator('sections')
     @classmethod
