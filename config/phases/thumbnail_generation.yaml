@@ -145,9 +145,9 @@ image_generation:
 
 # レイアウト設定（V3.0 - 25/50/25）
 layout:
-  main_text_zone: 0.30       # 上部30%: メインキャッチ（赤グラデーション）
-  person_zone: 0.40          # 中央40%: 人物画像（明るいまま）
-  sub_text_zone: 0.30        # 下部30%: サブ説明文（白＋黒縁）
+  main_text_zone: 0.25       # 上部25%: メインキャッチ（赤グラデーション）
+  person_zone: 0.50          # 中央50%: 人物画像（明るいまま）
+  sub_text_zone: 0.25        # 下部25%: サブ説明文（白＋黒縁）
 
 # テキストスタイル設定（V3.0）
 text_style_v3:
