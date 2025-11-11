@@ -124,9 +124,13 @@ class PhaseOrchestrator:
                     PhaseStatus.FAILED: "❌"
                 }
                 emoji = status_emoji.get(execution.status, "")
+
+                # duration_secondsがNoneの場合は0.0にフォールバック
+                duration = execution.duration_seconds if execution.duration_seconds is not None else 0.0
+
                 self.console.print(
                     f"{emoji} Phase {phase_num}: {phase_name} "
-                    f"({execution.status.value}, {execution.duration_seconds:.1f}s)"
+                    f"({execution.status.value}, {duration:.1f}s)"
                 )
 
         # 全フェーズ完了
