@@ -421,10 +421,11 @@ class IntellectualCuriosityTextRenderer:
         # 左端からの開始位置（X座標）
         x_start = 100  # 左端から100px内側
 
-        # 各列を描画（左から右へ）
+        # 各列を描画（右から左へ - 最初の列が右側）
         for col_index, column_text in enumerate(columns):
-            # 列のX座標（左から右へ配置）
-            x_position = x_start + (col_index * column_spacing)
+            # 列のX座標（右から左へ配置）
+            # 最初の列（index=0）が一番右、最後の列が一番左
+            x_position = x_start + ((len(columns) - 1 - col_index) * column_spacing)
 
             # 1文字ずつ縦に描画
             for char_index, char in enumerate(column_text):
