@@ -381,49 +381,63 @@ Show the ACTION, CONFLICT, or KEY TURNING POINT."""
         image_style = self.config.get("image_style", {})
         style_type = image_style.get("type", "dramatic")
 
-        prompt = f"""A dramatic historical scene depicting a key moment in the story of {subject}.
+        prompt = f"""A stylish, cinematic scene of {subject} standing majestically against a grand scenic background.
 
 KEY SCENES FROM THE STORY:
 {key_scenes}
 
-VISUAL REQUIREMENTS:
-- Show the SITUATION or DRAMATIC MOMENT from {subject}'s life, NOT just a portrait
-- Include PERIOD-APPROPRIATE details (historical clothing, architecture, environment)
-- Convey the EMOTION and HISTORICAL SIGNIFICANCE of the scene
-- Create VISUAL IMPACT through dramatic composition and lighting
-- Make it CLEAR this is a historical figure/event with period details
+CHARACTER PORTRAYAL:
+- Show {subject} with a YOUTHFUL, ENERGETIC presence - not old or stern
+- Profile view, side angle, or three-quarter view - NOT frontal face
+- Full body or 3/4 body shot showing stylish stance
+- Convey PRESENCE and ATMOSPHERE rather than facial expression
+- Dynamic, cool posture that creates visual impact
 
-SCENE ELEMENTS:
-- Historical setting with period-accurate details
-- Dramatic composition showing action or a key moment
-- Rich, atmospheric lighting (can be dramatic but still visible)
-- Clear time period indicators (clothing, architecture, tools)
-- Emotional intensity and human drama
-- Environmental context that tells the story
+BACKGROUND - GRAND AND SCENIC (CRITICAL):
+- MAGNIFICENT natural or architectural background
+- Examples: Castle silhouette, mountain range, dramatic sky, vast landscape
+- Grand scale that emphasizes the epic atmosphere
+- Beautiful, impressive environment that enhances the mood
+- Period-appropriate setting with visual grandeur
 
-STYLE:
-- Cinematic, {style_type} style
-- Historically accurate but visually engaging
-- Professional quality, like a movie poster
-- Emotional and impactful
+VISUAL STYLE:
+- Cinematic and artistic - impressive but not overly photorealistic
+- Stylized realism with artistic flair
+- Like an epic movie poster or dramatic painting
+- {style_type} atmosphere with visual impact
+- Rich colors and dramatic lighting
 
-COMPOSITION:
+COMPOSITION (CRITICAL):
+- Dynamic, stylish angle - NOT static frontal pose
+- Subject positioned impressively against grand background
 - Horizontal 16:9 format
 - Space at top and bottom for text overlay
-- Main focus in center area
-- Dynamic, not static
-- Clear storytelling through visuals
+- Emphasize the SCALE and GRANDEUR of the scene
+- Create atmospheric depth and visual interest
+
+ATMOSPHERE AND MOOD:
+- POWERFUL PRESENCE through atmosphere, not facial close-up
+- Epic, grand, impressive feeling
+- Youthful energy and dynamism
+- Historically evocative but artistically striking
+- Emotionally impactful through composition and scale
 
 TECHNICAL:
 - NO text, NO UI elements, NO watermarks
-- High resolution, sharp focus
+- High resolution with artistic quality
 - NO modern elements
 - Size: 1792x1024 (landscape)
+- Balanced between realistic and stylized
 
-CRITICAL: Show a SITUATION, ACTION, or DRAMATIC SCENE from their life.
-NOT a simple portrait. The image should tell a story and convey historical context.
+CRITICAL REQUIREMENTS:
+1. Youthful, energetic portrayal - NOT stern or aged
+2. Profile/side angle - NOT frontal face view
+3. Grand scenic background (castle, nature, mountains, etc.)
+4. Atmospheric presence - NOT facial expression focus
+5. Stylish, dynamic composition - NOT static pose
+6. Cinematic and impressive - NOT overly photorealistic
 
-Purpose: YouTube thumbnail that captures viewers' attention and curiosity about this historical moment."""
+Purpose: YouTube thumbnail with epic, stylish atmosphere and grand visual impact."""
 
         return prompt
 
@@ -448,52 +462,80 @@ Purpose: YouTube thumbnail that captures viewers' attention and curiosity about 
         # 台本から重要なシーン・状況を抽出
         key_scenes = self._extract_key_scenes(context)
 
-        prompt = f"""Historical documentary photograph of {subject}, dramatic key moment.
+        prompt = f"""Cinematic stylized scene of {subject} in profile or side angle, standing majestically against grand scenic background.
 
 SCENE CONTEXT:
 {key_scenes}
 
+CHARACTER PORTRAYAL (CRITICAL):
+- {subject} shown with YOUTHFUL, ENERGETIC appearance - not old or stern-faced
+- PROFILE VIEW, SIDE ANGLE, or THREE-QUARTER VIEW - NOT frontal face
+- Full body or 3/4 body shot showing elegant stance
+- Convey powerful PRESENCE and ATMOSPHERE, not facial details
+- Dynamic posture creating visual impact
+- Stylish, cool composition
+
+BACKGROUND - GRAND AND SCENIC (CRITICAL):
+- MAGNIFICENT background: castle, mountain range, dramatic sky, vast natural landscape
+- Grand architectural or natural elements emphasizing epic scale
+- Beautiful, impressive environment that enhances atmosphere
+- Period-appropriate setting with visual grandeur
+- Create depth and scale with scenic elements
+
 COMPOSITION REQUIREMENTS (CRITICAL):
-- Main subject positioned in CENTER of frame
-- Subject fills center 50-60% of image
-- Close-up or medium shot showing face/upper body clearly
-- Dynamic angle, cinematic perspective
+- DYNAMIC, STYLISH ANGLE - not static frontal view
+- Subject positioned impressively against grand background
 - 16:9 horizontal landscape format
+- Emphasize SCALE and GRANDEUR of the scene
+- Profile or side view preferred for cool factor
+- Atmospheric depth and visual interest
 
 VISUAL STYLE:
-- Photorealistic documentary photography
-- Professional quality, sharp focus on subject
-- Dramatic lighting with clear subject illumination
-- Rich, saturated colors
-- High detail and texture
+- Cinematic and artistic - stylized realism, NOT overly photorealistic
+- Like epic movie poster or dramatic historical painting
+- Professional quality with artistic flair
+- Dramatic lighting highlighting atmosphere and scale
+- Rich, vibrant colors with artistic balance
+- Impressive but not documentary-style photo
 
 LAYOUT FOR TEXT OVERLAY (IMPORTANT):
 - Clear empty space at TOP 25% for text overlay
 - Clear empty space at BOTTOM 25% for text overlay
-- Main subject in MIDDLE 50%
-- Ensure subject does not extend to edges
+- Main subject and scenic background in MIDDLE 50%
+- Composition allows text without blocking key visual elements
 
-ATMOSPHERE:
-- Impactful, attention-grabbing
-- Historically accurate clothing and setting
-- Emotional intensity, human drama
-- Cinematic quality like movie poster
+ATMOSPHERE AND MOOD:
+- POWERFUL PRESENCE through atmosphere and composition
+- Epic, grand, impressive feeling through scale
+- Youthful energy and dynamism
+- Historically evocative but artistically striking
+- Emotionally impactful through visual grandeur
 
 TECHNICAL REQUIREMENTS:
 - NO text, NO watermarks, NO UI elements
 - NO modern elements (smartphones, cars, etc.)
-- Single main subject (not multiple people)
-- Clear background separation
-- Subject well-lit and clearly visible
+- Single main subject with grand background
+- High quality with artistic stylization
+- Balanced between realistic and cinematic
 
 NEGATIVE ELEMENTS TO AVOID:
+- Frontal face view or facial close-up
+- Old, stern, or aged appearance
+- Plain or boring background
+- Static, centered frontal pose
+- Overly photorealistic documentary style
 - Multiple subjects competing for attention
-- Cluttered background
-- Dark or underexposed subject
-- Subject at edges or corners
 - Modern anachronistic elements
 
-Purpose: YouTube thumbnail background - must grab attention immediately while leaving space for text overlay."""
+CRITICAL REQUIREMENTS:
+1. Youthful, energetic - NOT old or stern
+2. Profile/side angle - NOT frontal face
+3. Grand scenic background (castle, nature, mountains)
+4. Atmospheric presence - NOT facial focus
+5. Stylish composition - NOT static pose
+6. Artistic cinematic style - NOT overly photorealistic
+
+Purpose: YouTube thumbnail - epic, stylish atmosphere with grand visual impact and artistic flair."""
 
         return prompt
 
