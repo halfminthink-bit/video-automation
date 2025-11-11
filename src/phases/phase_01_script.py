@@ -284,9 +284,10 @@ class Phase01Script(PhaseBase):
             description=script_data["description"],
             sections=sections,
             total_estimated_duration=script_data["total_estimated_duration"],
-            model_version=script_data.get("model_version", "unknown")
+            model_version=script_data.get("model_version", "unknown"),
+            thumbnail=script_data.get("thumbnail")  # サムネイル用テキストを保持
         )
-        
+
         return script
     
     def _save_script(self, script: VideoScript):
