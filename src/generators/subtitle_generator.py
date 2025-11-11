@@ -1141,6 +1141,7 @@ class SubtitleGenerator:
 
         subsections = []
         search_start = 0
+        match_failed = False
 
         for part in text_parts:
             # part から記号を除外
@@ -1153,12 +1154,14 @@ class SubtitleGenerator:
             pos = chars_str.find(part_clean, search_start)
 
             if pos == -1:
-                # 見つからない場合は警告を出してスキップ
+                # 見つからない場合は警告を出して、分割を諦める
                 self.logger.warning(
                     f"Could not match newline-separated part: '{part[:30]}...' "
-                    f"(cleaned: '{part_clean[:30]}...')"
+                    f"(cleaned: '{part_clean[:30]}...'). "
+                    f"Skipping newline split for this section."
                 )
-                continue
+                match_failed = True
+                break
 
             end_pos = pos + len(part_clean)
 
@@ -1170,11 +1173,15 @@ class SubtitleGenerator:
 
             search_start = end_pos
 
-        return subsections if subsections else [{
-            "characters": characters,
-            "start_times": start_times,
-            "end_times": end_times
-        }]
+        # マッチングに失敗した場合は、分割を諦めて全体を返す
+        if match_failed or not subsections:
+            return [{
+                "characters": characters,
+                "start_times": start_times,
+                "end_times": end_times
+            }]
+
+        return subsections
 
     def _split_by_punctuation(
         self,
