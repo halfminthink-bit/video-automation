@@ -10,8 +10,10 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 from PIL import Image, ImageDraw, ImageFont
 from openai import OpenAI
+from anthropic import Anthropic
 import requests
 from io import BytesIO
+import json
 
 from .intellectual_curiosity_text_renderer import IntellectualCuriosityTextRenderer
 from .bright_background_processor import BrightBackgroundProcessor
@@ -64,6 +66,15 @@ class IntellectualCuriosityGenerator:
             # ImageGenerator を初期化（SD 用）
             self.image_generator = self._create_image_generator()
             self.logger.info("Background generation: Stable Diffusion")
+
+        # Anthropic Claude クライアント（プロンプト生成用）
+        claude_api_key = os.getenv("CLAUDE_API_KEY")
+        if claude_api_key:
+            self.anthropic_client = Anthropic(api_key=claude_api_key)
+            self.logger.info("Claude API available for prompt generation")
+        else:
+            self.anthropic_client = None
+            self.logger.warning("Claude API key not found, using fallback prompt generation")
 
         self.logger.info(
             f"IntellectualCuriosityGenerator initialized: {self.canvas_size}"
@@ -433,67 +444,209 @@ Purpose: YouTube thumbnail that captures viewers' attention and curiosity about 
         context: Optional[Dict[str, Any]]
     ) -> str:
         """
-        Stable Diffusion 用のプロンプト（中央配置を強調）
+        Stable Diffusion 用のプロンプト（Claudeで生成）
 
-        DALL-E と異なり、SD は具体的で明確な指示が必要。
-        「中央に被写体」「上下にスペース」を明確に指定。
+        Claudeに台本全体を渡して、印象的な背景と人物を抽出し、
+        写実的で中央配置のSDプロンプトを生成させる。
+
+        Args:
+            subject: 対象人物・テーマ
+            context: 追加コンテキスト（台本全体）
+
+        Returns:
+            SD 用プロンプト
+        """
+        # Claude APIが利用可能な場合、AIでプロンプト生成
+        if self.anthropic_client and context:
+            try:
+                return self._generate_sd_prompt_with_claude(subject, context)
+            except Exception as e:
+                self.logger.warning(
+                    f"Failed to generate prompt with Claude: {e}. "
+                    "Falling back to template-based prompt."
+                )
+
+        # フォールバック: テンプレートベースのプロンプト
+        return self._build_fallback_sd_prompt(subject, context)
+
+    def _generate_sd_prompt_with_claude(
+        self,
+        subject: str,
+        context: Dict[str, Any]
+    ) -> str:
+        """
+        Claude APIを使ってSD用プロンプトを生成
+
+        Args:
+            subject: 対象人物・テーマ
+            context: 台本全体
+
+        Returns:
+            Claude が生成した SD プロンプト
+        """
+        # 台本の全セクションを取得
+        sections = context.get("sections", [])
+        script_text = ""
+
+        if sections:
+            for i, section in enumerate(sections):
+                title = section.get("title", f"Section {i+1}")
+                content = section.get("content", "")
+                narration = section.get("narration", "")
+
+                script_text += f"## {title}\n"
+                if content:
+                    script_text += f"{content}\n"
+                if narration:
+                    script_text += f"ナレーション: {narration}\n"
+                script_text += "\n"
+
+        # Claude にプロンプト生成を依頼
+        claude_request = f"""あなたはStable Diffusion用のプロンプトを生成する専門家です。
+
+以下の台本から、YouTubeサムネイル用の印象的な背景画像を生成するためのプロンプトを作成してください。
+
+【台本】
+テーマ: {subject}
+
+{script_text}
+
+【要件】
+1. **人物**: 台本の主人公（{subject}）を中央に配置
+2. **背景**: 台本から最も印象的で視覚的にインパクトのある場面を選択
+   - 具体的な場所や状況を含める（例：戦場、城、研究室など）
+   - 時代背景を反映した要素を含める
+3. **スタイル**: 写実的（photorealistic）
+4. **構図**:
+   - 人物を画面中央に配置
+   - 上部25%と下部25%はテキストオーバーレイ用の空間を確保
+   - 中央50%に人物と背景を配置
+
+【出力形式】
+以下のJSON形式で出力してください：
+
+```json
+{{
+  "main_subject": "中央に配置する人物の説明（英語で簡潔に）",
+  "background_scene": "背景の場面の説明（英語で具体的に）",
+  "atmosphere": "雰囲気・感情（英語で）",
+  "stable_diffusion_prompt": "Stable Diffusion用の完全なプロンプト（英語、200-300語）"
+}}
+```
+
+**重要**: `stable_diffusion_prompt`は英語で、写実的（photorealistic）、中央配置、16:9フォーマット、YouTubeサムネイル用であることを明記してください。"""
+
+        self.logger.info("Requesting SD prompt generation from Claude...")
+
+        # Claude API呼び出し
+        response = self.anthropic_client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=2000,
+            messages=[{
+                "role": "user",
+                "content": claude_request
+            }]
+        )
+
+        response_text = response.content[0].text.strip()
+        self.logger.debug(f"Claude response: {response_text[:200]}...")
+
+        # JSONを抽出
+        try:
+            # マークダウンコードブロックを除去
+            if "```json" in response_text:
+                json_text = response_text.split("```json")[1].split("```")[0].strip()
+            elif "```" in response_text:
+                json_text = response_text.split("```")[1].split("```")[0].strip()
+            else:
+                json_text = response_text
+
+            prompt_data = json.loads(json_text)
+            sd_prompt = prompt_data.get("stable_diffusion_prompt", "")
+
+            if sd_prompt:
+                self.logger.info("✅ Claude generated SD prompt successfully")
+                self.logger.info(f"Subject: {prompt_data.get('main_subject', 'N/A')}")
+                self.logger.info(f"Background: {prompt_data.get('background_scene', 'N/A')[:100]}...")
+                return sd_prompt
+            else:
+                raise ValueError("No stable_diffusion_prompt in response")
+
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            self.logger.warning(f"Failed to parse Claude response: {e}")
+            raise
+
+    def _build_fallback_sd_prompt(
+        self,
+        subject: str,
+        context: Optional[Dict[str, Any]]
+    ) -> str:
+        """
+        フォールバック用のテンプレートベースSDプロンプト
 
         Args:
             subject: 対象人物・テーマ
             context: 追加コンテキスト（台本）
 
         Returns:
-            SD 用プロンプト
+            テンプレートベースの SD プロンプト
         """
         # 台本から重要なシーン・状況を抽出
         key_scenes = self._extract_key_scenes(context)
 
-        prompt = f"""Historical documentary photograph of {subject}, dramatic key moment.
+        prompt = f"""Photorealistic portrait of {subject}, centered composition, dramatic historical scene.
 
 SCENE CONTEXT:
 {key_scenes}
 
 COMPOSITION REQUIREMENTS (CRITICAL):
-- Main subject positioned in CENTER of frame
+- Main subject ({subject}) positioned in CENTER of frame
 - Subject fills center 50-60% of image
-- Close-up or medium shot showing face/upper body clearly
-- Dynamic angle, cinematic perspective
+- Medium shot showing face and upper body clearly
+- Cinematic perspective with period-accurate background
 - 16:9 horizontal landscape format
 
 VISUAL STYLE:
-- Photorealistic documentary photography
+- Photorealistic, documentary-style photography
 - Professional quality, sharp focus on subject
-- Dramatic lighting with clear subject illumination
-- Rich, saturated colors
+- Dramatic natural lighting highlighting the subject
+- Rich, historically accurate colors
 - High detail and texture
+
+BACKGROUND:
+- Relevant historical setting from the person's life
+- Period-appropriate architecture, environment, or dramatic scene
+- Contextually meaningful backdrop that tells a story
+- Clear but not distracting from the main subject
 
 LAYOUT FOR TEXT OVERLAY (IMPORTANT):
 - Clear empty space at TOP 25% for text overlay
 - Clear empty space at BOTTOM 25% for text overlay
 - Main subject in MIDDLE 50%
-- Ensure subject does not extend to edges
+- Subject centered, not extending to frame edges
 
 ATMOSPHERE:
 - Impactful, attention-grabbing
-- Historically accurate clothing and setting
-- Emotional intensity, human drama
-- Cinematic quality like movie poster
+- Historically accurate period details
+- Emotional intensity and human drama
+- Cinematic quality suitable for YouTube thumbnail
 
 TECHNICAL REQUIREMENTS:
 - NO text, NO watermarks, NO UI elements
-- NO modern elements (smartphones, cars, etc.)
-- Single main subject (not multiple people)
-- Clear background separation
-- Subject well-lit and clearly visible
+- NO modern elements or anachronisms
+- Single main subject clearly visible
+- Professional photographic quality
+- Subject well-lit and prominent
 
 NEGATIVE ELEMENTS TO AVOID:
 - Multiple subjects competing for attention
-- Cluttered background
+- Overly cluttered background
 - Dark or underexposed subject
 - Subject at edges or corners
-- Modern anachronistic elements
+- Modern or anachronistic elements
+- Cartoon, illustration, or artistic styles
 
-Purpose: YouTube thumbnail background - must grab attention immediately while leaving space for text overlay."""
+Purpose: YouTube thumbnail background - photorealistic, impactful, historically accurate, with clear space for text overlay."""
 
         return prompt
 
