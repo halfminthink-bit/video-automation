@@ -702,24 +702,38 @@ Purpose: YouTube thumbnail background - must grab attention immediately while le
             フォントオブジェクト
         """
         # フォントパスのリスト（優先順位順）
+        # Windows, Linux, Macの順で探索
         font_paths = [
+            # Windows
+            "C:/Windows/Fonts/msgothic.ttc",           # MSゴシック
+            "C:/Windows/Fonts/meiryo.ttc",             # メイリオ
+            "C:/Windows/Fonts/YuGothB.ttc",            # 游ゴシック Bold
+            "C:/Windows/Fonts/msmincho.ttc",           # MS明朝
+            # Linux
             "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
             "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+            "/usr/share/fonts/truetype/takao-gothic/TakaoGothic.ttf",
+            # Mac
             "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/Library/Fonts/ヒラギノ角ゴ ProN W6.otf",
         ]
 
         # 利用可能なフォントを探す
         for font_path in font_paths:
             try:
                 if Path(font_path).exists():
+                    self.logger.debug(f"Using font: {font_path}")
                     return ImageFont.truetype(font_path, size)
             except Exception as e:
                 self.logger.debug(f"Could not load font {font_path}: {e}")
 
-        # フォールバック: デフォルトフォント
-        self.logger.warning(f"No custom font found, using default font")
-        return ImageFont.load_default()
+        # フォールバック: エラーを発生させる
+        self.logger.error("No Japanese font found! Please install a Japanese font.")
+        self.logger.error("Windows: Fonts should be in C:/Windows/Fonts/")
+        self.logger.error("Recommended: msgothic.ttc, meiryo.ttc, or YuGothB.ttc")
+        raise FileNotFoundError(
+            "No Japanese font found. Please install MS Gothic, Meiryo, or Yu Gothic font."
+        )
 
     def _get_default_config(self) -> Dict[str, Any]:
         """デフォルト設定を取得"""
