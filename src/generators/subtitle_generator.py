@@ -1135,6 +1135,16 @@ class SubtitleGenerator:
                     if subtitle_end > max_allowed_end:
                         subtitle_end = max_allowed_end
 
+            # 最終チェック: subtitle_end が subtitle_start より小さくならないようにする
+            # （次の字幕の開始時刻が現在の字幕より前にある異常ケース対策）
+            MIN_SUBTITLE_DURATION = 0.1  # 最低0.1秒
+            if subtitle_end <= subtitle_start:
+                self.logger.warning(
+                    f"Subtitle {subtitle_index}: end_time ({subtitle_end:.3f}s) <= start_time ({subtitle_start:.3f}s). "
+                    f"Adjusting to minimum duration ({MIN_SUBTITLE_DURATION}s)."
+                )
+                subtitle_end = subtitle_start + MIN_SUBTITLE_DURATION
+
             # 最終的な字幕を作成
             subtitles.append(SubtitleEntry(
                 index=subtitle_index,
