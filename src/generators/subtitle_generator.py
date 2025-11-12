@@ -888,6 +888,47 @@ class SubtitleGenerator:
         if len(characters) <= max_chars_per_line:
             return ["".join(characters)]
 
+        # 36文字以内（max_chars_per_line * max_lines）の場合、句読点優先モード
+        if len(characters) <= max_chars_per_line * max_lines:
+            MIN_LINE_LENGTH = 3  # 最低3文字
+
+            # 後ろから「、」を探す（最後の「、」で分割）
+            best_comma_pos = None
+            for i in range(len(characters) - 1, -1, -1):
+                if characters[i] == '、':
+                    # 分割後、両方の行が最低文字数以上になるかチェック
+                    first_part_len = i + 1  # 「、」を含む
+                    second_part_len = len(characters) - (i + 1)
+
+                    if first_part_len >= MIN_LINE_LENGTH and second_part_len >= MIN_LINE_LENGTH:
+                        best_comma_pos = i + 1
+                        break
+
+            # 適切な句読点が見つかった場合は分割
+            if best_comma_pos:
+                line1_chars = characters[:best_comma_pos]
+                line2_chars = characters[best_comma_pos:]
+
+                line1 = "".join(line1_chars)
+                line2 = "".join(line2_chars)
+
+                if self.remove_punctuation:
+                    # 句読点を除去（「、」と「」は残す）
+                    line1 = "".join([c for c in line1 if c not in ["。", "！", "？", "…"]])
+                    line2 = "".join([c for c in line2 if c not in ["。", "！", "？", "…"]])
+
+                self.logger.debug(
+                    f"Split at comma (36-char mode): '{line1}' / '{line2}' "
+                    f"({len(line1_chars)} + {len(line2_chars)} = {len(characters)} chars)"
+                )
+
+                return [line1, line2]
+
+            # 句読点が見つからない場合は既存のロジックにフォールバック
+            self.logger.debug(
+                f"No suitable comma found for 36-char text, falling back to scoring method"
+            )
+
         lines = []
         remaining_chars = characters.copy()
         remaining_punct = punctuation_positions.copy()
