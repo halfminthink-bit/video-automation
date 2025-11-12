@@ -753,7 +753,7 @@ class Phase07Composition(PhaseBase):
         threads = multiprocessing.cpu_count()
         
         # エンコード設定を取得（preset追加）
-        preset = self.phase_config.get('output', {}).get('preset', 'fast')
+        preset = self.phase_config.get('output', {}).get('preset', 'ultrafast')
         
         self.logger.info(f"Encoding with {threads} threads, preset={preset}")
         
