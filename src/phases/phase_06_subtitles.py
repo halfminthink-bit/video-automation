@@ -867,8 +867,14 @@ class Phase06Subtitles(PhaseBase):
                     'char_data': sentence_char_data
                 })
                 current_sentence = ""
-                sentence_start_time = None
                 sentence_char_data = []
+
+                # ✅ 修正: 次の文の開始時刻を次の文字の実際の開始時刻に設定
+                # 句点後の間隔（約1秒）を考慮する
+                if i + 1 < len(char_start_times):
+                    sentence_start_time = char_start_times[i + 1] + offset
+                else:
+                    sentence_start_time = None
 
         # 最後の文
         if current_sentence and sentence_start_time is not None:
