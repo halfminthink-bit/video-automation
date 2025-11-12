@@ -38,6 +38,7 @@ def convert_yaml_to_json(yaml_path: Path, output_path: Path):
             "upper_text": thumbnail_data.get("upper_text", data["subject"]),
             "lower_text": thumbnail_data.get("lower_text", "")
         }
+        # 注: thumbnail内のテキストはstrip()しない（改行コード \n を保持するため）
 
     # JSON形式に変換
     script_json = {
