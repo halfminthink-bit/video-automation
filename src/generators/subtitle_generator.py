@@ -1212,10 +1212,11 @@ class SubtitleGenerator:
                 next_start = temp_subtitles[i + 1]["start"]
 
             # 表示時間の制約を適用（次の字幕を考慮）
+            # 音声の実際の長さを基本とし、必要に応じて調整する
             duration = subtitle_end - subtitle_start
 
             if duration < min_duration:
-                # min_display_duration を適用
+                # min_display_duration を適用（短すぎる場合）
                 ideal_end = subtitle_start + min_duration
 
                 if self.prevent_overlap and next_start is not None:
@@ -1232,17 +1233,25 @@ class SubtitleGenerator:
                     subtitle_end = ideal_end
 
             elif duration > max_duration:
-                # max_display_duration を適用
-                ideal_end = subtitle_start + max_duration
-
+                # 音声が長い場合の処理
+                # 原則: 音声の実際の長さを尊重（次の字幕と重ならない限り）
                 if self.prevent_overlap and next_start is not None:
                     max_allowed_end = next_start - self.subtitle_gap
-                    subtitle_end = min(ideal_end, max_allowed_end)
+
+                    if subtitle_end <= max_allowed_end:
+                        # 音声の実際の長さを維持（次の字幕と重ならない）
+                        pass
+                    else:
+                        # 次の字幕と重なるので調整
+                        subtitle_end = max_allowed_end
                 else:
-                    subtitle_end = ideal_end
+                    # 次の字幕がない場合は max_duration で制限
+                    ideal_end = subtitle_start + max_duration
+                    subtitle_end = min(subtitle_end, ideal_end)
 
             else:
                 # duration が min と max の範囲内にある場合
+                # 音声の実際の長さを維持
                 if self.prevent_overlap and next_start is not None:
                     max_allowed_end = next_start - self.subtitle_gap
                     if subtitle_end > max_allowed_end:
