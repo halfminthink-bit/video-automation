@@ -55,7 +55,7 @@ python scripts/create_script_template.py "グリゴリーラスプーチン"
 ### 2-2. YAML を JSON (manual override) へ変換
 
 ```powershell
-python scripts/convert_manual_script.py "グリゴリーラスプーチン"
+python scripts/convert_manual_script.py "ラスプーチン"
 ```
 
 生成結果は `data/input/manual_overrides/` に保存され、Phase1 以降で利用される。
