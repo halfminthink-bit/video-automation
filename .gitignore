@@ -96,6 +96,7 @@ htmlcov/
 docs/_build/
 site/
 docs/CONFIGURATION.md
+docs/COMMON_COMMANDS.md
 
 # ========================================
 # OS
