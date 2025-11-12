@@ -860,10 +860,18 @@ class Phase06Subtitles(PhaseBase):
             # 「。」で文を区切る
             # 修正: char が複数文字の場合も考慮して endswith を使用
             if char.endswith('。'):
+                # ✅ 修正: 現在の文の終了時刻を次の文字の開始時刻に設定
+                # 句点後の間隔（約1秒）中も字幕を表示し続ける
+                if i + 1 < len(char_start_times):
+                    sentence_end_time = char_start_times[i + 1] + offset
+                else:
+                    # 最後の文の場合は句点の終了時刻を使用
+                    sentence_end_time = char_end
+
                 sentences.append({
                     'text': current_sentence,
                     'start_time': sentence_start_time,
-                    'end_time': char_end,
+                    'end_time': sentence_end_time,  # 次の文字の開始時刻まで表示
                     'char_data': sentence_char_data
                 })
                 current_sentence = ""
