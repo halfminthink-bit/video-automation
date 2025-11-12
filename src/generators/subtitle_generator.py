@@ -1387,10 +1387,9 @@ class SubtitleGenerator:
             current_starts.append(start_times[i] + offset)
             current_ends.append(end_times[i] + offset)
 
-            # 「。」「！」「？」の直後、または最後の文字で分割（「、」では分割しない）
-            next_pos = i + 1
-            punct = punctuation_positions.get(next_pos)
-            should_split = (punct in ["。", "！", "？"]) or i == len(characters) - 1
+            # 「。」「！」「？」の文字を含めて分割（「、」では分割しない）
+            current_punct = punctuation_positions.get(i)
+            should_split = (current_punct in ["。", "！", "？"]) or i == len(characters) - 1
 
             if should_split:
                 if current_chars:
