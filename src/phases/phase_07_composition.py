@@ -71,7 +71,7 @@ class Phase07Composition(PhaseBase):
 
         # BGM設定
         bgm_config = self.phase_config.get("bgm", {})
-        self.bgm_volume = bgm_config.get("volume", 0.2)  # 20%に下げる（従来は30%）
+        self.bgm_volume = bgm_config.get("volume", 0.1)  # 10%に下げる
         self.bgm_fade_in = bgm_config.get("fade_in", 3.0)  # フェードイン3秒
         self.bgm_fade_out = bgm_config.get("fade_out", 3.0)  # フェードアウト3秒
         self.bgm_crossfade = bgm_config.get("crossfade", 2.0)  # セグメント間クロスフェード2秒
