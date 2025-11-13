@@ -355,8 +355,8 @@ class Phase08Thumbnail(PhaseBase):
         phase8_config = self.phase_config.copy()
         phase8_config["use_stable_diffusion"] = True  # SD生成を有効化
         phase8_config["stable_diffusion"] = {
-            "width": 1024,   # SD APIで1024x576を生成
-            "height": 576,
+            "width": 1344,   # SD APIで1344x768を生成（SDXL標準サイズ）
+            "height": 768,   # 1280x720にリサイズされる
             "api_key_env": "STABILITY_API_KEY"
         }
         phase8_config["output"] = {
