@@ -139,10 +139,11 @@ class Phase08Thumbnail(PhaseBase):
                     # 従来の方法（Pillow）でサムネイルを生成
                     result = self._generate_with_pillow(script_data, images)
 
-            # 3. 生成したサムネイルを1920x1080にリサイズ
-            self.logger.info("Resizing generated thumbnails to 1920x1080...")
+            # 3. 生成したサムネイルを1344x768にリサイズ（JPEG形式）
+            # Phase 8はサムネイル用に最適化（2MB制限対応）
+            self.logger.info("Resizing generated thumbnails to 1344x768 (JPEG)...")
             thumbnails_dir = self.phase_dir / "thumbnails"
-            resize_images_to_1920x1080(thumbnails_dir, logger=self.logger)
+            self._resize_thumbnails_to_1344x768(thumbnails_dir)
             self.logger.info("✓ Thumbnail resizing complete")
 
             return result
@@ -515,6 +516,98 @@ class Phase08Thumbnail(PhaseBase):
             json.dump(result, f, indent=2, ensure_ascii=False)
         
         self.logger.info(f"Metadata saved: {metadata_path}")
+
+    def _resize_thumbnails_to_1344x768(self, thumbnails_dir: Path) -> None:
+        """
+        サムネイルを1344x768にリサイズ（JPEG形式、Phase 8専用）
+
+        Phase 8はサムネイル用に最適化（2MB制限対応）
+        Phase 3とは異なり、1344x768でJPEG形式で保存
+
+        Args:
+            thumbnails_dir: サムネイルディレクトリ
+        """
+        from PIL import Image
+
+        if not thumbnails_dir.exists():
+            self.logger.warning(f"Thumbnails directory not found: {thumbnails_dir}")
+            return
+
+        # 対象ファイルを収集（PNG/JPG）
+        image_files = list(thumbnails_dir.glob("*.png")) + \
+                      list(thumbnails_dir.glob("*.jpg")) + \
+                      list(thumbnails_dir.glob("*.jpeg"))
+
+        if not image_files:
+            self.logger.info(f"No images found in: {thumbnails_dir}")
+            return
+
+        self.logger.info(f"Found {len(image_files)} thumbnails to resize")
+
+        target_size = (1344, 768)
+        success_count = 0
+
+        for img_path in image_files:
+            try:
+                # 画像を開く
+                img = Image.open(img_path)
+                original_size = img.size
+
+                # 既に目標サイズの場合はスキップ（形式のみ変換）
+                if original_size == target_size:
+                    self.logger.debug(f"Already target size: {img_path.name}")
+                    # JPEG形式でない場合は変換
+                    if img_path.suffix.lower() != '.jpg' and img_path.suffix.lower() != '.jpeg':
+                        img_resized = img
+                    else:
+                        continue
+                else:
+                    # LANCZOS補間で高品質リサイズ
+                    img_resized = img.resize(target_size, Image.LANCZOS)
+
+                # 出力パスをJPEG形式に変更
+                output_path = img_path.with_suffix('.jpg')
+
+                # JPEG用に色モード変換
+                if img_resized.mode in ('RGBA', 'LA', 'P'):
+                    img_resized = img_resized.convert('RGB')
+                    self.logger.debug(f"Converted {img_path.name} to RGB for JPEG")
+
+                # JPEG保存（圧縮、2MB制限対応）
+                img_resized.save(
+                    output_path,
+                    'JPEG',
+                    quality=90,
+                    optimize=True
+                )
+
+                # 元のファイルがPNGの場合は削除
+                if img_path != output_path and img_path.exists():
+                    img_path.unlink()
+                    self.logger.debug(f"Removed original PNG: {img_path.name}")
+
+                # ファイルサイズチェック
+                file_size_mb = output_path.stat().st_size / (1024 * 1024)
+
+                if file_size_mb > 2.0:
+                    self.logger.warning(
+                        f"⚠️  {output_path.name} exceeds 2MB limit: {file_size_mb:.2f} MB"
+                    )
+                else:
+                    self.logger.debug(
+                        f"✓ {output_path.name}: {file_size_mb:.2f} MB "
+                        f"({original_size[0]}x{original_size[1]} → {target_size[0]}x{target_size[1]})"
+                    )
+
+                success_count += 1
+
+            except Exception as e:
+                self.logger.warning(f"Failed to resize {img_path.name}: {e}")
+                continue
+
+        self.logger.info(
+            f"✓ Resized {success_count}/{len(image_files)} thumbnails to 1344x768 (JPEG)"
+        )
 
 
 def main():
