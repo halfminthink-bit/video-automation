@@ -15,6 +15,13 @@ except ImportError:
     WHISPER_AVAILABLE = False
     whisper = None
 
+try:
+    import stable_whisper
+    STABLE_WHISPER_AVAILABLE = True
+except ImportError:
+    STABLE_WHISPER_AVAILABLE = False
+    stable_whisper = None
+
 
 class WhisperTimingExtractor:
     """Whisperを使用して音声から単語レベルのタイミング情報を取得"""
@@ -23,34 +30,66 @@ class WhisperTimingExtractor:
         self,
         model_name: str = "base",
         logger: Optional[logging.Logger] = None,
-        language: str = "ja"
+        language: str = "ja",
+        use_stable_ts: bool = True,
+        suppress_silence: bool = True,
+        vad: bool = True,
+        vad_threshold: float = 0.35
     ):
         """
         初期化
-        
+
         Args:
             model_name: Whisperモデル名（tiny, base, small, medium, large）
             logger: ロガー
             language: 言語コード（"ja" = 日本語）
+            use_stable_ts: stable-tsを使用するか（無音抑制、ギャップ調整が有効）
+            suppress_silence: 無音区間を抑制するか（stable-ts使用時のみ）
+            vad: Voice Activity Detectionを使用するか（stable-ts使用時のみ）
+            vad_threshold: VADの閾値（0-1、低いほど厳格）
         """
         if not WHISPER_AVAILABLE:
             raise ImportError(
                 "whisper package is required. "
                 "Install with: pip install openai-whisper"
             )
-        
+
         self.logger = logger or logging.getLogger(__name__)
         self.language = language
-        
-        self.logger.info(f"Loading Whisper model: {model_name}")
+        self.use_stable_ts = use_stable_ts and STABLE_WHISPER_AVAILABLE
+        self.suppress_silence = suppress_silence
+        self.vad = vad
+        self.vad_threshold = vad_threshold
+
+        # stable-tsが利用可能だが、インストールされていない場合は警告
+        if use_stable_ts and not STABLE_WHISPER_AVAILABLE:
+            self.logger.warning(
+                "stable-ts is not available. Falling back to standard Whisper. "
+                "Install with: pip install stable-ts"
+            )
+            self.use_stable_ts = False
+
+        model_type = "stable-ts" if self.use_stable_ts else "Whisper"
+        self.logger.info(f"Loading {model_type} model: {model_name}")
+
         try:
             # CPUで実行する場合はFP32を使用（FP16はGPUのみ対応）
             import torch
             device = "cuda" if torch.cuda.is_available() else "cpu"
-            self.model = whisper.load_model(model_name, device=device)
-            self.logger.info(f"Whisper model loaded successfully on {device}")
+
+            if self.use_stable_ts:
+                # stable-tsモデルをロード
+                self.model = stable_whisper.load_model(model_name, device=device)
+                self.logger.info(
+                    f"stable-ts model loaded successfully on {device} "
+                    f"(suppress_silence={suppress_silence}, vad={vad})"
+                )
+            else:
+                # 標準Whisperモデルをロード
+                self.model = whisper.load_model(model_name, device=device)
+                self.logger.info(f"Whisper model loaded successfully on {device}")
         except Exception as e:
-            self.logger.error(f"Failed to load Whisper model: {e}")
+            self.logger.error(f"Failed to load model: {e}")
             raise
     
     def extract_word_timings(
@@ -88,26 +127,48 @@ class WhisperTimingExtractor:
             import torch
             fp16_enabled = torch.cuda.is_available()
 
-            result = self.model.transcribe(
-                str(audio_path),
-                language=self.language,
-                word_timestamps=True,
+            # 共通パラメータ
+            transcribe_params = {
+                "language": self.language,
+                "word_timestamps": True,
                 # initial_promptは使用しない（全文をスキップされるため）
                 # Whisperの仕様: initial_promptは「直前に話された内容」として機能し、
                 # 渡されたテキストを「もう話し終わった」と判断してスキップする
-                fp16=fp16_enabled,
-                # 認識精度向上のための追加パラメータ
-                condition_on_previous_text=False,
-                no_speech_threshold=0.3,
-                logprob_threshold=-1.0,
-                compression_ratio_threshold=2.4,
-                temperature=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
-                beam_size=5,
-                patience=1.0,
-                length_penalty=1.0,
-                suppress_tokens="-1",
-                task="transcribe"
-            )
+                "fp16": fp16_enabled,
+                # 🔥 累積エラー防止（最重要）
+                "condition_on_previous_text": False,
+                "no_speech_threshold": 0.3,
+                "logprob_threshold": -1.0,
+                "compression_ratio_threshold": 2.4,
+                "temperature": [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+                "beam_size": 5,
+                "patience": 1.0,
+                "length_penalty": 1.0,
+                "suppress_tokens": "-1",
+                "task": "transcribe"
+            }
+
+            # stable-ts使用時は追加パラメータを設定
+            if self.use_stable_ts:
+                transcribe_params.update({
+                    "suppress_silence": self.suppress_silence,
+                    "vad": self.vad,
+                    "vad_threshold": self.vad_threshold
+                })
+                self.logger.debug(
+                    f"Using stable-ts with suppress_silence={self.suppress_silence}, "
+                    f"vad={self.vad}, vad_threshold={self.vad_threshold}"
+                )
+
+            result = self.model.transcribe(str(audio_path), **transcribe_params)
+
+            # 🔥 stable-ts使用時：ギャップ調整で発話境界を最適化
+            if self.use_stable_ts:
+                result = result.adjust_gaps(
+                    duration_threshold=0.75,
+                    one_section=True  # TTS音声推奨
+                )
+                self.logger.debug("Applied gap adjustment to transcription result")
 
             # デバッグ: Whisperの認識結果を確認
             self.logger.info(f"Whisper recognized text: {result.get('text', '')}")
@@ -453,7 +514,11 @@ def align_text_with_whisper_timings(
 def create_whisper_extractor(
     model_name: str = "base",
     logger: Optional[logging.Logger] = None,
-    language: str = "ja"
+    language: str = "ja",
+    use_stable_ts: bool = True,
+    suppress_silence: bool = True,
+    vad: bool = True,
+    vad_threshold: float = 0.35
 ) -> Optional[WhisperTimingExtractor]:
     """
     WhisperTimingExtractorを作成
@@ -462,6 +527,10 @@ def create_whisper_extractor(
         model_name: Whisperモデル名
         logger: ロガー
         language: 言語コード
+        use_stable_ts: stable-tsを使用するか（無音抑制、ギャップ調整が有効）
+        suppress_silence: 無音区間を抑制するか（stable-ts使用時のみ）
+        vad: Voice Activity Detectionを使用するか（stable-ts使用時のみ）
+        vad_threshold: VADの閾値（0-1、低いほど厳格）
 
     Returns:
         WhisperTimingExtractor（利用不可の場合はNone）
@@ -477,7 +546,11 @@ def create_whisper_extractor(
         return WhisperTimingExtractor(
             model_name=model_name,
             logger=logger,
-            language=language
+            language=language,
+            use_stable_ts=use_stable_ts,
+            suppress_silence=suppress_silence,
+            vad=vad,
+            vad_threshold=vad_threshold
         )
     except Exception as e:
         if logger:

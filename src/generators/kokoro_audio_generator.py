@@ -536,7 +536,11 @@ class KokoroAudioGenerator:
             whisper_extractor = WhisperTimingExtractor(
                 model_name=self.whisper_config.get("model", "base"),
                 logger=self.logger,
-                language=self.whisper_config.get("language", "ja")
+                language=self.whisper_config.get("language", "ja"),
+                use_stable_ts=self.whisper_config.get("use_stable_ts", True),
+                suppress_silence=self.whisper_config.get("suppress_silence", True),
+                vad=self.whisper_config.get("vad", True),
+                vad_threshold=self.whisper_config.get("vad_threshold", 0.35)
             )
         except Exception as e:
             self.logger.error(f"Failed to initialize Whisper: {e}")

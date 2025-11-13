@@ -16,6 +16,7 @@ pillow>=10.0.0
 
 # Audio Processing
 openai-whisper>=20231117   # 音声認識とタイミング情報取得用
+stable-ts>=2.17.0          # Whisperの拡張版：無音抑制、ギャップ調整、タイミング精度向上
 mecab-python3>=1.0.0       # 字幕生成での形態素解析に使用
 ipadic>=1.0.0             # MeCab用標準辞書データ
 
