@@ -156,11 +156,15 @@ class Phase06Subtitles(PhaseBase):
                     audio_path=audio_path if audio_path.exists() else None
                 )
 
-            # 3. 句読点を削除（分割ロジックの後に実行）
+            # 3. 句点での表示延長を適用（句読点削除の前に実行）
+            self.logger.info("Adjusting subtitle timing for sentence endings...")
+            subtitles = self._adjust_subtitle_timing_with_sentence_end(subtitles)
+
+            # 4. 句読点を削除（分割ロジックの後に実行）
             self.logger.info("Removing punctuation from subtitles...")
             subtitles = self._remove_punctuation_from_subtitles(subtitles)
 
-            # 6. SRTファイルを保存
+            # 5. SRTファイルを保存
             srt_path = self._save_srt_file(subtitles)
 
             # 7. タイミングJSONを保存
@@ -1380,6 +1384,87 @@ class Phase06Subtitles(PhaseBase):
             return 'kanji'
 
         return 'other'
+
+    def _adjust_subtitle_timing_with_sentence_end(
+        self,
+        subtitles: List[SubtitleEntry]
+    ) -> List[SubtitleEntry]:
+        """
+        句点（。）で終わる字幕のみ、次の字幕開始0.3秒前まで延長を許可
+
+        ルール:
+        1. 字幕の開始時刻は絶対に変更しない（ElevenLabs FA通り）
+        2. 字幕が句点（。）で終わる場合のみ、終了時刻を延長可能
+        3. 延長は次の字幕開始の0.3秒前まで
+        4. 句点で終わらない字幕（、など）は延長しない
+
+        Args:
+            subtitles: 調整前の字幕リスト
+
+        Returns:
+            調整後の字幕リスト
+        """
+        # 設定を取得
+        extension_config = self.phase_config.get("sentence_end_extension", {})
+        enabled = extension_config.get("enabled", True)
+        next_start_margin = extension_config.get("next_start_margin", 0.3)
+
+        if not enabled:
+            self.logger.info("Sentence end extension is disabled")
+            return subtitles
+
+        self.logger.info(
+            f"Adjusting subtitle timing for sentence endings "
+            f"(margin: {next_start_margin}s)"
+        )
+
+        adjusted = []
+        extended_count = 0
+
+        for i, sub in enumerate(subtitles):
+            # 全行のテキストを結合して句点判定
+            full_text = sub.text_line1
+            if sub.text_line2:
+                full_text += sub.text_line2
+            if hasattr(sub, 'text_line3') and sub.text_line3:
+                full_text += sub.text_line3
+
+            # デフォルトは元の終了時刻
+            new_end = sub.end_time
+
+            # 句点（。）で終わる場合のみ延長を検討
+            if full_text.rstrip().endswith('。'):
+                # 次の字幕が存在するか確認
+                if i < len(subtitles) - 1:
+                    next_start = subtitles[i + 1].start_time
+
+                    # 次の字幕開始の0.3秒前まで延長可能
+                    max_end = next_start - next_start_margin
+
+                    # 現在の終了時刻より後なら延長
+                    if max_end > sub.end_time:
+                        new_end = max_end
+                        extended_count += 1
+                        self.logger.debug(
+                            f"Subtitle {sub.index}: Extended from {sub.end_time:.2f}s to {new_end:.2f}s "
+                            f"(next starts at {next_start:.2f}s)"
+                        )
+
+            # 新しい字幕エントリを作成
+            adjusted_sub = SubtitleEntry(
+                index=sub.index,
+                start_time=sub.start_time,  # 開始は絶対に変更しない
+                end_time=new_end,           # 句点で終わる場合のみ延長
+                text_line1=sub.text_line1,
+                text_line2=sub.text_line2,
+                text_line3=sub.text_line3 if hasattr(sub, 'text_line3') else ""
+            )
+            adjusted.append(adjusted_sub)
+
+        self.logger.info(
+            f"Subtitle timing adjustment complete: {extended_count}/{len(subtitles)} subtitles extended"
+        )
+        return adjusted
 
     def _remove_punctuation_from_subtitles(
         self,
