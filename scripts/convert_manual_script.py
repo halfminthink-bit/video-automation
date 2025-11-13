@@ -12,6 +12,7 @@
 
 import yaml
 import json
+import re
 from pathlib import Path
 from datetime import datetime
 import sys
@@ -57,6 +58,8 @@ def convert_yaml_to_json(yaml_path: Path, output_path: Path):
         narration_text = section.get("narration", "")
         if narration_text:
             narration_text = narration_text.strip()
+            # 連続する改行（\n\n以上）を1つの\nに正規化
+            narration_text = re.sub(r'\n{2,}', '\n', narration_text)
         
         script_json["sections"].append({
             "section_id": section.get("section_id", 0),
