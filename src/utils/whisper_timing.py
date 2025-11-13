@@ -398,8 +398,10 @@ def align_text_with_whisper_timings(
     logger: Optional[logging.Logger] = None
 ) -> List[Dict[str, Any]]:
     """
-    元のテキストとWhisperの認識結果をアライメントし、
-    元のテキストの文字にタイミング情報をマッピングする
+    元のテキストとWhisperの認識結果をアライメント
+
+    DTWが利用可能な場合は高精度アライメント、
+    そうでない場合はフォールバック（文字数比率）
 
     Args:
         original_text: 元のnarration text（正確な固有名詞を含む）
@@ -408,27 +410,51 @@ def align_text_with_whisper_timings(
         logger: ロガー
 
     Returns:
-        元のテキストの文字にマッピングされたタイミング情報:
-        [
-            {
-                "word": "信",  # 元のテキストの文字
-                "start": 0.0,
-                "end": 0.24,
-                "probability": 0.95
-            },
-            ...
-        ]
-
-    アルゴリズム:
-    1. 元のテキストと認識テキストを文字レベルで比較
-    2. 類似度の高い部分をマッピング
-    3. Whisperのタイミング情報を元のテキストの文字位置に対応付け
+        元のテキストの文字にマッピングされたタイミング情報
     """
     if logger:
         logger.info(
             f"Aligning texts: original={len(original_text)} chars, "
             f"recognized={len(recognized_text)} chars"
         )
+
+    # 🔥 DTWが利用可能ならDTWを使用
+    try:
+        from src.utils.dtw_aligner import create_dtw_aligner
+
+        dtw_aligner = create_dtw_aligner(
+            logger=logger,
+            debug_mode=True,  # 最初はデバッグモード有効
+            output_dir=None   # デフォルトのdebug/dtwを使用
+        )
+
+        if dtw_aligner:
+            if logger:
+                logger.info("Using DTW for high-precision alignment")
+
+            aligned_timings = dtw_aligner.align(
+                original_text=original_text,
+                recognized_text=recognized_text,
+                word_timings=word_timings
+            )
+
+            if logger:
+                logger.info("✓ DTW alignment successful")
+            return aligned_timings
+        else:
+            if logger:
+                logger.warning("DTW not available, falling back to ratio-based alignment")
+
+    except ImportError as e:
+        if logger:
+            logger.warning(f"DTW import failed: {e}, using fallback alignment")
+    except Exception as e:
+        if logger:
+            logger.error(f"DTW alignment failed: {e}, using fallback alignment")
+
+    # 🔥 フォールバック：従来の文字数比率方式
+    if logger:
+        logger.info("Using ratio-based alignment (fallback)")
 
     # 空白と句読点を除去して比較用テキストを作成
     import re
