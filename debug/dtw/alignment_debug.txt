@@ -1,0 +1,104 @@
+================================================================================
+DTW Alignment Debug Output
+================================================================================
+
+Original Text:
+  Raw: 「うつけ者」と呼ばれた若き日の信長。
+誰もが侮った男が、天下統一を目指す戦国最大の革命児となった。
+桶狭間の戦いで今川義元を討ち、その名を轟かせる。
+  Normalized: うつけ者と呼ばれた若き日の信長誰もが侮った男が天下統一を目指す戦国最大の革命児となった桶狭間の戦いで今川義元を討ちその名を轟かせる
+  Length: 74 chars (65 normalized)
+
+Recognized Text:
+  Raw: うつけものと呼ばれた若き日ののぶなが 誰もが穴どった男が天下統一を目指す戦国最大の革命時となった岡原様の戦いで今川吉本を打ち その名をとどろかせる
+  Normalized: うつけものと呼ばれた若き日ののぶなが誰もが穴どった男が天下統一を目指す戦国最大の革命時となった岡原様の戦いで今川吉本を打ちその名をとどろかせる
+  Length: 73 chars (71 normalized)
+
+DTW Distance: 131856.28
+
+Alignment Path (first 20 and last 20):
+  0: recognized[0]='う' → original[0]='う'
+  1: recognized[1]='つ' → original[1]='つ'
+  2: recognized[2]='け' → original[1]='つ'
+  3: recognized[3]='も' → original[1]='つ'
+  4: recognized[4]='の' → original[1]='つ'
+  5: recognized[5]='と' → original[1]='つ'
+  6: recognized[6]='呼' → original[1]='つ'
+  7: recognized[7]='ば' → original[1]='つ'
+  8: recognized[8]='れ' → original[1]='つ'
+  9: recognized[9]='た' → original[2]='け'
+  10: recognized[10]='若' → original[3]='者'
+  11: recognized[11]='き' → original[4]='と'
+  12: recognized[12]='日' → original[5]='呼'
+  13: recognized[13]='の' → original[6]='ば'
+  14: recognized[14]='の' → original[6]='ば'
+  15: recognized[15]='ぶ' → original[7]='れ'
+  16: recognized[16]='な' → original[8]='た'
+  17: recognized[17]='が' → original[8]='た'
+  18: recognized[18]='誰' → original[9]='若'
+  19: recognized[19]='も' → original[10]='き'
+  20: recognized[55]='川' → original[51]='川'
+  21: recognized[55]='川' → original[52]='義'
+  22: recognized[56]='吉' → original[53]='元'
+  23: recognized[56]='吉' → original[54]='を'
+  24: recognized[57]='本' → original[55]='討'
+  25: recognized[58]='を' → original[56]='ち'
+  26: recognized[58]='を' → original[57]='そ'
+  27: recognized[58]='を' → original[58]='の'
+  28: recognized[59]='打' → original[59]='名'
+  29: recognized[60]='ち' → original[60]='を'
+  30: recognized[61]='そ' → original[60]='を'
+  31: recognized[62]='の' → original[60]='を'
+  32: recognized[63]='名' → original[61]='轟'
+  33: recognized[64]='を' → original[62]='か'
+  34: recognized[65]='と' → original[63]='せ'
+  35: recognized[66]='ど' → original[63]='せ'
+  36: recognized[67]='ろ' → original[63]='せ'
+  37: recognized[68]='か' → original[63]='せ'
+  38: recognized[69]='せ' → original[63]='せ'
+  39: recognized[70]='る' → original[64]='る'
+  ... (41 more steps)
+
+Aligned Timings (first 20 and last 20):
+  0: '「' 0.000-0.000s (prob=1.00)
+  1: 'う' 0.032-0.140s (prob=0.08)
+  2: 'つ' 0.140-1.230s (prob=0.89)
+  3: 'け' 1.230-1.340s (prob=0.99)
+  4: '者' 1.340-1.600s (prob=0.90)
+  5: '」' 1.600-1.600s (prob=1.00)
+  6: 'と' 1.600-1.820s (prob=0.37)
+  7: '呼' 1.820-1.900s (prob=0.36)
+  8: 'ば' 1.900-2.160s (prob=0.61)
+  9: 'れ' 2.160-2.260s (prob=0.94)
+  10: 'た' 2.260-2.688s (prob=0.97)
+  11: '若' 3.936-4.060s (prob=0.94)
+  12: 'き' 4.060-4.300s (prob=1.00)
+  13: '日' 4.060-4.300s (prob=1.00)
+  14: 'の' 4.060-4.300s (prob=1.00)
+  15: '信' 4.300-4.460s (prob=1.00)
+  16: '長' 4.460-4.640s (prob=0.69)
+  17: '。' 4.640-4.640s (prob=1.00)
+  18: '
+' 4.640-4.640s (prob=1.00)
+  19: '誰' 4.460-4.640s (prob=0.69)
+  20: '戦' 11.940-12.220s (prob=0.97)
+  21: 'い' 12.220-12.520s (prob=0.99)
+  22: 'で' 12.520-12.640s (prob=1.00)
+  23: '今' 12.640-12.820s (prob=0.87)
+  24: '川' 12.820-13.080s (prob=0.63)
+  25: '義' 12.820-13.080s (prob=0.63)
+  26: '元' 13.080-13.380s (prob=0.51)
+  27: 'を' 13.080-13.380s (prob=0.51)
+  28: '討' 13.380-13.640s (prob=0.90)
+  29: 'ち' 13.640-13.840s (prob=0.98)
+  30: '、' 13.840-13.840s (prob=1.00)
+  31: 'そ' 13.640-13.840s (prob=0.98)
+  32: 'の' 13.640-13.840s (prob=0.98)
+  33: '名' 13.840-13.940s (prob=0.71)
+  34: 'を' 13.940-14.900s (prob=0.80)
+  35: '轟' 14.900-15.040s (prob=1.00)
+  36: 'か' 15.040-15.200s (prob=1.00)
+  37: 'せ' 15.200-15.820s (prob=0.87)
+  38: 'る' 15.820-16.032s (prob=1.00)
+  39: '。' 16.032-16.032s (prob=1.00)
+  ... (34 more characters)

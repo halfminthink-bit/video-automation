@@ -19,7 +19,7 @@ upload:
   # - auto: 自動投稿（確認なし）
   # - manual_approval: メタデータ確認後に投稿
   # - draft: 下書き保存のみ
-  mode: "manual_approval"
+  mode: "auto"
 
   # 公開設定
   privacy_status: "private"  # public / unlisted / private
