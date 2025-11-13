@@ -47,6 +47,9 @@ config/.env
 *.pem
 *.key
 
+# YouTube API credentials
+config/.youtube_credentials.json
+
 # ========================================
 # Generated Data
 # ========================================

@@ -87,8 +87,8 @@ class PhaseBase(ABC):
     @abstractmethod
     def get_phase_number(self) -> int:
         """
-        フェーズ番号を返す（1-8）
-        
+        フェーズ番号を返す（1-9）
+
         Returns:
             フェーズ番号
         """

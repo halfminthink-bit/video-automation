@@ -1,0 +1,153 @@
+# ========================================
+# Phase 9: YouTube Upload Configuration
+# ========================================
+
+# ========================================
+# 認証設定
+# ========================================
+authentication:
+  credentials_file: "config/.youtube_credentials.json"
+  token_file: "data/cache/youtube_token.json"
+  scopes:
+    - "https://www.googleapis.com/auth/youtube.upload"
+
+# ========================================
+# アップロード設定
+# ========================================
+upload:
+  # 投稿モード
+  # - auto: 自動投稿（確認なし）
+  # - manual_approval: メタデータ確認後に投稿
+  # - draft: 下書き保存のみ
+  mode: "manual_approval"
+
+  # 公開設定
+  privacy_status: "private"  # public / unlisted / private
+
+  # カテゴリID（YouTube標準カテゴリ）
+  # 22: People & Blogs
+  # 27: Education
+  category_id: "22"
+
+  # 言語設定
+  default_language: "ja"
+
+  # サムネイル選択
+  thumbnail:
+    source: "phase8_first"  # phase8_first / phase8_best / phase7 / custom
+    fallback_to_phase7: true  # Phase 8がない場合にPhase 7を使用
+
+# ========================================
+# メタデータ生成設定（Claude API）
+# ========================================
+metadata_generation:
+  enabled: true
+
+  # Claude API設定
+  model: "claude-sonnet-4-20250514"
+  max_tokens: 4000
+  temperature: 0.7
+
+  # ターゲット視聴者
+  target_audience: "歴史に興味がある10-40代"
+
+  # トーン
+  tone: "educational"  # educational / entertaining / inspirational
+
+  # タイトル生成の傾向
+  title_style: "curiosity_driven"  # curiosity_driven / educational / story_driven
+
+  # タグ生成の戦略
+  tag_strategy:
+    big_keywords: 3       # ビッグワード数（例: 歴史、偉人）
+    medium_keywords: 5    # ミドルワード数（例: 戦国時代、江戸時代）
+    long_tail_keywords: 7 # ロングテール数（例: 織田信長の生涯）
+
+  # システムプロンプト
+  system_prompt: |
+    あなたはYouTube動画のメタデータ最適化の専門家です。
+    以下の目標を達成するメタデータを生成してください：
+
+    【目標】
+    1. クリック率(CTR)を最大化するタイトル
+    2. SEOに最適化された説明文
+    3. 検索流入を増やすタグ選定
+    4. 視聴者維持率を高める構成
+
+    【制約条件】
+    - タイトル: 60文字以内（スマホで省略されない長さ）
+    - 説明文: 5000文字以内
+    - タグ: 10-15個、各タグ30文字以内
+    - 日本語で自然な表現
+
+  # ユーザープロンプトテンプレート
+  user_prompt_template: |
+    以下の動画コンテンツに最適なメタデータを生成してください。
+
+    ## 動画情報
+    - テーマ: {subject}
+    - 動画の長さ: {duration}秒
+    - ターゲット層: {target_audience}
+
+    ## スクリプト内容
+    {script_content}
+
+    ## 使用画像のテーマ
+    {image_themes}
+
+    ## 出力形式
+    以下のJSON形式で出力してください：
+    ```json
+    {{
+      "title": "動画タイトル（60文字以内）",
+      "description": "説明文（改行を含む、5000文字以内）\n\n【目次】\n0:00 イントロ\n...\n\n#歴史 #{subject}",
+      "tags": ["歴史", "{subject}", "解説", ...],
+      "category_id": "22",
+      "privacy_status": "private"
+    }}
+    ```
+
+    ## タイトルの観点
+    - 「驚き」「疑問」「共感」のいずれかを含める
+    - 数字を使う（例: 10分で、5つの、など）
+    - ターゲットを明確に（例: 〇〇を学びたい人へ）
+
+    ## 説明文の構成
+    1. フック（最初の2行）: 動画の価値を端的に
+    2. 本編の概要（3-5行）
+    3. タイムスタンプ（主要なシーンごと）
+    4. 関連情報・参考文献
+    5. CTA（チャンネル登録のお願い）
+    6. ハッシュタグ
+
+    ## タグの戦略
+    - ビッグワード: {big_keywords}個（例: 歴史、偉人、解説）
+    - ミドルワード: {medium_keywords}個（例: {subject}、{{時代}}の歴史）
+    - ロングテール: {long_tail_keywords}個（例: {subject}の生涯、{{具体的エピソード}}）
+
+# ========================================
+# 出力設定
+# ========================================
+output:
+  save_metadata: true
+  metadata_file: "metadata.json"
+  upload_log: "upload_log.json"
+
+# ========================================
+# リトライ設定
+# ========================================
+retry:
+  max_attempts: 3
+  delay_seconds: 5
+  exponential_backoff: true
+
+# ========================================
+# Quota管理
+# ========================================
+quota:
+  # YouTube Data API v3のQuota制限
+  # 動画アップロード: 1600 units
+  # サムネイル設定: 50 units
+  # 1日のQuota上限: 10,000 units（デフォルト）
+  daily_limit: 10000
+  alert_threshold: 8000  # 80%使用時に警告
