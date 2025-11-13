@@ -45,13 +45,16 @@ class ImageResizer:
             img = Image.open(input_path)
             original_size = img.size
 
+            # デバッグ: 元のサイズを出力
+            self.logger.info(f"📐 Resizing: {input_path.name} from {original_size[0]}x{original_size[1]} → {self.target_size[0]}x{self.target_size[1]}")
+
             # 既に目標サイズの場合はスキップ
             if original_size == self.target_size:
-                self.logger.debug(f"Already target size, skipping: {input_path.name}")
+                self.logger.info(f"✓ Already target size, skipping: {input_path.name}")
                 return input_path
 
-            # LANCZOS補間で高品質リサイズ
-            img_resized = img.resize(self.target_size, Image.LANCZOS)
+            # LANCZOS補間で高品質リサイズ（新しいPIL構文を使用）
+            img_resized = img.resize(self.target_size, Image.Resampling.LANCZOS)
 
             # 出力パスの決定
             if output_path is None:
@@ -63,6 +66,8 @@ class ImageResizer:
             # 出力形式に応じて拡張子を変更
             if self.output_format == "JPEG":
                 output_path = output_path.with_suffix('.jpg')
+            elif self.output_format == "PNG":
+                output_path = output_path.with_suffix('.png')
 
             # JPEG保存の場合、RGBA/LA/Pモードを変換
             if self.output_format == "JPEG":
@@ -78,15 +83,26 @@ class ImageResizer:
                     quality=self.jpeg_quality,
                     optimize=True
                 )
-                self.logger.debug(f"Saved as JPEG with quality={self.jpeg_quality}")
+                self.logger.info(f"✓ Saved as JPEG with quality={self.jpeg_quality}: {output_path.name}")
             else:
                 # PNG保存（従来通り）
                 img_resized.save(output_path, 'PNG', quality=95, optimize=True)
+                self.logger.info(f"✓ Saved as PNG: {output_path.name}")
 
-            self.logger.debug(
-                f"Resized: {input_path.name} "
-                f"({original_size[0]}x{original_size[1]} → {self.target_size[0]}x{self.target_size[1]})"
-            )
+            # 保存後のサイズを確認
+            with Image.open(output_path) as saved_img:
+                saved_size = saved_img.size
+                self.logger.info(
+                    f"✅ Resize complete: {output_path.name} "
+                    f"({original_size[0]}x{original_size[1]} → {saved_size[0]}x{saved_size[1]})"
+                )
+
+                # サイズが正しいか検証
+                if saved_size != self.target_size:
+                    self.logger.error(
+                        f"❌ Resize failed! Expected {self.target_size[0]}x{self.target_size[1]}, "
+                        f"got {saved_size[0]}x{saved_size[1]}"
+                    )
 
             return output_path
 
@@ -117,12 +133,13 @@ class ImageResizer:
             extensions = ['.jpg', '.jpeg', '.png']
 
         if not input_dir.exists():
-            self.logger.warning(f"Input directory not found: {input_dir}")
+            self.logger.error(f"❌ Input directory not found: {input_dir}")
             return []
 
         # 出力ディレクトリの作成
         if output_dir and output_dir != input_dir:
             output_dir.mkdir(parents=True, exist_ok=True)
+            self.logger.info(f"📁 Output directory: {output_dir}")
 
         # 対象ファイルを収集
         image_files = []
@@ -131,10 +148,12 @@ class ImageResizer:
             image_files.extend(input_dir.glob(f"*{ext.upper()}"))
 
         if not image_files:
-            self.logger.info(f"No images found in: {input_dir}")
+            self.logger.warning(f"⚠️ No images found in: {input_dir}")
             return []
 
-        self.logger.info(f"Found {len(image_files)} images to resize")
+        self.logger.info(f"🔍 Found {len(image_files)} images to resize")
+        self.logger.info(f"🎯 Target size: {self.target_size[0]}x{self.target_size[1]}")
+        self.logger.info(f"📄 Output format: {self.output_format}")
 
         # リサイズ実行
         resized_files = []
@@ -156,9 +175,16 @@ class ImageResizer:
                 self.logger.warning(f"Skipping {img_path.name}: {e}")
                 continue
 
+        self.logger.info("=" * 60)
         self.logger.info(
-            f"✓ Resized {success_count}/{len(image_files)} images to 1920x1080"
+            f"✅ Resize summary: {success_count}/{len(image_files)} images resized to "
+            f"{self.target_size[0]}x{self.target_size[1]} ({self.output_format})"
         )
+        if success_count < len(image_files):
+            self.logger.warning(
+                f"⚠️ {len(image_files) - success_count} images failed to resize"
+            )
+        self.logger.info("=" * 60)
 
         return resized_files
 
