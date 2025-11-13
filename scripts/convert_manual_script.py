@@ -31,9 +31,12 @@ class ScriptNormalizer:
 
         処理内容:
         1. 空行を完全削除
-        2. 文末チェック: 。！以外で終わる場合は。を追加
-        3. 」で終わる場合は警告ログ出力
-        4. 連続改行（\n\n以上）を1つの\nに正規化
+        2. 文末チェック:
+           - 。で終わる → そのまま
+           - ！で終わる → そのまま
+           - 」で終わる → 」。に変更
+           - その他 → 。を追加
+        3. 連続改行（\n\n以上）を1つの\nに正規化
         """
         if not text:
             return text
@@ -50,14 +53,13 @@ class ScriptNormalizer:
 
             # 文末チェック
             if line.endswith('。') or line.endswith('！'):
-                # そのまま
+                # 既に正しい文末 → そのまま
                 lines.append(line)
             elif line.endswith('」'):
-                # 警告ログ出力（修正はしない）
-                logger.warning(f"行が」で終わっています（修正推奨）: {line}")
-                lines.append(line)
+                # 」で終わる場合 → 。を追加
+                lines.append(line + '。')
             else:
-                # 。を追加
+                # その他 → 。を追加
                 lines.append(line + '。')
 
         # 改行で再結合
