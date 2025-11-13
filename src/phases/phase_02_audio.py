@@ -266,6 +266,10 @@ class Phase02Audio(PhaseBase):
                 whisper_config = self.phase_config.get("whisper", {})
                 punctuation_pause_config = self.phase_config.get("punctuation_pause", {})
 
+                # 🔥 新規追加: ElevenLabs Forced Alignment設定
+                use_elevenlabs_fa = self.phase_config.get("use_elevenlabs_fa", True)
+                elevenlabs_api_key = self.phase_config.get("elevenlabs_api_key")  # nullの場合はNone
+
                 generator = KokoroAudioGenerator(
                     api_url=kokoro_config.get("api_url"),
                     voice=kokoro_config.get("voice", "jf_alpha"),
@@ -273,12 +277,15 @@ class Phase02Audio(PhaseBase):
                     response_format=kokoro_config.get("response_format", "mp3"),
                     logger=self.logger,
                     whisper_config=whisper_config,
-                    punctuation_pause_config=punctuation_pause_config
+                    punctuation_pause_config=punctuation_pause_config,
+                    use_elevenlabs_fa=use_elevenlabs_fa,
+                    elevenlabs_api_key=elevenlabs_api_key
                 )
                 self.logger.info(
                     f"Kokoro TTS initialized: voice={kokoro_config.get('voice', 'jf_alpha')}, "
                     f"whisper_enabled={whisper_config.get('enabled', True)}, "
-                    f"punctuation_pause_enabled={punctuation_pause_config.get('enabled', False)}"
+                    f"punctuation_pause_enabled={punctuation_pause_config.get('enabled', False)}, "
+                    f"elevenlabs_fa_enabled={use_elevenlabs_fa}"
                 )
                 return generator
             except Exception as e:

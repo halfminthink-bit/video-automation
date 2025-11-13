@@ -68,10 +68,22 @@ kokoro:
   response_format: "mp3"  # mp3, wav, opus, flac
 
 # ========================================
-# Whisper タイムスタンプ取得設定
+# タイミング抽出設定
 # ========================================
-# Kokoro TTSは日本語のタイムスタンプに対応していないため、
-# Whisperを使用して音声から単語レベルのタイミングを取得
+# 🔥 ElevenLabs Forced Alignment（台本と音声の完璧なアラインメント）
+# ElevenLabs FAを使用することで、固有名詞も含め100%正確なタイミングを取得
+use_elevenlabs_fa: true
+
+# ElevenLabs API Key（環境変数 ELEVENLABS_API_KEY から自動取得）
+# .envファイルに ELEVENLABS_API_KEY=your_key_here を設定してください
+# 未設定の場合は自動的にWhisperにフォールバックします
+# 注: この値は参照用です。実際には環境変数から直接読み込まれます
+elevenlabs_api_key: null
+
+# ========================================
+# Whisper タイムスタンプ取得設定（フォールバック用）
+# ========================================
+# ElevenLabs FAが失敗した場合、またはuse_elevenlabs_fa=falseの場合に使用
 whisper:
   enabled: true           # Whisper使用の有効化
   model: "small"         # tiny, base, small, medium, large
