@@ -72,9 +72,11 @@ class Phase08Thumbnail(PhaseBase):
         if not thumbnail_dir.exists():
             return False
         
-        # サムネイルファイルが存在するかチェック
-        thumbnails = list(thumbnail_dir.glob("*.png"))
-        
+        # サムネイルファイルが存在するかチェック（PNG/JPEG両方）
+        thumbnails = list(thumbnail_dir.glob("*.png")) + \
+                     list(thumbnail_dir.glob("*.jpg")) + \
+                     list(thumbnail_dir.glob("*.jpeg"))
+
         exists = len(thumbnails) > 0 and metadata_path.exists()
         
         if exists:
@@ -186,10 +188,23 @@ class Phase08Thumbnail(PhaseBase):
             
             # ファイルサイズチェック
             file_size = file_path.stat().st_size
+            file_size_mb = file_size / (1024 * 1024)
+
             if file_size < 1024:  # 1KB未満
                 raise PhaseValidationError(
                     self.get_phase_number(),
                     f"Thumbnail file too small: {file_path} ({file_size} bytes)"
+                )
+
+            # YouTubeの2MB制限をチェック
+            if file_size > 2097152:  # 2MB = 2,097,152 bytes
+                self.logger.warning(
+                    f"⚠️  Thumbnail exceeds YouTube 2MB limit: {file_path.name} "
+                    f"({file_size_mb:.2f} MB)"
+                )
+            else:
+                self.logger.debug(
+                    f"✓ Thumbnail size OK: {file_path.name} ({file_size_mb:.2f} MB)"
                 )
         
         self.logger.info(f"Thumbnail validation passed ✓ ({len(thumbnails)} files)")

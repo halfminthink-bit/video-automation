@@ -12,9 +12,16 @@ import logging
 class ImageResizer:
     """画像リサイズクラス（画質優先）"""
 
-    def __init__(self, logger: Optional[logging.Logger] = None):
+    def __init__(
+        self,
+        logger: Optional[logging.Logger] = None,
+        output_format: str = "JPEG",
+        jpeg_quality: int = 90
+    ):
         self.logger = logger or logging.getLogger(__name__)
         self.target_size = (1920, 1080)
+        self.output_format = output_format.upper()  # "JPEG" or "PNG"
+        self.jpeg_quality = jpeg_quality  # JPEG品質（1-100）
 
     def resize_image(
         self,
@@ -53,8 +60,28 @@ class ImageResizer:
                 else:
                     output_path = input_path.parent / f"{input_path.stem}_resized{input_path.suffix}"
 
-            # 保存（高品質設定）
-            img_resized.save(output_path, quality=95, optimize=True)
+            # 出力形式に応じて拡張子を変更
+            if self.output_format == "JPEG":
+                output_path = output_path.with_suffix('.jpg')
+
+            # JPEG保存の場合、RGBA/LA/Pモードを変換
+            if self.output_format == "JPEG":
+                if img_resized.mode in ('RGBA', 'LA', 'P'):
+                    # 透明度を削除してRGBに変換
+                    img_resized = img_resized.convert('RGB')
+                    self.logger.debug(f"Converted {input_path.name} from {img.mode} to RGB for JPEG")
+
+                # JPEG保存（圧縮）
+                img_resized.save(
+                    output_path,
+                    'JPEG',
+                    quality=self.jpeg_quality,
+                    optimize=True
+                )
+                self.logger.debug(f"Saved as JPEG with quality={self.jpeg_quality}")
+            else:
+                # PNG保存（従来通り）
+                img_resized.save(output_path, 'PNG', quality=95, optimize=True)
 
             self.logger.debug(
                 f"Resized: {input_path.name} "
@@ -139,7 +166,9 @@ class ImageResizer:
 def resize_images_to_1920x1080(
     input_dir: Path,
     output_dir: Optional[Path] = None,
-    logger: Optional[logging.Logger] = None
+    logger: Optional[logging.Logger] = None,
+    output_format: str = "JPEG",
+    jpeg_quality: int = 90
 ) -> List[Path]:
     """
     便利関数: ディレクトリ内の画像を1920x1080にリサイズ
@@ -148,9 +177,15 @@ def resize_images_to_1920x1080(
         input_dir: 入力ディレクトリ
         output_dir: 出力ディレクトリ（Noneの場合は上書き）
         logger: ロガー
+        output_format: 出力形式（"JPEG" or "PNG"）- デフォルトはJPEG
+        jpeg_quality: JPEG品質（1-100）- デフォルトは90
 
     Returns:
         リサイズされたファイルパスのリスト
     """
-    resizer = ImageResizer(logger)
+    resizer = ImageResizer(
+        logger=logger,
+        output_format=output_format,
+        jpeg_quality=jpeg_quality
+    )
     return resizer.resize_directory(input_dir, output_dir, overwrite=(output_dir is None))
