@@ -13,10 +13,138 @@
 import yaml
 import json
 import re
+import logging
 from pathlib import Path
 from datetime import datetime
 import sys
 import argparse
+
+logger = logging.getLogger(__name__)
+
+
+class ScriptNormalizer:
+    """YAML台本を厳密なフォーマットに正規化"""
+
+    @staticmethod
+    def normalize_narration(text: str) -> str:
+        """narrationフィールドを正規化
+
+        処理内容:
+        1. 空行を完全削除
+        2. 文末チェック: 。！以外で終わる場合は。を追加
+        3. 」で終わる場合は警告ログ出力
+        4. 連続改行（\n\n以上）を1つの\nに正規化
+        """
+        if not text:
+            return text
+
+        # 行に分割して処理
+        lines = []
+        for line in text.split('\n'):
+            # 前後の空白を削除
+            line = line.strip()
+
+            # 空行はスキップ
+            if not line:
+                continue
+
+            # 文末チェック
+            if line.endswith('。') or line.endswith('！'):
+                # そのまま
+                lines.append(line)
+            elif line.endswith('」'):
+                # 警告ログ出力（修正はしない）
+                logger.warning(f"行が」で終わっています（修正推奨）: {line}")
+                lines.append(line)
+            else:
+                # 。を追加
+                lines.append(line + '。')
+
+        # 改行で再結合
+        result = '\n'.join(lines)
+
+        # 連続改行を1つに正規化（念のため）
+        result = re.sub(r'\n{2,}', '\n', result)
+
+        return result
+
+    @staticmethod
+    def normalize_thumbnail(thumbnail: dict) -> dict:
+        """サムネイルテキストを正規化
+
+        処理内容:
+        upper_text:
+          - 1行あたり3文字まで
+          - 超過している場合は警告ログ
+          - 2行目以降の先頭に全角スペース「　」を自動挿入
+
+        lower_text:
+          - 1行あたり5-7文字（推奨）
+          - 範囲外の場合は警告ログ
+          - 2行目以降の先頭に全角スペース「　」を自動挿入
+        """
+        if not thumbnail:
+            return thumbnail
+
+        # upper_textの正規化
+        if "upper_text" in thumbnail:
+            upper_lines = []
+            for i, line in enumerate(thumbnail["upper_text"].split('\n')):
+                line = line.strip()
+
+                # 文字数チェック
+                if len(line) > 3:
+                    logger.warning(f"upper_text行が3文字超過: {line} ({len(line)}文字)")
+
+                # 2行目以降は全角スペースを追加
+                if i > 0 and line:
+                    line = '　' + line
+
+                upper_lines.append(line)
+
+            thumbnail["upper_text"] = '\n'.join(upper_lines)
+
+        # lower_textの正規化
+        if "lower_text" in thumbnail:
+            lower_lines = []
+            for i, line in enumerate(thumbnail["lower_text"].split('\n')):
+                line = line.strip()
+
+                # 文字数チェック（5-7文字推奨）
+                if line and (len(line) < 5 or len(line) > 7):
+                    logger.warning(f"lower_text行が推奨範囲外: {line} ({len(line)}文字、推奨5-7文字)")
+
+                # 2行目以降は全角スペースを追加
+                if i > 0 and line:
+                    line = '　' + line
+
+                lower_lines.append(line)
+
+            thumbnail["lower_text"] = '\n'.join(lower_lines)
+
+        return thumbnail
+
+    @staticmethod
+    def normalize(data: dict) -> dict:
+        """YAML全体を正規化（メインメソッド）"""
+        # サムネイルを正規化
+        if "thumbnail" in data and data["thumbnail"]:
+            data["thumbnail"] = ScriptNormalizer.normalize_thumbnail(data["thumbnail"])
+
+        # セクションを正規化
+        if "sections" in data:
+            for section in data["sections"]:
+                # narrationを正規化
+                if "narration" in section:
+                    section["narration"] = ScriptNormalizer.normalize_narration(section["narration"])
+
+                # bgm_suggestionのチェック
+                if "bgm" not in section or not section.get("bgm"):
+                    section_id = section.get("section_id", "unknown")
+                    logger.warning(f"Section {section_id}: bgm_suggestionが未設定です（デフォルト'main'を使用）")
+                    section["bgm"] = "main"
+
+        return data
 
 
 def convert_yaml_to_json(yaml_path: Path, output_path: Path):
@@ -25,6 +153,10 @@ def convert_yaml_to_json(yaml_path: Path, output_path: Path):
     # YAML読み込み
     with open(yaml_path, 'r', encoding='utf-8') as f:
         data = yaml.safe_load(f)
+
+    # 🔥 正規化処理
+    normalizer = ScriptNormalizer()
+    data = normalizer.normalize(data)
 
     # サムネイル情報の取得（フォールバック付き）
     thumbnail_data = data.get("thumbnail")
@@ -53,14 +185,11 @@ def convert_yaml_to_json(yaml_path: Path, output_path: Path):
         "model_version": "manual"
     }
 
-    # セクションを変換
+    # セクションを変換（正規化済みデータから）
     for section in data["sections"]:
+        # narrationは既に正規化済み（空行削除、文末チェック、連続改行正規化が完了）
         narration_text = section.get("narration", "")
-        if narration_text:
-            narration_text = narration_text.strip()
-            # 連続する改行（\n\n以上）を1つの\nに正規化
-            narration_text = re.sub(r'\n{2,}', '\n', narration_text)
-        
+
         script_json["sections"].append({
             "section_id": section.get("section_id", 0),
             "title": section.get("title", ""),
@@ -84,6 +213,12 @@ def convert_yaml_to_json(yaml_path: Path, output_path: Path):
 
 
 def main():
+    # ロギング設定
+    logging.basicConfig(
+        level=logging.WARNING,
+        format='⚠️  Warning: %(message)s'
+    )
+
     parser = argparse.ArgumentParser(description="手動台本をJSONに変換")
     parser.add_argument("subject", nargs="?", help="偉人名")
     parser.add_argument("--all", action="store_true", help="全て変換")
