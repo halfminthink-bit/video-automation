@@ -1029,7 +1029,9 @@ class Phase07Composition(PhaseBase):
         from PIL import Image, ImageDraw
 
         # 句読点チェック（Phase 6で削除済みのはず）
-        if any(punct in text_line1 for punct in ['。', '、', '！', '？']):
+        # 注意: 「、」はPhase 6で意図的に残されるため、警告から除外
+        # 削除対象: 。！？（句点のみ）
+        if any(punct in text_line1 for punct in ['。', '！', '？']):
             self.logger.warning(
                 f"Punctuation found in subtitle text: {text_line1}. "
                 "This should have been removed in Phase 6."
