@@ -9,11 +9,10 @@ openai>=1.0.0
 elevenlabs>=0.2.26  # convert_with_timestamps() サポート (2024年5月以降)
 requests>=2.31.0    # Kokoro TTS FastAPI との通信に使用
 
-# Google APIs
-google-auth>=2.23.0
+# YouTube API (Phase 9)
+google-api-python-client>=2.100.0
 google-auth-oauthlib>=1.1.0
 google-auth-httplib2>=0.1.1
-google-api-python-client>=2.100.0
 
 # Video Processing
 moviepy>=1.0.3

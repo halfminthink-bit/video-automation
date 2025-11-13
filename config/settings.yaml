@@ -58,6 +58,7 @@ phases:
   "06_subtitles": "config/phases/subtitle_generation.yaml"
   "07_composition": "config/phases/video_composition.yaml"
   "08_thumbnail": "config/phases/thumbnail_generation.yaml"
+  "09_youtube": "config/phases/youtube_upload.yaml"
 
 # ========================================
 # デフォルト動画設定
