@@ -50,7 +50,8 @@ class ElevenLabsForcedAligner:
             )
 
         self.api_key = api_key
-        self.endpoint = "https://api.elevenlabs.io/v1/audio-native"
+        # ✅ 正しいエンドポイント: /v1/forced-alignment
+        self.endpoint = "https://api.elevenlabs.io/v1/forced-alignment"
         self.logger = logger or logging.getLogger(__name__)
 
         self.logger.info("ElevenLabs Forced Aligner initialized")
@@ -59,15 +60,15 @@ class ElevenLabsForcedAligner:
         self,
         audio_path: Path,
         text: str,
-        language: str = "ja"
+        language: str = "ja"  # 互換性のため残すが、APIでは使用されない（自動検出）
     ) -> Dict[str, Any]:
         """
         音声ファイルとテキストをアラインメント
 
         Args:
-            audio_path: 音声ファイルのパス
-            text: 台本テキスト（正確なテキスト）
-            language: 言語コード（デフォルト: "ja"）
+            audio_path: 音声ファイルのパス（最大3GB、最長10時間）
+            text: 台本テキスト（正確なテキスト、必須）
+            language: 言語コード（互換性のため残すが、APIでは自動検出されるため使用されない）
 
         Returns:
             アラインメント結果:
@@ -80,7 +81,7 @@ class ElevenLabsForcedAligner:
                     "char_end_times": [0.2, 0.3, ...],
                     "characters": ["織", "田", ...]
                 },
-                "words": [...]  # オプション
+                "words": [...]  # オプション（単語レベルのタイミング情報）
             }
 
         Raises:
@@ -95,18 +96,23 @@ class ElevenLabsForcedAligner:
 
         try:
             # APIリクエスト
+            # ✅ 正しいリクエスト形式: multipart/form-data
+            # ✅ フィールド名は 'file' (audio ではない)
+            # ✅ language と model_id は不要（自動検出される）
             with open(audio_path, 'rb') as f:
-                files = {'audio': (audio_path.name, f, 'audio/mpeg')}
+                files = {
+                    'file': (audio_path.name, f, 'audio/mpeg')
+                }
                 data = {
-                    'text': text,
-                    'language': language,
-                    'model_id': 'eleven_multilingual_v2'
+                    'text': text
+                    # language と model_id は不要（自動検出）
                 }
                 headers = {
                     'xi-api-key': self.api_key
                 }
 
                 self.logger.debug(f"Sending request to {self.endpoint}")
+                self.logger.debug(f"Text length: {len(text)} characters")
 
                 response = requests.post(
                     self.endpoint,
@@ -127,7 +133,10 @@ class ElevenLabsForcedAligner:
             result = response.json()
 
             # レスポンス構造をログ出力（デバッグ用）
-            self.logger.debug(f"ElevenLabs FA response keys: {result.keys()}")
+            self.logger.debug(f"ElevenLabs FA response keys: {list(result.keys())}")
+            self.logger.debug(
+                f"Response sample: {json.dumps(result, indent=2, ensure_ascii=False)[:500]}"
+            )
 
             # audio_timing.json形式に変換
             alignment = self._convert_to_audio_timing_format(result, text)
@@ -191,35 +200,43 @@ class ElevenLabsForcedAligner:
         )
 
         # ElevenLabsのレスポンス形式に応じて処理
+        # 仕様書によると、以下の3つの形式が可能:
+        # 1. alignment: [{"character": "織", "start": 0.1, "end": 0.2}, ...]
+        # 2. characters: [{"character": "織", "start_time": 0.1, "end_time": 0.2}, ...]
+        # 3. words: [{"word": "織田", "start_time": 0.1, "end_time": 0.3}, ...]
+        
         if "alignment" in elevenlabs_response:
-            # 形式1: alignment キーがある場合
+            # 形式1: alignment キーがある場合（詳細版）
             alignment_data = elevenlabs_response["alignment"]
 
             if isinstance(alignment_data, list):
                 for item in alignment_data:
-                    # 文字情報
-                    char = item.get("char") or item.get("character", "")
-                    start = float(item.get("start", 0.0))
-                    end = float(item.get("end", 0.0))
+                    # 文字情報（character または char）
+                    char = item.get("character") or item.get("char", "")
+                    start = float(item.get("start", item.get("start_time", 0.0)))
+                    end = float(item.get("end", item.get("end_time", 0.0)))
 
-                    characters.append(char)
-                    char_start_times.append(start)
-                    char_end_times.append(end)
+                    if char:  # 空文字でない場合のみ追加
+                        characters.append(char)
+                        char_start_times.append(start)
+                        char_end_times.append(end)
             else:
                 self.logger.warning(
                     f"Unexpected alignment format: {type(alignment_data)}"
                 )
 
         elif "characters" in elevenlabs_response:
-            # 形式2: characters キーがある場合
+            # 形式2: characters キーがある場合（シンプル版）
             for item in elevenlabs_response["characters"]:
                 char = item.get("character") or item.get("char", "")
-                start = float(item.get("start", 0.0))
-                end = float(item.get("end", 0.0))
+                # start_time と end_time を使用
+                start = float(item.get("start_time", item.get("start", 0.0)))
+                end = float(item.get("end_time", item.get("end", 0.0)))
 
-                characters.append(char)
-                char_start_times.append(start)
-                char_end_times.append(end)
+                if char:  # 空文字でない場合のみ追加
+                    characters.append(char)
+                    char_start_times.append(start)
+                    char_end_times.append(end)
 
         elif "char_timings" in elevenlabs_response:
             # 形式3: char_timings キーがある場合
@@ -258,7 +275,12 @@ class ElevenLabsForcedAligner:
 
         # 単語情報も取得（あれば）
         if "words" in elevenlabs_response:
-            words = elevenlabs_response["words"]
+            words_data = elevenlabs_response["words"]
+            if isinstance(words_data, list):
+                words = words_data
+            else:
+                self.logger.warning(f"Unexpected words format: {type(words_data)}")
+                words = []
 
         # バリデーション
         if len(characters) == 0:
