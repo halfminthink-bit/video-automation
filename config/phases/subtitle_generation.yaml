@@ -91,11 +91,22 @@ splitting:
 # 句読点は字幕に表示しない（除去する）
 remove_punctuation_in_display: true
 
+# ========================================
+# 句点での表示延長設定
+# ========================================
+sentence_end_extension:
+  # 句点（。）で終わる字幕の表示延長を有効化
+  enabled: true
+
+  # 次の字幕開始の何秒前まで延長可能か（秒）
+  # 例: 0.3秒 = 自然な余白を保ちつつ読む時間を確保
+  next_start_margin: 0.3
+
 # Whisper設定（音声から正確なタイミング情報を取得）
 whisper:
   # Whisperを使用してタイミング情報を取得するか
   enabled: true
-  
+
   # Whisperモデル名（tiny, base, small, medium, large）
   # tiny: 最も高速だが精度が低い
   # base: バランス型（推奨）
