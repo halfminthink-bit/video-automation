@@ -54,19 +54,23 @@ def convert_yaml_to_json(yaml_path: Path, output_path: Path):
 
     # セクションを変換
     for section in data["sections"]:
+        narration_text = section.get("narration", "")
+        if narration_text:
+            narration_text = narration_text.strip()
+        
         script_json["sections"].append({
-            "section_id": section["section_id"],
-            "title": section["title"],
-            "narration": section["narration"].strip(),
-            "estimated_duration": float(section["duration"]),
-            "image_keywords": section["keywords"],
-            "atmosphere": section["atmosphere"],
+            "section_id": section.get("section_id", 0),
+            "title": section.get("title", ""),
+            "narration": narration_text,
+            "estimated_duration": float(section.get("duration", 0)),
+            "image_keywords": section.get("keywords", []),
+            "atmosphere": section.get("atmosphere", ""),
             "requires_ai_video": False,
             "ai_video_prompt": None,
-            "bgm_suggestion": section["bgm"]
+            "bgm_suggestion": section.get("bgm", "")
         })
 
-        script_json["total_estimated_duration"] += section["duration"]
+        script_json["total_estimated_duration"] += section.get("duration", 0)
 
     # JSON保存
     output_path.parent.mkdir(parents=True, exist_ok=True)
