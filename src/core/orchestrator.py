@@ -1,7 +1,7 @@
 """
 Phase Orchestrator - 全フェーズを順次実行する司令塔
 
-Phase 1-8 を順番に実行し、エラーハンドリングや
+Phase 1-9 を順番に実行し、エラーハンドリングや
 進捗管理を一元的に行う。
 """
 
@@ -24,6 +24,7 @@ from src.phases.phase_05_bgm import Phase05BGM
 from src.phases.phase_06_subtitles import Phase06Subtitles
 from src.phases.phase_07_composition import Phase07Composition
 from src.phases.phase_08_thumbnail import Phase08Thumbnail
+from src.phases.phase_09_youtube import Phase09YouTube
 
 
 class PhaseOrchestrator:
@@ -45,7 +46,7 @@ class PhaseOrchestrator:
         subject: str,
         skip_if_exists: bool = True,
         from_phase: int = 1,
-        until_phase: int = 8
+        until_phase: int = 9
     ) -> ProjectStatus:
         """
         全フェーズを順次実行
@@ -53,8 +54,8 @@ class PhaseOrchestrator:
         Args:
             subject: 偉人名
             skip_if_exists: 既存出力があればスキップ
-            from_phase: 開始フェーズ（1-8）
-            until_phase: 終了フェーズ（1-8）
+            from_phase: 開始フェーズ（1-9）
+            until_phase: 終了フェーズ（1-9）
 
         Returns:
             ProjectStatus: プロジェクト全体の実行結果
@@ -160,6 +161,7 @@ class PhaseOrchestrator:
             Phase06Subtitles(subject=subject, config=self.config, logger=self.logger),
             Phase07Composition(subject=subject, config=self.config, logger=self.logger),
             Phase08Thumbnail(subject=subject, config=self.config, logger=self.logger),
+            Phase09YouTube(subject=subject, config=self.config, logger=self.logger),
         ]
 
     def _print_success_summary(self, status: ProjectStatus):

@@ -37,6 +37,7 @@ from src.phases.phase_05_bgm import Phase05BGM
 from src.phases.phase_06_subtitles import Phase06Subtitles
 from src.phases.phase_07_composition import Phase07Composition
 from src.phases.phase_08_thumbnail import Phase08Thumbnail
+from src.phases.phase_09_youtube import Phase09YouTube
 
 
 def write_error_log(config: ConfigManager, subject: str, phase_number: int, error: Exception) -> Path:
@@ -91,7 +92,7 @@ def run_phase(subject: str, phase_number: int, skip_if_exists: bool = False) -> 
 
     Args:
         subject: 偉人名
-        phase_number: フェーズ番号 (1-7)
+        phase_number: フェーズ番号 (1-9)
         skip_if_exists: 既に出力が存在する場合はスキップ
 
     Returns:
@@ -117,10 +118,11 @@ def run_phase(subject: str, phase_number: int, skip_if_exists: bool = False) -> 
         6: Phase06Subtitles,
         7: Phase07Composition,
         8: Phase08Thumbnail,
+        9: Phase09YouTube,
     }
 
     if phase_number not in phase_classes:
-        logger.error(f"Invalid phase number: {phase_number}. Must be 1-8.")
+        logger.error(f"Invalid phase number: {phase_number}. Must be 1-9.")
         return 1
 
     # フェーズを実行
@@ -173,6 +175,25 @@ def run_phase(subject: str, phase_number: int, skip_if_exists: bool = False) -> 
                     logger.info("")
                     logger.info(f"✓ subtitles.srt generated: {subtitles_path}")
 
+            # Phase 9の場合、アップロード結果を確認
+            if phase_number == 9:
+                upload_log_path = phase.phase_dir / "upload_log.json"
+                if upload_log_path.exists():
+                    import json
+                    with open(upload_log_path, 'r', encoding='utf-8') as f:
+                        upload_log = json.load(f)
+
+                    logger.info("")
+                    logger.info("=" * 60)
+                    logger.info("YouTube Upload Complete!")
+                    logger.info("=" * 60)
+                    if upload_log.get("status") == "success":
+                        logger.info(f"✓ Video ID: {upload_log.get('video_id')}")
+                        logger.info(f"✓ URL: {upload_log.get('url')}")
+                        logger.info(f"✓ Privacy: {upload_log.get('privacy_status')}")
+                    else:
+                        logger.info(f"Status: {upload_log.get('status')}")
+
             return 0
         elif execution.status == PhaseStatus.SKIPPED:
             logger.info("Phase was skipped (outputs already exist)")
@@ -212,7 +233,7 @@ def generate_video(
     subject: str,
     force: bool = False,
     from_phase: int = 1,
-    until_phase: int = 8,
+    until_phase: int = 9,
     verbose: bool = False
 ) -> int:
     """
@@ -221,8 +242,8 @@ def generate_video(
     Args:
         subject: 偉人名
         force: 既存出力を無視して強制再実行
-        from_phase: 指定フェーズから実行（1-8）
-        until_phase: 指定フェーズまで実行（1-8）
+        from_phase: 指定フェーズから実行（1-9）
+        until_phase: 指定フェーズまで実行（1-9）
         verbose: 詳細ログ出力
 
     Returns:
@@ -272,6 +293,9 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  # Generate entire video (Phase 1-9)
+  python -m src.cli generate "織田信長"
+
   # Generate script (Phase 1)
   python -m src.cli run-phase "織田信長" --phase 1
 
@@ -296,8 +320,14 @@ Examples:
   # Generate thumbnails (Phase 8)
   python -m src.cli run-phase "織田信長" --phase 8
 
+  # Upload to YouTube (Phase 9)
+  python -m src.cli run-phase "織田信長" --phase 9
+
   # Skip if outputs exist
   python -m src.cli run-phase "織田信長" --phase 2 --skip-if-exists
+
+  # Run from Phase 3 to Phase 7
+  python -m src.cli generate "織田信長" --from-phase 3 --until-phase 7
         """
     )
 
@@ -322,15 +352,15 @@ Examples:
         "--from-phase",
         type=int,
         default=1,
-        choices=[1, 2, 3, 4, 5, 6, 7, 8],
-        help="Start from specified phase (1-8)"
+        choices=[1, 2, 3, 4, 5, 6, 7, 8, 9],
+        help="Start from specified phase (1-9)"
     )
     generate_parser.add_argument(
         "--until-phase",
         type=int,
-        default=8,
-        choices=[1, 2, 3, 4, 5, 6, 7, 8],
-        help="Run until specified phase (1-8)"
+        default=9,
+        choices=[1, 2, 3, 4, 5, 6, 7, 8, 9],
+        help="Run until specified phase (1-9)"
     )
     generate_parser.add_argument(
         "--verbose",
@@ -352,8 +382,8 @@ Examples:
         "--phase",
         type=int,
         required=True,
-        choices=[1, 2, 3, 4, 5, 6, 7, 8],
-        help="Phase number (1-8)"
+        choices=[1, 2, 3, 4, 5, 6, 7, 8, 9],
+        help="Phase number (1-9)"
     )
     run_parser.add_argument(
         "--skip-if-exists",
