@@ -587,9 +587,10 @@ class Phase03Images(PhaseBase):
         """
         # KeywordGeneratorが未初期化なら初期化
         if not hasattr(self, 'keyword_generator') or self.keyword_generator is None:
-            api_key = self.config.get_env("ANTHROPIC_API_KEY")
-            if not api_key:
-                self.logger.error("ANTHROPIC_API_KEY not found. Cannot generate keywords.")
+            try:
+                api_key = self.config.get_api_key("CLAUDE_API_KEY")
+            except Exception as e:
+                self.logger.error(f"CLAUDE_API_KEY not found: {e}. Cannot generate keywords.")
                 # フォールバック
                 return [self.subject] * count
 
