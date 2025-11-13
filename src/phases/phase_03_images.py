@@ -249,6 +249,38 @@ class Phase03Images(PhaseBase):
             except Exception as e:
                 self.logger.warning(f"  ⚠️  Could not verify {resized_file.name}: {e}")
 
+        # リサイズ後、ImageCollectionのfile_pathを.pngに更新
+        self.logger.info("=" * 60)
+        self.logger.info("📝 Updating file paths to PNG in metadata...")
+        self.logger.info("=" * 60)
+
+        updated_count = 0
+        for img in all_images:
+            old_path = Path(img.file_path)
+            if old_path.suffix.lower() == '.jpg':
+                # .jpg → .png に変更
+                new_path = old_path.with_suffix('.png')
+                if new_path.exists():
+                    img.file_path = str(new_path)
+                    img.resolution = (1920, 1080)  # リサイズ後の解像度に更新
+                    img.aspect_ratio = 1920 / 1080
+                    updated_count += 1
+                    self.logger.debug(f"  Updated: {old_path.name} → {new_path.name}")
+                else:
+                    self.logger.warning(f"  ⚠️  PNG not found: {new_path}")
+
+        self.logger.info(f"✓ Updated {updated_count} file paths to PNG")
+
+        # 更新されたImageCollectionを再作成して保存
+        result = ImageCollection(
+            subject=self.subject,
+            images=all_images,
+            collected_at=datetime.now()
+        )
+        self._save_results(result, total_cost)
+        self.logger.info("✓ Metadata re-saved with updated PNG paths")
+        self.logger.info("=" * 60)
+
         # リサイズ後、元のJPEGファイルを削除（PNG形式に変換されたため）
         jpeg_files = list(generated_dir.glob("*.jpg"))
         if jpeg_files:
