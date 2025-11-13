@@ -1213,8 +1213,12 @@ class SubtitleGenerator:
 
             # 🔥 修正: 文字レベルタイミング使用時は subtitle_gap を適用しない
             # 理由: audio_timing.json から取得した文字レベルのタイミングは既に正確なため
-            # 最小ギャップは 0.01秒 のみ（次の字幕との重なりを防ぐ最小限の調整）
-            MIN_GAP = 0.01
+            # 最小ギャップはフレームレート基準で計算（フレーム境界でのレンダリングを考慮）
+            # config から fps を取得 (デフォルト: 30fps)
+            fps = self.config.get("video", {}).get("fps") or self.config.get("fps", 30)
+            frame_duration = 1.0 / fps  # 30fps なら 0.033秒
+            # 最小ギャップは 3フレーム分を確保（視覚的に余裕を持たせる）
+            MIN_GAP = frame_duration * 3  # 30fps なら 0.1秒
 
             # 表示時間の制約を適用（次の字幕を考慮）
             # 音声の実際の長さを基本とし、必要に応じて調整する
