@@ -44,13 +44,16 @@ class ImageResizer:
             # 画像を開く
             img = Image.open(input_path)
             original_size = img.size
+            original_mode = img.mode
 
             # デバッグ: 元のサイズを出力
-            self.logger.info(f"📐 Resizing: {input_path.name} from {original_size[0]}x{original_size[1]} → {self.target_size[0]}x{self.target_size[1]}")
+            self.logger.info(f"📐 Resizing: {input_path.name}")
+            self.logger.info(f"   Original: {original_size[0]}x{original_size[1]} ({original_mode})")
+            self.logger.info(f"   Target:   {self.target_size[0]}x{self.target_size[1]} ({self.output_format})")
 
             # 既に目標サイズの場合はスキップ
             if original_size == self.target_size:
-                self.logger.info(f"✓ Already target size, skipping: {input_path.name}")
+                self.logger.info(f"✓ Already target size, skipping resize")
                 return input_path
 
             # LANCZOS補間で高品質リサイズ（新しいPIL構文を使用）
@@ -92,17 +95,16 @@ class ImageResizer:
             # 保存後のサイズを確認
             with Image.open(output_path) as saved_img:
                 saved_size = saved_img.size
-                self.logger.info(
-                    f"✅ Resize complete: {output_path.name} "
-                    f"({original_size[0]}x{original_size[1]} → {saved_size[0]}x{saved_size[1]})"
-                )
+                saved_mode = saved_img.mode
 
                 # サイズが正しいか検証
                 if saved_size != self.target_size:
-                    self.logger.error(
-                        f"❌ Resize failed! Expected {self.target_size[0]}x{self.target_size[1]}, "
-                        f"got {saved_size[0]}x{saved_size[1]}"
-                    )
+                    self.logger.error(f"❌ Resize FAILED!")
+                    self.logger.error(f"   Expected: {self.target_size[0]}x{self.target_size[1]}")
+                    self.logger.error(f"   Got:      {saved_size[0]}x{saved_size[1]}")
+                else:
+                    self.logger.info(f"✅ Resize complete: {output_path.name}")
+                    self.logger.info(f"   Result: {saved_size[0]}x{saved_size[1]} ({saved_mode}, {self.output_format})")
 
             return output_path
 

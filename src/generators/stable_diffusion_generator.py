@@ -118,8 +118,9 @@ class StableDiffusionGenerator:
         full_prompt, full_negative = self._apply_style_preset(
             prompt, negative_prompt, style
         )
-        
-        self.logger.info(f"Generating image with Stable Diffusion...")
+
+        self.logger.info(f"🎨 Generating image with Stable Diffusion...")
+        self.logger.info(f"📏 SD API Request: {width}x{height}, model={model}, steps={steps}")
         self.logger.debug(f"Prompt: {full_prompt[:100]}...")
         
         try:
@@ -154,11 +155,13 @@ class StableDiffusionGenerator:
             with open(file_path, 'wb') as f:
                 f.write(image_data)
             
-            self.logger.info(f"SD image generated: {file_path}")
-            
+            self.logger.info(f"💾 SD image saved: {file_path}")
+
             # 解像度確認
             with Image.open(file_path) as img:
                 actual_width, actual_height = img.size
+
+            self.logger.info(f"📐 SD image size verification: {actual_width}x{actual_height} ({file_ext.upper()})")
             
             # コスト計算（Stability AI料金）
             cost_usd = self._calculate_cost(width, height, steps)
