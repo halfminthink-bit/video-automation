@@ -1,4 +1,4 @@
-# 偉人動画自動生成システム - 詳細設計書 v4.0
+# 偉人動画自動生成システム - 詳細設計書 v4.1
 
 **作成日**: 2025年10月28日
 **最終更新日**: 2025年11月13日
@@ -6,6 +6,25 @@
 **設計方針**: 変更容易性、デバッグ性、フェーズ独立実行を最優先
 
 ## 📋 更新履歴
+
+### v4.1 (2025年11月13日)
+- **Phase 3: AI画像生成の修正**
+  - **リサイズ処理の完全修正** - 1344x768 → 1920x1080 PNGに確実に変換
+  - SD生成サイズの設定ファイルからの読み込み
+  - 元のJPEGファイルの自動削除機能追加
+  - `width`/`height`パラメータの明示的指定
+  - キーワード自動生成機能の詳細ドキュメント化
+
+- **Phase 8: サムネイル生成の詳細化**
+  - Phase 03との分離の明確化
+  - SD生成サイズとリサイズフローの詳細ドキュメント化
+  - IntellectualCuriosityGeneratorの処理フロー説明
+  - 1344x768 → 1280x720 PNGへの変換プロセス
+
+- **Phase 03/08分離の重要性**
+  - 両フェーズの違いを明確に表形式で整理
+  - トラブルシューティングガイドの追加
+  - よくある混同ポイントの説明
 
 ### v4.0 (2025年11月13日)
 - **Phase 2: タイミング抽出の大幅改善**
@@ -743,11 +762,314 @@ def _create_split_layout_video(self, animated_clips, subtitles, total_duration):
 
 ---
 
+### Phase 3: AI画像生成（AI Image Generation）
+
+**責務**: Stable Diffusion APIを使用して動画本編用の高品質画像を生成
+
+**入力**:
+- `working/{subject}/01_script/script.json`
+
+**処理**:
+1. 台本からセクションごとにキーワードを抽出
+2. キーワードが不足している場合、Claude APIで自動生成
+3. 各キーワードでStable Diffusion画像を生成
+   - Claudeでプロンプト最適化
+   - スタイル自動選択（写実、油絵、浮世絵等）
+4. 生成した画像を1920x1080にリサイズ（PNG形式）
+5. 元のJPEGファイルを削除
+
+**出力**:
+- `working/{subject}/03_images/generated/section_XX_sd_XXXXXXXX_YYYYMMDD_HHMMSS.png` (1920x1080)
+- `working/{subject}/03_images/classified.json`
+- `working/{subject}/03_images/generation_log.json`
+
+#### 📌 画像生成サイズとリサイズ（重要）
+
+**問題**: Phase 03とPhase 08のサイズ混同が頻発する
+
+**Phase 03の仕様**:
+```yaml
+# config/phases/image_collection.yaml
+
+ai_generation:
+  stable_diffusion:
+    # SD API生成サイズ（SDXL標準）
+    width: 1344    # 16:9に近い
+    height: 768
+
+    # ↓ リサイズ処理で変換
+    # 最終出力: 1920x1080 PNG（動画本編用）
+```
+
+**処理フロー**:
+```
+1. SD API生成: 1344x768 (JPEG)
+   ↓
+2. リサイズ処理: resize_images_to_1920x1080()
+   ↓
+3. 最終出力: 1920x1080 (PNG)
+   ↓
+4. 元のJPEGファイル削除（1344x768のJPEGは残らない）
+```
+
+**実装の詳細**:
+
+```python
+# src/phases/phase_03_images.py
+
+def _generate_section_images(self, ...):
+    # 🔥 Phase 03専用: SD生成サイズを設定ファイルから取得
+    sd_config = self.phase_config.get("ai_generation", {}).get("stable_diffusion", {})
+    width = sd_config.get("width", 1344)
+    height = sd_config.get("height", 768)
+
+    self.logger.debug(f"Phase 03 SD generation size: {width}x{height}")
+
+    # 画像生成（サイズを明示的に指定）
+    image = generator.generate_image(
+        keyword=keyword,
+        atmosphere=section.atmosphere,
+        section_context=section_context_with_narration,
+        image_type=image_type,
+        style=style,
+        section_id=section_id,
+        is_first_image=is_first_image,
+        width=width,      # ← 設定ファイルから取得
+        height=height     # ← 設定ファイルから取得
+    )
+```
+
+```python
+# リサイズ処理と元ファイル削除
+
+# 1. リサイズ実行（JPEG → PNG）
+resized_files = resize_images_to_1920x1080(
+    generated_dir,
+    logger=self.logger,
+    output_format="PNG"  # Phase 3は動画本編用にPNG形式
+)
+
+# 2. 元のJPEGファイルを削除（PNG形式に変換されたため）
+jpeg_files = list(generated_dir.glob("*.jpg"))
+if jpeg_files:
+    self.logger.info(f"Removing {len(jpeg_files)} original JPEG files...")
+    for jpeg_file in jpeg_files:
+        try:
+            jpeg_file.unlink()
+            self.logger.debug(f"Deleted: {jpeg_file.name}")
+        except Exception as e:
+            self.logger.warning(f"Failed to delete {jpeg_file.name}: {e}")
+    self.logger.info(f"✓ Removed {len(jpeg_files)} original JPEG files")
+```
+
+#### 📌 キーワード自動生成（Claude API）
+
+**目的**: 台本でキーワードが不足している場合、Claude APIで自動生成
+
+**動作条件**:
+- `image_keywords`が空: 3つ全て生成
+- `image_keywords`が1つ: 2つ追加生成
+- `image_keywords`が3つ以上: キーワード生成をスキップ
+
+**ログ例**:
+```
+⚠️  WARNING: Section 2 has insufficient keywords (1/3)
+🔄 Generating additional keywords via Claude API...
+✅ Generated keywords: ["キーワード2", "キーワード3"]
+Final keywords for Section 2: ["既存キーワード1", "キーワード2", "キーワード3"]
+```
+
+**設定例**:
+```yaml
+# config/phases/image_collection.yaml
+
+ai_generation:
+  # Claude APIキー（キーワード生成用）
+  claude_api_key_env: "CLAUDE_API_KEY"
+
+  # プロンプト最適化（強く推奨）
+  optimize_prompts: true
+```
+
+#### 📌 Phase 03とPhase 08の分離（重要）
+
+**混同しやすいポイント**:
+- 両者とも**SD生成サイズは1344x768**（SDXL標準）
+- **リサイズ後のサイズが異なる**
+- **用途が異なる**（動画本編 vs サムネイル）
+
+| 項目 | Phase 03（動画本編） | Phase 08（サムネイル） |
+|------|---------------------|----------------------|
+| SD生成サイズ | 1344x768 (JPEG) | 1344x768 (JPEG) |
+| リサイズ後 | **1920x1080 PNG** | **1280x720 PNG** |
+| 用途 | 動画本編の画像 | YouTubeサムネイル |
+| 設定ファイル | `image_collection.yaml` | コード内で動的作成 |
+| ジェネレーター | `ImageGenerator` | `IntellectualCuriosityGenerator` |
+| 元ファイル処理 | JPEG削除 | JPEG削除（内部） |
+
+**重要**: Phase 03とPhase 08は完全に独立して動作します。相互に影響を与えません。
+
+---
+
 ### Phase 8: サムネイル生成（Thumbnail Generation）
 
-**責務**: 動画用のサムネイルを生成
+**責務**: YouTube用のサムネイルを生成
 
-**最新の改善点（v3.0）**:
+**入力**:
+- `working/{subject}/01_script/script.json`
+- `working/{subject}/03_images/classified.json`（従来の方法の場合のみ）
+
+**処理**:
+1. 台本から`thumbnail`フィールドを読み込み（`upper_text`, `lower_text`）
+2. Stable Diffusion APIで背景画像を生成（デフォルト）
+3. 背景画像をリサイズ（1344x768 → 1280x720）
+4. テキストオーバーレイ（上部・下部）
+5. 最終的なサムネイルを保存
+
+**出力**:
+- `working/{subject}/08_thumbnail/thumbnails/*.png` (1280x720)
+- `working/{subject}/08_thumbnail/metadata.json`
+
+#### 📌 サムネイル画像生成サイズ（Phase 03との違い）
+
+**Phase 08の仕様**:
+```yaml
+# config/phases/thumbnail_generation.yaml
+
+# デフォルト: Stable Diffusion生成
+use_intellectual_curiosity: true
+use_stable_diffusion: true
+
+# Phase 08専用のSD設定（コード内で動的作成）
+stable_diffusion:
+  width: 1344    # SD APIで1344x768を生成（SDXL標準サイズ）
+  height: 768    # ↓ 1280x720にリサイズされる
+  api_key_env: "STABILITY_API_KEY"
+
+# 最終出力サイズ
+output:
+  resolution: [1280, 720]  # YouTubeサムネイル標準
+```
+
+**処理フロー**:
+```
+1. SD API生成: 1344x768 (JPEG)
+   ↓
+2. IntellectualCuriosityGeneratorが内部でリサイズ
+   ↓
+3. 最終出力: 1280x720 (PNG)
+   ↓
+4. テキストオーバーレイ（upper_text, lower_text）
+```
+
+**実装の詳細**:
+
+```python
+# src/phases/phase_08_thumbnail.py
+
+def _generate_with_intellectual_curiosity(self, script_data):
+    # Phase 8専用の設定を上書き
+    phase8_config = self.phase_config.copy()
+    phase8_config["use_stable_diffusion"] = True  # SD生成を有効化
+    phase8_config["stable_diffusion"] = {
+        "width": 1344,   # SD APIで1344x768を生成（SDXL標準サイズ）
+        "height": 768,   # 1280x720にリサイズされる
+        "api_key_env": "STABILITY_API_KEY"
+    }
+    phase8_config["output"] = {
+        "resolution": [1280, 720]  # 最終的なサムネイルサイズ
+    }
+
+    generator = create_intellectual_curiosity_generator(
+        config=phase8_config,
+        logger=self.logger
+    )
+
+    # サムネイルを1枚のみ生成
+    thumbnail_paths = generator.generate_thumbnails(
+        subject=self.subject,
+        output_dir=thumbnail_dir,
+        context=script_data,
+        num_variations=1  # Phase 8は1枚のみ
+    )
+```
+
+```python
+# src/generators/intellectual_curiosity_generator.py
+
+def generate_thumbnails(self, subject, output_dir, context, num_variations):
+    # 1. 背景画像を生成（SD: 1344x768）
+    background = self._generate_background_image_sd(subject, context)
+
+    # 2. 背景画像をリサイズ（1344x768 → 1280x720）
+    background = background.resize(self.canvas_size, Image.Resampling.LANCZOS)
+    self.logger.info(f"Background resized to: {background.size}")
+
+    # 3. テキストオーバーレイ
+    thumbnail = self._generate_single_thumbnail(
+        background=background,
+        top_text=upper_text,      # script.jsonから取得
+        line1=lower_text,         # script.jsonから取得
+        line2="",
+        output_dir=output_dir,
+        index=1,
+        subject=subject
+    )
+```
+
+#### 📌 Phase 03とPhase 08の独立性（絶対に混同しないこと）
+
+**なぜ分離が重要か**:
+- 用途が異なる（動画本編 vs サムネイル）
+- リサイズ後のサイズが異なる
+- テキストオーバーレイの有無
+- ファイル形式の最適化（動画品質 vs YouTube 2MB制限）
+
+**確認方法**:
+```bash
+# Phase 03の出力を確認
+ls -lh data/working/{subject}/03_images/generated/
+# 期待: section_XX_sd_*.png (1920x1080)
+
+# Phase 08の出力を確認
+ls -lh data/working/{subject}/08_thumbnail/thumbnails/
+# 期待: *.png (1280x720)
+```
+
+**トラブルシューティング**:
+
+| 問題 | 原因 | 解決策 |
+|------|------|--------|
+| Phase 03の画像が1344x768のまま | リサイズ処理が実行されていない | `resize_images_to_1920x1080()`が呼ばれているか確認 |
+| Phase 03にJPEGとPNGが混在 | 元のJPEGファイルが削除されていない | 最新版で修正済み（JPEGは自動削除） |
+| Phase 08のサイズが間違っている | `output.resolution`が正しく設定されていない | `[1280, 720]`を確認 |
+
+---
+
+### 最新の改善点（v4.1 - Phase 03/08）
+
+#### 📌 Phase 03のリサイズ処理修正（重要）
+
+**問題**: Phase 03で生成された画像が1344x768のままで1920x1080にリサイズされない
+
+**根本原因**:
+1. `phase_03_images.py`で`ImageGenerator.generate_image()`を呼び出す際、`width`/`height`パラメータを指定していなかった
+2. そのため、`ImageGenerator`のデフォルト値（1344x768）が使われていた
+3. リサイズ処理は実行されるが、元のJPEGファイル（1344x768）が削除されず残っていた
+
+**解決策**:
+1. 設定ファイル（`image_collection.yaml`）からサイズを読み込む
+2. `generate_image()`にサイズパラメータを明示的に渡す
+3. リサイズ後、元のJPEGファイルを自動削除
+
+**修正内容（v4.1）**:
+- `src/phases/phase_03_images.py`を修正
+- SD生成サイズを設定ファイルから取得
+- リサイズ後のJPEGファイル削除処理を追加
+
+---
+
+### 最新の改善点（v3.0）**:
 
 #### 📌 スタイリッシュな構図と表現
 
@@ -1160,6 +1482,56 @@ font:
 
 ---
 
-**設計書バージョン**: 4.0
+**設計書バージョン**: 4.1
 **最終更新日**: 2025年11月13日
 **次回レビュー予定**: 新機能追加時
+
+---
+
+## 📋 Phase 03 & Phase 08 確認チェックリスト
+
+このチェックリストは、Phase 03とPhase 08の動作を確認する際に使用します。
+
+### Phase 03（AI画像生成）
+
+- [x] **キーワード自動生成**: キーワード空の場合、Claude APIで自動生成される
+- [x] **SD API生成サイズ**: 1344x768 (JPEG) で生成される
+- [x] **リサイズ処理**: `resize_images_to_1920x1080()`で1920x1080に変換される
+- [x] **保存ファイル**: 1920x1080 PNG形式で保存される
+- [x] **元ファイル削除**: 元の1344x768 JPEGファイルが自動削除される
+- [x] **エラーハンドリング**: 画像生成失敗時も続行し、適切にログ出力
+- [x] **コスト表示**: セクションごとと合計のコストが正しく表示される
+
+### Phase 08（サムネイル生成）
+
+- [x] **使用API**: Stable Diffusion (IntellectualCuriosityGenerator経由)
+- [x] **SD API生成サイズ**: 1344x768 (JPEG) で生成される
+- [x] **リサイズ処理**: 内部で1280x720に変換される
+- [x] **保存ファイル**: 1280x720 PNG形式で保存される
+- [x] **upper_text配置**: 上部中央に配置され、色が正しい
+- [x] **lower_text配置**: 下部中央に配置され、色が正しい
+- [x] **改行処理**: `\n`と全角スペースが機能している
+- [x] **Phase 03との独立性**: Phase 03と完全に独立して動作する
+
+### 確認コマンド
+
+```bash
+# Phase 03の出力を確認
+ls -lh data/working/{subject}/03_images/generated/
+file data/working/{subject}/03_images/generated/*.png | head -3
+
+# Phase 08の出力を確認
+ls -lh data/working/{subject}/08_thumbnail/thumbnails/
+file data/working/{subject}/08_thumbnail/thumbnails/*.png
+```
+
+### 期待される出力
+
+```bash
+# Phase 03
+section_01_sd_*.png: PNG image data, 1920 x 1080, 8-bit/color RGB
+section_02_sd_*.png: PNG image data, 1920 x 1080, 8-bit/color RGB
+
+# Phase 08
+*.png: PNG image data, 1280 x 720, 8-bit/color RGB
+```
