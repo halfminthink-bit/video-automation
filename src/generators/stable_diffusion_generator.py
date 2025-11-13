@@ -85,11 +85,12 @@ class StableDiffusionGenerator:
         steps: int = 30,
         model: str = "sdxl",
         section_id: Optional[int] = None,
-        keyword: str = ""
+        keyword: str = "",
+        output_format: str = "jpeg"  # "jpeg" or "png" - JPEG for smaller file size
     ) -> CollectedImage:
         """
         画像を生成
-        
+
         Args:
             prompt: メインプロンプト（詳細な説明）
             negative_prompt: ネガティブプロンプト（除外したい要素）
@@ -101,7 +102,8 @@ class StableDiffusionGenerator:
             model: 使用モデル（sd3, sdxl, sd15）
             section_id: セクションID（ファイル名用）
             keyword: 元のキーワード（キャッシュ用）
-            
+            output_format: 出力形式（"jpeg" or "png"）- JPEGはファイルサイズが小さい
+
         Returns:
             CollectedImage: 生成された画像情報
         """
@@ -129,7 +131,8 @@ class StableDiffusionGenerator:
                 height=height,
                 cfg_scale=cfg_scale,
                 steps=steps,
-                model=model
+                model=model,
+                output_format=output_format
             )
             
             # 画像データを取得
@@ -140,7 +143,9 @@ class StableDiffusionGenerator:
             # section_idがNoneの場合は1をデフォルトとする
             section_id_value = section_id if section_id is not None else 1
             section_prefix = f"section_{section_id_value:02d}_"
-            filename = f"{section_prefix}sd_{cache_key[:8]}_{timestamp}.png"
+            # 出力形式に応じて拡張子を決定
+            file_ext = "jpg" if output_format.lower() == "jpeg" else "png"
+            filename = f"{section_prefix}sd_{cache_key[:8]}_{timestamp}.{file_ext}"
             file_path = self.output_dir / filename
             
             self.logger.debug(f"Generating filename with section_id={section_id_value}: {filename}")
@@ -189,11 +194,12 @@ class StableDiffusionGenerator:
         height: int,
         cfg_scale: float,
         steps: int,
-        model: str
+        model: str,
+        output_format: str = "jpeg"
     ) -> requests.Response:
         """
         Stability AI APIを呼び出し
-        
+
         Args:
             prompt: プロンプト
             negative_prompt: ネガティブプロンプト
@@ -202,7 +208,8 @@ class StableDiffusionGenerator:
             cfg_scale: CFGスケール
             steps: ステップ数
             model: モデル名
-            
+            output_format: 出力形式（"jpeg" or "png"）
+
         Returns:
             APIレスポンス
         """
@@ -228,7 +235,12 @@ class StableDiffusionGenerator:
             "samples": 1,
             "steps": steps
         }
-        
+
+        # 出力形式を指定（一部のAPIバージョンのみサポート）
+        # サポートしていない場合は無視される
+        if output_format.lower() == "jpeg":
+            payload["output_format"] = "jpeg"
+
         # ネガティブプロンプトがあれば追加
         if negative_prompt:
             payload["text_prompts"].append({
