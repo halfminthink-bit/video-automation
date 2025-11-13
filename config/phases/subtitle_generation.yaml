@@ -38,7 +38,8 @@ morphological_analysis:
   # MeCabを使用するか（より自然な分割）
   # MeCabを使うと、動詞・形容詞の途中で分割されなくなります
   # インストール: pip install python-mecab (Ubuntu: sudo apt install mecab libmecab-dev mecab-ipadic-utf8)
-  use_mecab: true
+  # WindowsではMeCabのインストールが複雑なため、デフォルトでfalseに設定
+  use_mecab: false
 
   # 文の区切り文字（「。」のみで分割）
   break_on:
