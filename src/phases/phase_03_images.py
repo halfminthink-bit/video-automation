@@ -209,10 +209,14 @@ class Phase03Images(PhaseBase):
 
         self._save_results(result, total_cost)
 
-        # 6. 生成した画像を1920x1080にリサイズ
-        self.logger.info("Resizing generated images to 1920x1080...")
+        # 6. 生成した画像を1920x1080にリサイズ（PNG形式）
+        self.logger.info("Resizing generated images to 1920x1080 (PNG)...")
         generated_dir = self.phase_dir / "generated"
-        resize_images_to_1920x1080(generated_dir, logger=self.logger)
+        resize_images_to_1920x1080(
+            generated_dir,
+            logger=self.logger,
+            output_format="PNG"  # Phase 3は動画本編用にPNG形式
+        )
         self.logger.info("✓ Image resizing complete")
 
         # 7. 統計情報をログ出力
