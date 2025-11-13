@@ -231,8 +231,20 @@ class Phase03Images(PhaseBase):
             output_format="PNG"  # Phase 3は動画本編用にPNG形式
         )
 
+        # リサイズ後、元のJPEGファイルを削除（PNG形式に変換されたため）
+        jpeg_files = list(generated_dir.glob("*.jpg"))
+        if jpeg_files:
+            self.logger.info(f"Removing {len(jpeg_files)} original JPEG files...")
+            for jpeg_file in jpeg_files:
+                try:
+                    jpeg_file.unlink()
+                    self.logger.debug(f"Deleted: {jpeg_file.name}")
+                except Exception as e:
+                    self.logger.warning(f"Failed to delete {jpeg_file.name}: {e}")
+            self.logger.info(f"✓ Removed {len(jpeg_files)} original JPEG files")
+
         self.logger.info("=" * 60)
-        self.logger.info(f"✓ Phase 3: Image resizing complete ({len(resized_files)} files)")
+        self.logger.info(f"✓ Phase 3: Image resizing complete ({len(resized_files)} PNG files)")
         self.logger.info("=" * 60)
 
         # 7. 統計情報をログ出力
@@ -330,14 +342,14 @@ class Phase03Images(PhaseBase):
     ) -> List[CollectedImage]:
         """
         セクションの画像を生成
-        
+
         Args:
             generator: ImageGenerator
             section: ScriptSection
             section_id: セクションID
             target_count: 生成する画像数
             is_first_section: 最初のセクションかどうか
-            
+
         Returns:
             生成された画像のリスト
         """
@@ -373,7 +385,14 @@ class Phase03Images(PhaseBase):
             self.logger.info(
                 f"Final keywords for Section {section_id}: {keywords}"
             )
-        
+
+        # Phase 03専用: SD生成サイズを設定ファイルから取得
+        sd_config = self.phase_config.get("ai_generation", {}).get("stable_diffusion", {})
+        width = sd_config.get("width", 1344)
+        height = sd_config.get("height", 768)
+
+        self.logger.debug(f"Phase 03 SD generation size: {width}x{height}")
+
         # 各キーワードで画像生成
         for idx, keyword in enumerate(keywords):
             try:
@@ -401,6 +420,7 @@ class Phase03Images(PhaseBase):
                 section_context_with_narration = f"{section.title}: {section.narration[:200]}"
                 
                 # 画像生成（最初の画像のみ is_first_image=True）
+                # Phase 03専用: 設定ファイルから取得したサイズを指定
                 is_first_image = is_first_section and idx == 0
                 image = generator.generate_image(
                     keyword=keyword,
@@ -409,7 +429,9 @@ class Phase03Images(PhaseBase):
                     image_type=image_type,
                     style=style,
                     section_id=section_id,
-                    is_first_image=is_first_image
+                    is_first_image=is_first_image,
+                    width=width,
+                    height=height
                 )
                 
                 images.append(image)
