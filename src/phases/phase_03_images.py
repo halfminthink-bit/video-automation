@@ -48,9 +48,12 @@ class Phase03Images(PhaseBase):
     ):
         # PhaseBaseの初期化（working_dir, phase_dirなどを自動設定）
         super().__init__(subject, config, logger)
-        
+
         # Phase設定を読み込み
         self.phase_config = self._load_phase_config()
+
+        # KeywordGenerator（遅延初期化）
+        self.keyword_generator = None
     
     def get_phase_number(self) -> int:
         return 3
@@ -322,12 +325,33 @@ class Phase03Images(PhaseBase):
         
         # キーワードを取得
         keywords = section.image_keywords[:target_count]
-        
+
+        # 🔥 キーワードが不足している場合、Claude APIで自動生成
         if len(keywords) < target_count:
-            # キーワードが足りない場合は繰り返す
-            while len(keywords) < target_count:
-                keywords.extend(section.image_keywords)
+            self.logger.warning(
+                f"Section {section_id} has insufficient keywords "
+                f"({len(keywords)}/{target_count}). "
+                f"Generating additional keywords via Claude API..."
+            )
+
+            # 不足分を計算
+            needed_count = target_count - len(keywords)
+
+            # Claude APIでキーワード生成
+            generated_keywords = self._generate_keywords_for_section(
+                section=section,
+                count=needed_count
+            )
+
+            # 既存のキーワードに追加
+            keywords.extend(generated_keywords)
+
+            # target_count分だけ取得
             keywords = keywords[:target_count]
+
+            self.logger.info(
+                f"Final keywords for Section {section_id}: {keywords}"
+            )
         
         # 各キーワードで画像生成
         for idx, keyword in enumerate(keywords):
@@ -482,3 +506,43 @@ class Phase03Images(PhaseBase):
             classification = img.classification.value
             counts[classification] = counts.get(classification, 0) + 1
         return counts
+
+    def _generate_keywords_for_section(
+        self,
+        section,
+        count: int
+    ) -> List[str]:
+        """
+        Claude APIを使ってセクション用のキーワードを生成
+
+        Args:
+            section: ScriptSection
+            count: 生成するキーワード数
+
+        Returns:
+            生成されたキーワードのリスト
+        """
+        # KeywordGeneratorが未初期化なら初期化
+        if not hasattr(self, 'keyword_generator') or self.keyword_generator is None:
+            api_key = self.config.get_env("ANTHROPIC_API_KEY")
+            if not api_key:
+                self.logger.error("ANTHROPIC_API_KEY not found. Cannot generate keywords.")
+                # フォールバック
+                return [self.subject] * count
+
+            from src.generators.keyword_generator import KeywordGenerator
+            self.keyword_generator = KeywordGenerator(
+                api_key=api_key,
+                logger=self.logger
+            )
+
+        # キーワード生成
+        keywords = self.keyword_generator.generate_keywords(
+            section_title=section.title,
+            narration=section.narration,
+            atmosphere=section.atmosphere,
+            subject=self.subject,
+            target_count=count
+        )
+
+        return keywords
