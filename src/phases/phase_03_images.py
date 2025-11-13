@@ -326,9 +326,10 @@ class Phase03Images(PhaseBase):
             生成された画像のリスト
         """
         images = []
-        
-        # キーワードを取得
-        keywords = section.image_keywords[:target_count]
+
+        # キーワードを安全に取得（存在しない、None、空リストの全てに対応）
+        image_keywords = getattr(section, 'image_keywords', None) or []
+        keywords = image_keywords[:target_count]
 
         # 🔥 キーワードが不足している場合、Claude APIで自動生成
         if len(keywords) < target_count:
