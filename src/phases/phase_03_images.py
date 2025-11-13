@@ -211,7 +211,7 @@ class Phase03Images(PhaseBase):
 
         # 6. 生成した画像を1920x1080にリサイズ（PNG形式）
         self.logger.info("=" * 60)
-        self.logger.info("Phase 3: Starting image resize to 1920x1080 (PNG)")
+        self.logger.info("🔄 Phase 3: Starting image resize to 1920x1080 (PNG)")
         self.logger.info("=" * 60)
         generated_dir = self.phase_dir / "generated"
 
@@ -220,9 +220,18 @@ class Phase03Images(PhaseBase):
             self.logger.error(f"❌ Generated directory not found: {generated_dir}")
             raise FileNotFoundError(f"Directory not found: {generated_dir}")
 
-        # リサイズ前のファイル一覧
+        # リサイズ前のファイル一覧と詳細情報
         image_files = list(generated_dir.glob("*.jpg")) + list(generated_dir.glob("*.png"))
-        self.logger.info(f"Found {len(image_files)} images in {generated_dir}")
+        self.logger.info(f"📁 Found {len(image_files)} images in {generated_dir}")
+
+        # 各ファイルのサイズを確認
+        from PIL import Image
+        for img_file in image_files[:3]:  # 最初の3ファイルのみログ出力
+            try:
+                with Image.open(img_file) as img:
+                    self.logger.info(f"  📐 Before resize: {img_file.name} = {img.size[0]}x{img.size[1]}")
+            except Exception as e:
+                self.logger.warning(f"  ⚠️  Could not read {img_file.name}: {e}")
 
         # リサイズ実行
         resized_files = resize_images_to_1920x1080(
@@ -231,20 +240,31 @@ class Phase03Images(PhaseBase):
             output_format="PNG"  # Phase 3は動画本編用にPNG形式
         )
 
+        # リサイズ後のファイルサイズを確認
+        self.logger.info("📐 Verifying resized files:")
+        for resized_file in resized_files[:3]:  # 最初の3ファイルのみログ出力
+            try:
+                with Image.open(resized_file) as img:
+                    self.logger.info(f"  ✅ After resize: {resized_file.name} = {img.size[0]}x{img.size[1]}")
+            except Exception as e:
+                self.logger.warning(f"  ⚠️  Could not verify {resized_file.name}: {e}")
+
         # リサイズ後、元のJPEGファイルを削除（PNG形式に変換されたため）
         jpeg_files = list(generated_dir.glob("*.jpg"))
         if jpeg_files:
-            self.logger.info(f"Removing {len(jpeg_files)} original JPEG files...")
+            self.logger.info(f"🗑️  Removing {len(jpeg_files)} original JPEG files...")
             for jpeg_file in jpeg_files:
                 try:
                     jpeg_file.unlink()
-                    self.logger.debug(f"Deleted: {jpeg_file.name}")
+                    self.logger.debug(f"   Deleted: {jpeg_file.name}")
                 except Exception as e:
-                    self.logger.warning(f"Failed to delete {jpeg_file.name}: {e}")
+                    self.logger.warning(f"   Failed to delete {jpeg_file.name}: {e}")
             self.logger.info(f"✓ Removed {len(jpeg_files)} original JPEG files")
+        else:
+            self.logger.info("ℹ️  No JPEG files to remove (all files are already PNG)")
 
         self.logger.info("=" * 60)
-        self.logger.info(f"✓ Phase 3: Image resizing complete ({len(resized_files)} PNG files)")
+        self.logger.info(f"✅ Phase 3: Image resizing complete ({len(resized_files)} PNG files)")
         self.logger.info("=" * 60)
 
         # 7. 統計情報をログ出力
@@ -391,7 +411,7 @@ class Phase03Images(PhaseBase):
         width = sd_config.get("width", 1344)
         height = sd_config.get("height", 768)
 
-        self.logger.debug(f"Phase 03 SD generation size: {width}x{height}")
+        self.logger.info(f"🔧 Phase 03 SD generation size: {width}x{height} (from config)")
 
         # 各キーワードで画像生成
         for idx, keyword in enumerate(keywords):
