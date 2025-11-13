@@ -1211,6 +1211,11 @@ class SubtitleGenerator:
             if i + 1 < len(temp_subtitles):
                 next_start = temp_subtitles[i + 1]["start"]
 
+            # 🔥 修正: 文字レベルタイミング使用時は subtitle_gap を適用しない
+            # 理由: audio_timing.json から取得した文字レベルのタイミングは既に正確なため
+            # 最小ギャップは 0.01秒 のみ（次の字幕との重なりを防ぐ最小限の調整）
+            MIN_GAP = 0.01
+
             # 表示時間の制約を適用（次の字幕を考慮）
             # 音声の実際の長さを基本とし、必要に応じて調整する
             duration = subtitle_end - subtitle_start
@@ -1220,8 +1225,8 @@ class SubtitleGenerator:
                 ideal_end = subtitle_start + min_duration
 
                 if self.prevent_overlap and next_start is not None:
-                    # 次の字幕との重なりを防ぐ
-                    max_allowed_end = next_start - self.subtitle_gap
+                    # 次の字幕との重なりを防ぐ（最小ギャップのみ）
+                    max_allowed_end = next_start - MIN_GAP
 
                     if self.overlap_priority == "next_subtitle":
                         # 次の字幕を優先（重ならないように調整）
@@ -1236,7 +1241,7 @@ class SubtitleGenerator:
                 # 音声が長い場合の処理
                 # 原則: 音声の実際の長さを尊重（次の字幕と重ならない限り）
                 if self.prevent_overlap and next_start is not None:
-                    max_allowed_end = next_start - self.subtitle_gap
+                    max_allowed_end = next_start - MIN_GAP
 
                     if subtitle_end <= max_allowed_end:
                         # 音声の実際の長さを維持（次の字幕と重ならない）
@@ -1253,7 +1258,7 @@ class SubtitleGenerator:
                 # duration が min と max の範囲内にある場合
                 # 音声の実際の長さを維持
                 if self.prevent_overlap and next_start is not None:
-                    max_allowed_end = next_start - self.subtitle_gap
+                    max_allowed_end = next_start - MIN_GAP
                     if subtitle_end > max_allowed_end:
                         subtitle_end = max_allowed_end
 
