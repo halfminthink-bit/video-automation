@@ -30,6 +30,7 @@ from src.core.orchestrator import PhaseOrchestrator
 
 # 全フェーズをインポート
 from src.phases.phase_01_script import Phase01Script
+from src.phases.phase_01_auto_script import Phase01AutoScript
 from src.phases.phase_02_audio import Phase02Audio
 from src.phases.phase_03_images import Phase03Images
 from src.phases.phase_04_animation import Phase04Animation
@@ -86,7 +87,7 @@ def write_error_log(config: ConfigManager, subject: str, phase_number: int, erro
     return error_log_path
 
 
-def run_phase(subject: str, phase_number: int, skip_if_exists: bool = False) -> int:
+def run_phase(subject: str, phase_number: int, skip_if_exists: bool = False, use_auto_script: bool = False) -> int:
     """
     指定されたフェーズを実行
 
@@ -94,6 +95,7 @@ def run_phase(subject: str, phase_number: int, skip_if_exists: bool = False) -> 
         subject: 偉人名
         phase_number: フェーズ番号 (1-9)
         skip_if_exists: 既に出力が存在する場合はスキップ
+        use_auto_script: Phase 1で自動台本生成を使用（--auto）
 
     Returns:
         終了コード (0: 成功, 1: 失敗)
@@ -110,7 +112,7 @@ def run_phase(subject: str, phase_number: int, skip_if_exists: bool = False) -> 
 
     # フェーズクラスのマッピング
     phase_classes = {
-        1: Phase01Script,
+        1: Phase01AutoScript if use_auto_script else Phase01Script,
         2: Phase02Audio,
         3: Phase03Images,
         4: Phase04Animation,
@@ -234,7 +236,9 @@ def generate_video(
     force: bool = False,
     from_phase: int = 1,
     until_phase: int = 9,
-    verbose: bool = False
+    verbose: bool = False,
+    auto: bool = False,
+    manual: bool = False
 ) -> int:
     """
     動画を生成（全フェーズ一括実行）
@@ -245,12 +249,44 @@ def generate_video(
         from_phase: 指定フェーズから実行（1-9）
         until_phase: 指定フェーズまで実行（1-9）
         verbose: 詳細ログ出力
+        auto: 自動台本生成を使用（--auto）
+        manual: 手動台本を使用（--manual）
 
     Returns:
         終了コード (0: 成功, 1: 失敗)
     """
     # 設定を読み込み
     config = ConfigManager()
+
+    # --manual と --auto の同時指定チェック
+    if manual and auto:
+        print("❌ Error: --manual と --auto は同時に指定できません")
+        return 1
+
+    # --manual の場合、手動台本変換を実行
+    if manual:
+        logger = setup_logger(
+            name="manual_script_conversion",
+            log_dir=config.get_path("logs_dir"),
+            level="INFO"
+        )
+        logger.info(f"Converting manual script for: {subject}")
+
+        # scripts/convert_manual_script.py を実行
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["python", "scripts/convert_manual_script.py", subject],
+                capture_output=True,
+                text=True
+            )
+            if result.returncode != 0:
+                logger.error(f"Manual script conversion failed: {result.stderr}")
+                return 1
+            logger.info("Manual script converted successfully")
+        except Exception as e:
+            logger.error(f"Failed to convert manual script: {e}")
+            return 1
 
     # ロガーを初期化
     log_level = "DEBUG" if verbose else "INFO"
@@ -259,6 +295,31 @@ def generate_video(
         log_dir=config.get_path("logs_dir"),
         level=log_level
     )
+
+    # --auto の場合、Phase 1で自動台本生成を使用
+    if auto and from_phase == 1:
+        logger.info("Using automatic script generation (Phase01AutoScript)")
+        try:
+            # Phase 1を個別に実行
+            result = run_phase(
+                subject=subject,
+                phase_number=1,
+                skip_if_exists=not force,
+                use_auto_script=True
+            )
+            if result != 0:
+                logger.error("Auto script generation failed")
+                return 1
+
+            # Phase 1のみの実行の場合はここで終了
+            if until_phase == 1:
+                return 0
+
+            # Phase 2以降を実行
+            from_phase = 2
+        except Exception as e:
+            logger.error(f"Auto script generation failed: {e}")
+            return 1
 
     # Orchestratorを作成
     orchestrator = PhaseOrchestrator(config=config, logger=logger)
@@ -296,8 +357,20 @@ Examples:
   # Generate entire video (Phase 1-9)
   python -m src.cli generate "織田信長"
 
+  # Generate with automatic script generation
+  python -m src.cli generate "織田信長" --auto
+
+  # Generate auto script only (Phase 1)
+  python -m src.cli generate "織田信長" --auto --until-phase 1
+
+  # Convert manual script and generate
+  python -m src.cli generate "織田信長" --manual
+
   # Generate script (Phase 1)
   python -m src.cli run-phase "織田信長" --phase 1
+
+  # Generate auto script (Phase 1)
+  python -m src.cli run-phase "織田信長" --phase 1 --auto
 
   # Generate audio with timestamps (Phase 2)
   python -m src.cli run-phase "織田信長" --phase 2
@@ -367,6 +440,16 @@ Examples:
         action="store_true",
         help="Enable verbose logging"
     )
+    generate_parser.add_argument(
+        "--auto",
+        action="store_true",
+        help="Use automatic script generation (Phase 1)"
+    )
+    generate_parser.add_argument(
+        "--manual",
+        action="store_true",
+        help="Convert manual script before generation"
+    )
 
     # run-phase コマンド
     run_parser = subparsers.add_parser(
@@ -390,6 +473,11 @@ Examples:
         action="store_true",
         help="Skip if outputs already exist"
     )
+    run_parser.add_argument(
+        "--auto",
+        action="store_true",
+        help="Use automatic script generation (Phase 1 only)"
+    )
 
     # 引数をパース
     args = parser.parse_args()
@@ -406,7 +494,9 @@ Examples:
             force=args.force,
             from_phase=args.from_phase,
             until_phase=args.until_phase,
-            verbose=args.verbose
+            verbose=args.verbose,
+            auto=args.auto,
+            manual=args.manual
         )
 
     # run-phase コマンド
@@ -414,7 +504,8 @@ Examples:
         return run_phase(
             subject=args.subject,
             phase_number=args.phase,
-            skip_if_exists=args.skip_if_exists
+            skip_if_exists=args.skip_if_exists,
+            use_auto_script=args.auto
         )
 
     return 0
