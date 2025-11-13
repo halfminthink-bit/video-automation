@@ -18,6 +18,10 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 
 from src.utils.whisper_timing import WhisperTimingExtractor, WHISPER_AVAILABLE
+from src.utils.elevenlabs_forced_alignment import (
+    create_elevenlabs_aligner,
+    ELEVENLABS_FA_AVAILABLE
+)
 
 
 
@@ -36,7 +40,9 @@ class KokoroAudioGenerator:
         response_format: str = "mp3",
         logger: Optional[logging.Logger] = None,
         whisper_config: Optional[Dict[str, Any]] = None,
-        punctuation_pause_config: Optional[Dict[str, Any]] = None
+        punctuation_pause_config: Optional[Dict[str, Any]] = None,
+        use_elevenlabs_fa: bool = True,
+        elevenlabs_api_key: Optional[str] = None
     ):
         """
         初期化
@@ -49,6 +55,8 @@ class KokoroAudioGenerator:
             logger: ロガー
             whisper_config: Whisper設定 {"enabled": bool, "model": str, "language": str}
             punctuation_pause_config: 句点での間隔制御設定
+            use_elevenlabs_fa: ElevenLabs Forced Alignmentを使用するか（デフォルト: True）
+            elevenlabs_api_key: ElevenLabs API Key（環境変数 ELEVENLABS_API_KEY を優先）
 
         Raises:
             ConnectionError: APIサーバーに接続できない場合
@@ -66,12 +74,42 @@ class KokoroAudioGenerator:
         # 句点での間隔制御設定
         self.punctuation_pause_config = punctuation_pause_config or {"enabled": False}
 
+        # 🔥 新規追加: ElevenLabs Forced Alignment設定
+        self.use_elevenlabs_fa = use_elevenlabs_fa
+        # 環境変数からAPI Keyを取得（引数を優先）
+        self.elevenlabs_api_key = elevenlabs_api_key or os.getenv("ELEVENLABS_API_KEY")
+        self.elevenlabs_aligner = None
+
+        if self.use_elevenlabs_fa:
+            if not self.elevenlabs_api_key:
+                self.logger.warning(
+                    "use_elevenlabs_fa is True but elevenlabs_api_key is not set. "
+                    "Falling back to Whisper."
+                )
+                self.use_elevenlabs_fa = False
+            elif not ELEVENLABS_FA_AVAILABLE:
+                self.logger.warning(
+                    "ElevenLabs Forced Alignment is not available (requests library missing). "
+                    "Falling back to Whisper."
+                )
+                self.use_elevenlabs_fa = False
+            else:
+                self.elevenlabs_aligner = create_elevenlabs_aligner(
+                    api_key=self.elevenlabs_api_key,
+                    logger=self.logger
+                )
+                if self.elevenlabs_aligner:
+                    self.logger.info("✓ ElevenLabs Forced Alignment enabled")
+                else:
+                    self.logger.warning("Failed to create ElevenLabs aligner. Falling back to Whisper.")
+                    self.use_elevenlabs_fa = False
+
         # 🔥 変更：__init__での初期化は不要（各セクションで都度初期化）
-        # Whisperが利用可能かだけチェック
+        # Whisperが利用可能かだけチェック（フォールバック用）
         if self.whisper_config.get("enabled", True) and WHISPER_AVAILABLE:
-            self.logger.info("Whisper is available (will initialize per section)")
+            self.logger.info("Whisper is available (will initialize per section as fallback)")
         else:
-            self.logger.warning("Whisper not available. Timestamps will not be available.")
+            self.logger.warning("Whisper not available. Timestamps will not be available if ElevenLabs FA fails.")
 
         # APIが利用可能かチェック
         self._verify_api_connection()
@@ -510,17 +548,69 @@ class KokoroAudioGenerator:
         text: str
     ) -> Dict[str, List]:
         """
-        Whisperを使用して音声からタイムスタンプを取得
+        音声からタイムスタンプを取得
 
-        🔥 変更点: 毎回Whisperを再初期化して前のセグメントの影響を完全排除
+        🔥 変更点: ElevenLabs Forced Alignmentを優先し、失敗時はWhisperにフォールバック
 
         Args:
             audio_base64: Base64エンコードされた音声データ
-            text: 元のテキスト（精度向上のため）
+            text: 元のテキスト（正確なテキスト）
 
         Returns:
             alignment形式のタイムスタンプ情報
         """
+        # 🔥 新規追加: ElevenLabs Forced Alignmentを試す
+        if self.use_elevenlabs_fa and self.elevenlabs_aligner:
+            try:
+                self.logger.info("Extracting timing with ElevenLabs Forced Alignment...")
+
+                # 音声をデコード
+                audio_bytes = base64.b64decode(audio_base64)
+
+                # 一時ファイルに保存
+                with tempfile.NamedTemporaryFile(suffix=f".{self.response_format}", delete=False) as tmp:
+                    tmp.write(audio_bytes)
+                    tmp.flush()
+                    os.fsync(tmp.fileno())
+                    tmp_file_path = Path(tmp.name)
+
+                try:
+                    # ElevenLabs FAでアラインメント
+                    alignment_result = self.elevenlabs_aligner.align(
+                        audio_path=tmp_file_path,
+                        text=text,
+                        language="ja"
+                    )
+
+                    # 成功したら結果を返す
+                    characters = alignment_result['characters']
+                    char_start_times = alignment_result['char_start_times']
+                    char_end_times = alignment_result['char_end_times']
+
+                    self.logger.info(
+                        f"✓ ElevenLabs FA successful: {len(characters)} characters, "
+                        f"duration: {char_end_times[-1] if char_end_times else 0:.2f}s"
+                    )
+
+                    return {
+                        'characters': characters,
+                        'character_start_times_seconds': char_start_times,
+                        'character_end_times_seconds': char_end_times
+                    }
+
+                finally:
+                    # 一時ファイルを削除
+                    if tmp_file_path.exists():
+                        tmp_file_path.unlink()
+
+            except Exception as e:
+                self.logger.warning(
+                    f"ElevenLabs Forced Alignment failed: {e}. "
+                    "Falling back to Whisper..."
+                )
+                # フォールバックに進む
+
+        # 🔥 Whisperフォールバック
         # Whisperが利用不可の場合は空のalignmentを返す
         if not (self.whisper_config.get("enabled", True) and WHISPER_AVAILABLE):
             self.logger.warning("Whisper not available, returning empty alignment")
