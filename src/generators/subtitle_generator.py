@@ -1261,25 +1261,25 @@ class SubtitleGenerator:
             else:
                 # duration が min と max の範囲内にある場合
                 # 音声の実際の長さを維持
-                
+
                 # 🔥 NEW: 句点で終わる場合は延長を試みる
                 last_char = ""
                 for line in reversed(lines):
                     if line:
                         last_char = line[-1]
                         break
-                
+
                 if last_char in ["。", "！", "？", "!", "?"]:
                     # 句点で終わる字幕 → 延長を検討
                     if self.prevent_overlap and next_start is not None:
                         max_allowed_end = next_start - MIN_GAP
                         available_time = max_allowed_end - subtitle_end
-                        
+
                         # 余裕が0.5秒以上あれば60%延長
                         if available_time >= 0.5:
                             extension = available_time * 0.6
                             subtitle_end = subtitle_end + extension
-                            
+
                             self.logger.debug(
                                 f"Subtitle {subtitle_index}: Extended end_time by {extension:.3f}s "
                                 f"for punctuation (available: {available_time:.3f}s, "
@@ -1289,7 +1289,15 @@ class SubtitleGenerator:
                             # 余裕は少ないが、次の字幕とは重ならないように調整
                             if subtitle_end > max_allowed_end:
                                 subtitle_end = max_allowed_end
-                    # 次の字幕がない場合は延長しない（max_duration制約を維持）
+                    elif next_start is None:
+                        # 最後の字幕（次の字幕がない）の場合は一律0.5秒延長
+                        extension = 0.5
+                        subtitle_end = subtitle_end + extension
+
+                        self.logger.debug(
+                            f"Subtitle {subtitle_index} (LAST): Extended end_time by {extension:.3f}s "
+                            f"for punctuation (new end: {subtitle_end:.3f}s)"
+                        )
                 else:
                     # 句点以外 → 通常の重複チェックのみ
                     if self.prevent_overlap and next_start is not None:
