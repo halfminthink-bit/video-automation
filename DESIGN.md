@@ -8,6 +8,14 @@
 ## 📋 更新履歴
 
 ### v4.0 (2025年11月13日)
+- **Phase 1: 自動台本生成の改善**
+  - **改行ルールの厳格化** - 句点（。！？）の後に必ず改行
+  - プロンプトテンプレートに具体例を追加（悪い例 vs 良い例）
+  - 出力フォーマット要件の厳密化（thumbnail必須、narrationに改行含める）
+  - **モデルをclaude-haiku-4-5に変更** - コスト最適化
+  - `ScriptNormalizer`による正規化処理を統合
+  - 手動台本と自動台本の完全な統一を実現
+
 - **Phase 2: タイミング抽出の大幅改善**
   - **ElevenLabs Forced Alignment統合** - Whisperから切り替え
   - 台本と音声の完璧なアライメント（99-100%精度）
@@ -27,6 +35,7 @@
   - `.env.example`を追加（環境変数の設定例）
   - `audio_generation.yaml`にElevenLabs FA設定を追加
   - `subtitle_generation.yaml`のタイミング設定を最適化
+  - `auto_script_generation.yaml`のモデル設定を最適化
 
 ### v3.0 (2025年11月11日)
 - **Phase 2: 音声生成の改善**
@@ -70,23 +79,52 @@
 ---
 
 ## 🔄 ワークフロー（まとめ）
+
+### パターンA: 自動台本生成（Phase 01使用）
+
+```bash
+# 1. 自動台本生成（Claude APIで全自動）
+python -m src.cli run-phase "マリー・キュリー" --phase 1
+
+# 生成される:
+# - data/working/マリー・キュリー/01_script/raw_script.yaml（デバッグ用）
+# - data/working/マリー・キュリー/01_script/script.json（最終版）
+
+# 2. 動画生成（Phase 2以降を実行）
+python -m src.cli generate "マリー・キュリー" --start-phase 2
+
+# または全フェーズを一気に実行
+python -m src.cli generate "マリー・キュリー"
 ```
-1. テンプレート作成
-   ↓
-   python scripts/create_script_template.py "グリゴリー・ラスプーチン"
 
-2. YAMLファイルを編集（これがメイン作業）
-   ↓
-   data/input/manual_scripts/偉人名.yaml
+### パターンB: 手動台本生成（既存のワークフロー）
 
-3. JSONに変換（1コマンド）
-   ↓
-   python scripts/convert_manual_script.py "グリゴリー・ラスプーチン"
+```bash
+# 1. テンプレート作成
+python scripts/create_script_template.py "グリゴリー・ラスプーチン"
 
-4. 動画生成（自動で手動台本が使われる）
-   ↓
-   python -m src.cli generate "グリゴリー・ラスプーチン"
+# 2. YAMLファイルを編集（これがメイン作業）
+#    data/input/manual_scripts/偉人名.yaml を編集
+
+# 3. JSONに変換（ScriptNormalizerで正規化）
+python scripts/convert_manual_script.py "グリゴリー・ラスプーチン"
+
+# 生成される:
+# - data/input/manual_overrides/グリゴリー・ラスプーチン_script.json
+
+# 4. 動画生成（自動で手動台本が優先される）
+python -m src.cli generate "グリゴリー・ラスプーチン"
 ```
+
+### 台本の優先順位
+
+システムは以下の順序で台本を探します：
+
+1. **手動台本（最優先）**: `data/input/manual_overrides/{subject}_script.json`
+2. **既存の自動台本**: `data/working/{subject}/01_script/script.json`
+3. **Phase 1を実行**: Claude APIで自動生成
+
+つまり、手動台本があればそれを使用し、なければ自動生成されます。
 
 ---
 
@@ -113,6 +151,279 @@
 ---
 
 ## 🔄 フェーズ詳細設計
+
+### Phase 1: 自動台本生成（Auto Script Generation）
+
+**責務**: Claude APIを使用して歴史動画の台本を自動生成し、手動台本と完全に同じ形式のJSONを出力
+
+**入力**:
+- `subject`（偉人名）
+
+**処理**:
+1. プロンプトテンプレートを読み込み、偉人名を埋め込み
+2. Claude API (haiku-4-5) を呼び出してYAML形式の台本を生成
+3. **ScriptNormalizerで正規化**（手動台本と同じロジック）
+4. バリデーション（必須フィールドのチェック）
+5. YAML保存（デバッグ用）
+6. **JSON変換・保存**（手動台本と完全に同じ形式）
+
+**出力**:
+- `working/{subject}/01_script/raw_script.yaml` （正規化済みYAML、デバッグ用）
+- `working/{subject}/01_script/script.json` （最終的なJSON台本）
+
+#### 📌 改行ルールの厳格化（v4.0の重要改善）
+
+**目的**: 音声と字幕の完璧な同期を実現するため、台本生成段階で改行ルールを厳格化
+
+**背景**:
+- Phase 6（字幕生成）では改行（`\n`）を基準に字幕を分割
+- 句点後に改行がないと、長い字幕が生成されてしまう
+- 手動台本では改行が適切に入っているが、自動台本では不十分だった
+
+**解決策**: プロンプトテンプレートで改行ルールを超重要として強調
+
+**プロンプトテンプレートの重要ポイント**:
+
+```jinja2
+# 🔥 超重要：改行ルール
+**句点（。！？）の後は必ず改行を入れてください**
+
+❌ 悪い例:
+```
+1867年、ポーランド。当時のポーランドはロシアの支配下にありました。首都ワルシャワで...
+```
+
+⭕ 良い例:
+```
+1867年、ポーランド。
+当時のポーランドはロシアの支配下にありました。
+首都ワルシャワで...
+```
+```
+
+#### 📌 ScriptNormalizer統合（重要）
+
+**目的**: 手動台本と自動台本で完全に同じ変換ロジックを使用
+
+**ScriptNormalizerの処理内容**:
+
+1. **ナレーションの正規化** (`normalize_narration`)
+   - 空行を完全削除
+   - 文末チェック:
+     - `。`で終わる → そのまま
+     - `！`で終わる → そのまま
+     - `」`で終わる → `」。`に変更
+     - その他 → `。`を追加
+   - 連続改行（`\n\n`以上）を1つの`\n`に正規化
+
+2. **サムネイルの正規化** (`normalize_thumbnail`)
+   - `upper_text`: 1行3文字まで（超過時は警告）
+   - `lower_text`: 1行5-7文字推奨（範囲外は警告）
+   - 2行目以降の先頭に全角スペース「　」を自動挿入
+
+3. **BGM設定のチェック**
+   - `bgm`フィールドが未設定の場合、デフォルト`main`を設定
+
+**実装例**:
+
+```python
+# src/phases/phase_01_auto_script.py
+
+from scripts.convert_manual_script import ScriptNormalizer
+
+class Phase01AutoScript(PhaseBase):
+    def execute_phase(self) -> VideoScript:
+        # 1. プロンプト構築
+        prompt = self._build_prompt()
+
+        # 2. Claude API呼び出し（YAML形式）
+        raw_yaml_text = self._call_claude_api(prompt)
+
+        # 3. YAMLパース
+        script_dict = yaml.safe_load(raw_yaml_text)
+
+        # 4. 🔥 正規化（手動台本と同じロジック）
+        script_dict = ScriptNormalizer.normalize(script_dict)
+
+        # 5. バリデーション
+        self._validate_script(script_dict)
+
+        # 6. YAML保存（デバッグ用）
+        yaml_path = self._save_yaml(script_dict)
+
+        # 7. JSON変換・保存（手動台本と同じ形式）
+        json_path = self._save_json(script_dict)
+
+        return self._convert_to_model(script_dict)
+```
+
+#### 📌 モデルをclaude-haiku-4-5に変更
+
+**目的**: コスト最適化
+
+**背景**:
+- 台本生成は構造化されたタスク
+- Sonnetほどの高度な推論能力は不要
+- Haiku-4-5で十分な品質を実現可能
+
+**設定例（config/phases/auto_script_generation.yaml）**:
+
+```yaml
+# ========================================
+# Phase 01: 自動台本生成設定
+# ========================================
+
+# Claude API設定
+claude_api:
+  model: "claude-haiku-4-5"  # v4.0: Sonnetからコスト最適化
+  max_tokens: 16000
+  temperature: 1.0            # クリエイティブに
+
+# プロンプト
+prompt:
+  template_path: "config/prompts/auto_script_generation.j2"
+
+  # プロンプトに渡す変数
+  variables:
+    total_duration: 900.0
+    num_sections: 6
+    section_duration: 150.0
+
+# リトライ設定
+retry:
+  max_attempts: 3
+  delay_seconds: 5
+
+# バリデーション設定
+validation:
+  strict_mode: true
+  required_fields:
+    - "subject"
+    - "title"
+    - "description"
+    - "thumbnail"
+    - "sections"
+
+  section_required_fields:
+    - "section_id"
+    - "title"
+    - "narration"
+    - "duration"
+    - "keywords"
+    - "atmosphere"
+    - "bgm"
+
+# 出力設定
+output:
+  save_raw_yaml: true  # デバッグ用にraw YAMLを保存
+  raw_yaml_filename: "raw_script.yaml"
+  final_json_filename: "script.json"
+```
+
+#### 手動台本との統一
+
+**Phase 1の出力JSON**と**手動台本のJSON**は完全に同じ形式:
+
+```json
+{
+  "subject": "マリー・キュリー",
+  "title": "放射能の母、マリー・キュリーの生涯",
+  "description": "世界初の女性ノーベル賞受賞者の波乱の人生",
+  "thumbnail": {
+    "upper_text": "天才か\n犠牲者か",
+    "lower_text": "放射能に魅了された\n女性科学者の物語"
+  },
+  "sections": [
+    {
+      "section_id": 1,
+      "title": "導入：衝撃の死",
+      "narration": "1934年7月4日、フランス。\n一人の女性が息を引き取った。\n彼女の名はマリー・キュリー。\n...",
+      "estimated_duration": 150.0,
+      "image_keywords": ["マリー・キュリー", "放射能", "ノーベル賞"],
+      "atmosphere": "壮大",
+      "requires_ai_video": false,
+      "ai_video_prompt": null,
+      "bgm_suggestion": "opening"
+    },
+    ...
+  ],
+  "total_estimated_duration": 900.0,
+  "generated_at": "2025-11-13T10:30:00",
+  "model_version": "auto_v1"
+}
+```
+
+#### プロンプトテンプレートの構造
+
+**ファイル**: `config/prompts/auto_script_generation.j2`
+
+**主要セクション**:
+1. **動画の目的**: 視聴者を惹きつける、知識を深める、感情を動かす
+2. **セクション構成**: 6セクション × 150秒 = 15分
+3. **🔥 超重要：改行ルール**: 句点後に必ず改行
+4. **ナレーションの書き方**: 情熱的、具体的、リズム感
+5. **サムネイル要件**: upper_text（3文字×2行）、lower_text（5-7文字×2行）
+6. **出力フォーマット**: YAML形式（thumbnail必須、narrationに改行含む）
+7. **最終チェックリスト**: 6項目の確認
+
+**テンプレートの例**:
+
+```jinja2
+あなたは歴史動画の脚本家です。視聴者の心を揺さぶる台本を書いてください。
+
+# 対象人物
+{{ subject }}
+
+# 動画の目的
+- その人物を知らない人でも楽しめる
+- 知識が深まり、感情が動く
+- 少し笑えて、でも深い
+- 生き様や考えが伝わる
+
+# 🔥 超重要：改行ルール
+**句点（。！？）の後は必ず改行を入れてください**
+
+❌ 悪い例:
+```
+1867年、ポーランド。当時のポーランドはロシアの支配下にありました。
+```
+
+⭕ 良い例:
+```
+1867年、ポーランド。
+当時のポーランドはロシアの支配下にありました。
+```
+
+# 🔥 出力フォーマット（YAML）
+
+**重要**: 以下の形式を厳密に守ってください。特に：
+1. thumbnail は必須
+2. narration は改行（\n）を含める
+3. keywords を使う（image_keywordsではない）
+4. duration を使う（estimated_durationではない）
+
+では、{{ subject }}の台本をYAML形式で作成してください。
+```
+
+#### ベストプラクティス
+
+1. **改行ルールの徹底**
+   - プロンプトで具体例を示す
+   - ❌悪い例と⭕良い例を明示
+
+2. **ScriptNormalizerの活用**
+   - 手動台本と自動台本で同じ正規化ロジックを使用
+   - 一貫性のある出力を保証
+
+3. **バリデーションの厳格化**
+   - 必須フィールドのチェック
+   - セクションごとの必須フィールドのチェック
+
+4. **デバッグ用YAML保存**
+   - 生成されたYAMLを保存してレビュー可能にする
+   - 問題があればプロンプトを調整
+
+---
 
 ### Phase 2: 音声生成（Audio Generation）
 
