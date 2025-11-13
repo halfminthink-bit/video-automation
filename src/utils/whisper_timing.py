@@ -171,38 +171,82 @@ class WhisperTimingExtractor:
                 self.logger.debug("Applied gap adjustment to transcription result")
 
             # デバッグ: Whisperの認識結果を確認
-            self.logger.info(f"Whisper recognized text: {result.get('text', '')}")
-            segments = result.get("segments", [])
-            self.logger.info(f"Number of segments: {len(segments)}")
-            for i, seg in enumerate(segments):
-                segment_text = seg.get("text", "")
-                words = seg.get("words", []) or []
-                no_speech_prob = seg.get("no_speech_prob", 0)
-                self.logger.info(
-                    f"  Segment {i}: {segment_text} "
-                    f"({len(words)} words, no_speech_prob={no_speech_prob:.3f})"
-                )
+            if self.use_stable_ts:
+                # stable-ts: 属性アクセス
+                recognized_text = result.text
+                segments = result.segments
+                self.logger.info(f"Whisper recognized text: {recognized_text}")
+                self.logger.info(f"Number of segments: {len(segments)}")
+                for i, seg in enumerate(segments):
+                    segment_text = seg.text
+                    words = seg.words if hasattr(seg, 'words') else []
+                    # stable-tsにはno_speech_probがない
+                    self.logger.info(
+                        f"  Segment {i}: {segment_text} "
+                        f"({len(words)} words)"
+                    )
+            else:
+                # 通常のWhisper: 辞書アクセス
+                recognized_text = result.get('text', '')
+                segments = result.get("segments", [])
+                self.logger.info(f"Whisper recognized text: {recognized_text}")
+                self.logger.info(f"Number of segments: {len(segments)}")
+                for i, seg in enumerate(segments):
+                    segment_text = seg.get("text", "")
+                    words = seg.get("words", []) or []
+                    no_speech_prob = seg.get("no_speech_prob", 0)
+                    self.logger.info(
+                        f"  Segment {i}: {segment_text} "
+                        f"({len(words)} words, no_speech_prob={no_speech_prob:.3f})"
+                    )
             
             # 単語レベルのタイミング情報を抽出
             word_timings = []
-            for segment in result.get("segments", []):
-                for word_info in segment.get("words", []):
-                    word_timings.append({
-                        "word": word_info.get("word", "").strip(),
-                        "start": word_info.get("start", 0.0),
-                        "end": word_info.get("end", 0.0),
-                        "probability": word_info.get("probability", 1.0)
-                    })
-
-            self.logger.info(
-                f"Extracted {len(word_timings)} word timings from Whisper "
-                f"(duration: {result.get('segments', [{}])[-1].get('end', 0):.1f}s)"
-            )
+            if self.use_stable_ts:
+                # stable-ts: 属性アクセス
+                for segment in result.segments:
+                    if hasattr(segment, 'words') and segment.words:
+                        for word in segment.words:
+                            word_timings.append({
+                                "word": word.word.strip(),
+                                "start": word.start,
+                                "end": word.end,
+                                "probability": getattr(word, 'probability', 1.0)
+                            })
+                
+                # 最終時刻の取得
+                last_duration = result.segments[-1].end if result.segments else 0
+                self.logger.info(
+                    f"Extracted {len(word_timings)} word timings from stable-ts "
+                    f"(duration: {last_duration:.1f}s)"
+                )
+            else:
+                # 通常のWhisper: 辞書アクセス
+                for segment in result.get("segments", []):
+                    for word_info in segment.get("words", []):
+                        word_timings.append({
+                            "word": word_info.get("word", "").strip(),
+                            "start": word_info.get("start", 0.0),
+                            "end": word_info.get("end", 0.0),
+                            "probability": word_info.get("probability", 1.0)
+                        })
+                
+                last_duration = result.get('segments', [{}])[-1].get('end', 0) if result.get('segments') else 0
+                self.logger.info(
+                    f"Extracted {len(word_timings)} word timings from Whisper "
+                    f"(duration: {last_duration:.1f}s)"
+                )
 
             # 🔥 新機能：元のテキストが提供されている場合、アライメントを実行
             if text:
-                self.logger.info("Aligning Whisper timings with original text...")
-                recognized_text = result.get('text', '')
+                self.logger.info("Aligning timings with original text...")
+                
+                # 認識テキストの取得
+                if self.use_stable_ts:
+                    recognized_text = result.text
+                else:
+                    recognized_text = result.get('text', '')
+                
                 aligned_timings = align_text_with_whisper_timings(
                     original_text=text,
                     recognized_text=recognized_text,
@@ -214,7 +258,7 @@ class WhisperTimingExtractor:
                 )
                 return aligned_timings
             else:
-                # 元のテキストがない場合は、Whisperの認識結果をそのまま返す
+                # 元のテキストがない場合は、認識結果をそのまま返す
                 return word_timings
             
         except Exception as e:
