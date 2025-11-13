@@ -175,103 +175,63 @@ class ElevenLabsForcedAligner:
         Returns:
             audio_timing.json互換の形式
         """
-        # ElevenLabs FAのレスポンス形式を確認して適切に変換
-        # 想定される形式:
-        # {
-        #   "alignment": [
-        #     {"char": "織", "start": 0.1, "end": 0.2},
-        #     ...
-        #   ]
-        # }
-        # または
-        # {
-        #   "characters": [...],
-        #   "words": [...]
-        # }
+        self.logger.debug(f"Response keys: {list(elevenlabs_response.keys())}")
 
         characters = []
         char_start_times = []
         char_end_times = []
         words = []
 
-        # レスポンスの構造をデバッグログに出力
-        self.logger.debug(
-            f"Converting ElevenLabs response. Keys: {elevenlabs_response.keys()}"
-        )
+        # 🔥 実際のレスポンス形式: {"characters": [{"text": "織", "start": 0.1, "end": 0.2}, ...]}
+        if "characters" not in elevenlabs_response:
+            # alignment キーがある場合はそちらを試す
+            if "alignment" in elevenlabs_response:
+                alignment_data = elevenlabs_response["alignment"]
+                if isinstance(alignment_data, list):
+                    for item in alignment_data:
+                        # 複数のキー名に対応
+                        char = item.get("text") or item.get("character") or item.get("char", "")
+                        start = float(item.get("start", item.get("start_time", 0.0)))
+                        end = float(item.get("end", item.get("end_time", start)))
 
-        # ElevenLabsのレスポンス形式に応じて処理
-        # 仕様書によると、以下の3つの形式が可能:
-        # 1. alignment: [{"character": "織", "start": 0.1, "end": 0.2}, ...]
-        # 2. characters: [{"character": "織", "start_time": 0.1, "end_time": 0.2}, ...]
-        # 3. words: [{"word": "織田", "start_time": 0.1, "end_time": 0.3}, ...]
-        
-        if "alignment" in elevenlabs_response:
-            # 形式1: alignment キーがある場合（詳細版）
-            alignment_data = elevenlabs_response["alignment"]
-
-            if isinstance(alignment_data, list):
-                for item in alignment_data:
-                    # 文字情報（character または char）
-                    char = item.get("character") or item.get("char", "")
-                    start = float(item.get("start", item.get("start_time", 0.0)))
-                    end = float(item.get("end", item.get("end_time", 0.0)))
-
-                    if char:  # 空文字でない場合のみ追加
-                        characters.append(char)
-                        char_start_times.append(start)
-                        char_end_times.append(end)
+                        if char:
+                            characters.append(char)
+                            char_start_times.append(start)
+                            char_end_times.append(end)
             else:
-                self.logger.warning(
-                    f"Unexpected alignment format: {type(alignment_data)}"
+                raise ValueError(
+                    f"Missing 'characters' key. Available keys: {list(elevenlabs_response.keys())}"
                 )
+        else:
+            # 形式: characters キーがある場合（実際のレスポンス形式）
+            char_list = elevenlabs_response["characters"]
 
-        elif "characters" in elevenlabs_response:
-            # 形式2: characters キーがある場合（シンプル版）
-            for item in elevenlabs_response["characters"]:
-                char = item.get("character") or item.get("char", "")
-                # start_time と end_time を使用
-                start = float(item.get("start_time", item.get("start", 0.0)))
-                end = float(item.get("end_time", item.get("end", 0.0)))
+            if not char_list:
+                raise ValueError("Empty characters list in response")
 
-                if char:  # 空文字でない場合のみ追加
-                    characters.append(char)
-                    char_start_times.append(start)
-                    char_end_times.append(end)
+            self.logger.info(f"Processing {len(char_list)} characters")
 
-        elif "char_timings" in elevenlabs_response:
-            # 形式3: char_timings キーがある場合
-            for item in elevenlabs_response["char_timings"]:
-                char = item.get("character") or item.get("char", "")
-                start = float(item.get("start_time", 0.0))
-                end = float(item.get("end_time", 0.0))
+            for item in char_list:
+                # 🔥 キー名は "text" です（"character" や "char" ではない）
+                char = item.get("text") or item.get("character") or item.get("char", "")
+                start = float(item.get("start", item.get("start_time", 0.0)))
+                end = float(item.get("end", item.get("end_time", start)))  # endが無い場合はstartを使用
+
+                if not char:
+                    self.logger.warning(f"Empty character at {start}s, skipping")
+                    continue
 
                 characters.append(char)
                 char_start_times.append(start)
                 char_end_times.append(end)
 
-        else:
-            # フォールバック: レスポンス構造が予期しない場合
-            self.logger.warning(
-                "Unexpected ElevenLabs response format. "
-                f"Available keys: {list(elevenlabs_response.keys())}"
-            )
-            self.logger.debug(
-                f"Response sample: {json.dumps(elevenlabs_response, indent=2, ensure_ascii=False)[:500]}"
-            )
+        if not characters:
+            raise ValueError("No valid characters extracted")
 
-            # 最悪のケース: 元のテキストから均等に割り当て
-            duration = elevenlabs_response.get("duration", len(original_text) * 0.15)
-            char_duration = duration / len(original_text) if len(original_text) > 0 else 0.15
-
-            for i, char in enumerate(original_text):
-                characters.append(char)
-                char_start_times.append(i * char_duration)
-                char_end_times.append((i + 1) * char_duration)
-
-            self.logger.warning(
-                f"Used fallback: uniform distribution ({len(characters)} chars, "
-                f"{duration:.2f}s duration)"
-            )
+        self.logger.info(
+            f"✓ Extracted {len(characters)} characters "
+            f"(0.00s - {char_end_times[-1] if char_end_times else 0:.2f}s)"
+        )
 
         # 単語情報も取得（あれば）
         if "words" in elevenlabs_response:
@@ -283,13 +243,6 @@ class ElevenLabsForcedAligner:
                 words = []
 
         # バリデーション
-        if len(characters) == 0:
-            self.logger.error(
-                "No characters found in ElevenLabs response. "
-                f"Response: {json.dumps(elevenlabs_response, indent=2, ensure_ascii=False)[:500]}"
-            )
-            raise ValueError("ElevenLabs alignment returned no characters")
-
         if len(characters) != len(char_start_times) or len(characters) != len(char_end_times):
             self.logger.error(
                 f"Alignment length mismatch: {len(characters)} chars, "
