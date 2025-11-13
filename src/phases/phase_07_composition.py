@@ -772,11 +772,8 @@ class Phase07Composition(PhaseBase):
     
     def _generate_thumbnail(self, video: 'VideoFileClip') -> Path:
         """サムネイルを生成"""
-        output_dir = Path(self.config.get("paths", {}).get("output_dir", "data/output"))
-        thumbnail_dir = output_dir / "thumbnails"
-        thumbnail_dir.mkdir(parents=True, exist_ok=True)
-        
-        thumbnail_path = thumbnail_dir / f"{self.subject}_thumbnail.jpg"
+        # Phase 7のディレクトリにサムネイルを保存
+        thumbnail_path = self.phase_dir / f"{self.subject}_thumbnail.jpg"
         
         # 5秒目のフレームを抽出
         timestamp = min(5.0, video.duration / 2)

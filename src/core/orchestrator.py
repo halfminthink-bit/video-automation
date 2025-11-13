@@ -189,12 +189,22 @@ class PhaseOrchestrator:
         self.console.print("\n[bold]出力ファイル:[/bold]")
         output_dir = self.config.get_path("output_dir")
         video_path = output_dir / "videos" / f"{status.subject}.mp4"
-        thumbnail_path = output_dir / "thumbnails" / f"{status.subject}_thumbnail.png"
+
+        # Phase 8のAI生成サムネイルをチェック（優先）
+        working_dir = self.config.get_working_dir(status.subject)
+        phase8_thumbnail_dir = working_dir / "08_thumbnail" / "thumbnails"
+        phase8_thumbnails = list(phase8_thumbnail_dir.glob("*.png")) if phase8_thumbnail_dir.exists() else []
+
+        # Phase 7の簡易サムネイルをチェック（フォールバック）
+        phase7_thumbnail = working_dir / "07_composition" / f"{status.subject}_thumbnail.jpg"
 
         if video_path.exists():
             self.console.print(f"  📹 動画: {video_path}")
-        if thumbnail_path.exists():
-            self.console.print(f"  🖼️  サムネイル: {thumbnail_path}")
+
+        if phase8_thumbnails:
+            self.console.print(f"  🖼️  サムネイル (Phase 8): {phase8_thumbnail_dir} ({len(phase8_thumbnails)} files)")
+        elif phase7_thumbnail.exists():
+            self.console.print(f"  🖼️  サムネイル (Phase 7): {phase7_thumbnail}")
 
         self.console.print()
 
