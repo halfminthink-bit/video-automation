@@ -1,0 +1,49 @@
+# ========================================
+# Phase 01: 自動台本生成設定
+# ========================================
+
+# Claude API設定
+claude_api:
+  model: "claude-sonnet-4-20250514"
+  max_tokens: 16000
+  temperature: 1.0  # クリエイティブに
+
+# プロンプト
+prompt:
+  template_path: "config/prompts/auto_script_generation.j2"
+
+  # プロンプトに渡す変数
+  variables:
+    total_duration: 900.0
+    num_sections: 6
+    section_duration: 150.0
+
+# リトライ設定
+retry:
+  max_attempts: 3
+  delay_seconds: 5
+
+# バリデーション設定
+validation:
+  strict_mode: true
+  required_fields:
+    - "subject"
+    - "title"
+    - "description"
+    - "thumbnail"
+    - "sections"
+
+  section_required_fields:
+    - "section_id"
+    - "title"
+    - "narration"
+    - "duration"
+    - "keywords"
+    - "atmosphere"
+    - "bgm"
+
+# 出力設定
+output:
+  save_raw_yaml: true  # デバッグ用にraw YAMLを保存
+  raw_yaml_filename: "raw_script.yaml"
+  final_json_filename: "script.json"
