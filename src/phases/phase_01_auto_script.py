@@ -58,9 +58,9 @@ class Phase01AutoScript(PhaseBase):
             raise ImportError("anthropic package is required. Install with: pip install anthropic")
 
         try:
-            api_key = config.get_api_key("ANTHROPIC_API_KEY")
+            api_key = config.get_api_key("CLAUDE_API_KEY")
         except Exception as e:
-            raise ValueError(f"ANTHROPIC_API_KEY not found in environment: {e}")
+            raise ValueError(f"CLAUDE_API_KEY not found in environment: {e}")
 
         self.claude_client = anthropic.Anthropic(api_key=api_key)
 
