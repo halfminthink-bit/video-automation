@@ -210,14 +210,30 @@ class Phase03Images(PhaseBase):
         self._save_results(result, total_cost)
 
         # 6. 生成した画像を1920x1080にリサイズ（PNG形式）
-        self.logger.info("Resizing generated images to 1920x1080 (PNG)...")
+        self.logger.info("=" * 60)
+        self.logger.info("Phase 3: Starting image resize to 1920x1080 (PNG)")
+        self.logger.info("=" * 60)
         generated_dir = self.phase_dir / "generated"
-        resize_images_to_1920x1080(
+
+        # ディレクトリ存在確認
+        if not generated_dir.exists():
+            self.logger.error(f"❌ Generated directory not found: {generated_dir}")
+            raise FileNotFoundError(f"Directory not found: {generated_dir}")
+
+        # リサイズ前のファイル一覧
+        image_files = list(generated_dir.glob("*.jpg")) + list(generated_dir.glob("*.png"))
+        self.logger.info(f"Found {len(image_files)} images in {generated_dir}")
+
+        # リサイズ実行
+        resized_files = resize_images_to_1920x1080(
             generated_dir,
             logger=self.logger,
             output_format="PNG"  # Phase 3は動画本編用にPNG形式
         )
-        self.logger.info("✓ Image resizing complete")
+
+        self.logger.info("=" * 60)
+        self.logger.info(f"✓ Phase 3: Image resizing complete ({len(resized_files)} files)")
+        self.logger.info("=" * 60)
 
         # 7. 統計情報をログ出力
         self._log_statistics(result, total_cost)
