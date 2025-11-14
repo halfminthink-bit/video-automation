@@ -1,0 +1,22 @@
+# ========================================
+# ジャンル: 偉人系
+# ========================================
+genre_id: "ijin"
+channel_name: "偉人の足跡"
+
+# YouTube認証
+youtube:
+  credentials_file: "config/.youtube_credentials_ijin.json"
+  token_file: "data/cache/youtube_token_ijin.json"
+
+# プロンプトファイル参照
+prompts:
+  script: "prompts/script/ijin.j2"
+  image: "prompts/image/ijin.j2"
+  thumbnail: "prompts/thumbnail/ijin.j2"
+
+# メタデータ
+metadata:
+  target_audience: "歴史に興味がある10-40代"
+  tone: "educational"
+  title_style: "curiosity_driven"

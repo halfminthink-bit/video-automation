@@ -34,7 +34,11 @@ from src.processors.text_optimizer import TextOptimizer
 
 class Phase02Audio(PhaseBase):
     """Phase 2: 音声生成フェーズ"""
-    
+
+    def __init__(self, subject: str, config: ConfigManager, logger: logging.Logger, audio_var: str = None):
+        super().__init__(subject, config, logger)
+        self.audio_var = audio_var
+
     def get_phase_number(self) -> int:
         return 2
     
@@ -203,7 +207,31 @@ class Phase02Audio(PhaseBase):
     # ========================================
     # 内部メソッド
     # ========================================
-    
+
+    def _find_audio_variation(self, audio_config: Dict[str, Any], variation_id: str) -> Dict[str, Any]:
+        """
+        音声バリエーションIDから設定を検索
+
+        Args:
+            audio_config: audio.yamlから読み込んだ設定
+            variation_id: バリエーションID
+
+        Returns:
+            バリエーション設定の辞書
+
+        Raises:
+            PhaseExecutionError: バリエーションが見つからない場合
+        """
+        variations = audio_config.get("audio_variations", [])
+        for var in variations:
+            if var["id"] == variation_id:
+                return var
+
+        raise PhaseExecutionError(
+            self.get_phase_number(),
+            f"Audio variation not found: {variation_id}"
+        )
+
     def _load_script(self) -> VideoScript:
         """
         Phase 1の台本を読み込み
@@ -255,6 +283,24 @@ class Phase02Audio(PhaseBase):
         Returns:
             AudioGenerator, KokoroAudioGenerator, または DummyAudioGenerator
         """
+        # バリエーション指定があれば上書き
+        if self.audio_var:
+            audio_config = self.config.get_variation_config("audio")
+            var_settings = self._find_audio_variation(audio_config, self.audio_var)
+
+            # 設定を上書き
+            self.phase_config["service"] = var_settings["service"]
+            if var_settings["service"] == "kokoro":
+                if "kokoro" not in self.phase_config:
+                    self.phase_config["kokoro"] = {}
+                self.phase_config["kokoro"]["voice"] = var_settings.get("voice", "jf_alpha")
+                self.phase_config["kokoro"]["speed"] = var_settings.get("speed", 1.0)
+            else:
+                self.phase_config["voice_id"] = var_settings.get("voice_id")
+                self.phase_config["model"] = var_settings.get("model", "eleven_turbo_v2_5")
+                self.phase_config["stability"] = var_settings.get("stability", 0.7)
+                self.phase_config["similarity_boost"] = var_settings.get("similarity_boost", 0.75)
+
         service = self.phase_config.get("service", "elevenlabs").lower()
 
         if service == "kokoro":

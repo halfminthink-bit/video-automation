@@ -1,0 +1,35 @@
+# ========================================
+# 音声バリエーション定義
+# ========================================
+
+audio_variations:
+  # Kokoro系
+  - id: "kokoro_standard"
+    service: "kokoro"
+    voice: "jf_alpha"
+    speed: 1.0
+
+  - id: "kokoro_fast"
+    service: "kokoro"
+    voice: "jf_alpha"
+    speed: 1.1
+
+  - id: "kokoro_slow"
+    service: "kokoro"
+    voice: "jf_alpha"
+    speed: 0.9
+
+  # ElevenLabs系
+  - id: "elevenlabs_standard"
+    service: "elevenlabs"
+    voice_id: "3JDquces8E8bkmvbh6Bc"
+    model: "eleven_turbo_v2_5"
+    stability: 0.7
+    similarity_boost: 0.75
+
+  - id: "elevenlabs_expressive"
+    service: "elevenlabs"
+    voice_id: "3JDquces8E8bkmvbh6Bc"
+    model: "eleven_turbo_v2_5"
+    stability: 0.5
+    similarity_boost: 0.8
