@@ -1891,17 +1891,31 @@ class Phase06Subtitles(PhaseBase):
 
         for subtitle in subtitles:
             # 🔥 NEW: 鍵かっこ内の句読点は残す処理
-            line1 = self._remove_punctuation_except_in_quotation(
-                subtitle.text_line1,
+            # 2行にまたがる鍵かっこに対応するため、結合してから処理
+            combined_text = subtitle.text_line1
+            if subtitle.text_line2:
+                combined_text += subtitle.text_line2
+            
+            # 結合テキストから句読点を削除（鍵かっこ内は残す）
+            # 同時に、各文字が処理後のどの位置に対応するかを記録
+            cleaned_combined, char_mapping = self._remove_punctuation_except_in_quotation_with_mapping(
+                combined_text,
                 punctuation_to_remove
             )
             
-            line2 = ""
-            if subtitle.text_line2:
-                line2 = self._remove_punctuation_except_in_quotation(
-                    subtitle.text_line2,
-                    punctuation_to_remove
-                )
+            # 元の行1の最後の文字が処理後のどの位置に対応するかを取得
+            original_line1_len = len(subtitle.text_line1)
+            split_pos = len(cleaned_combined)
+            if original_line1_len > 0 and original_line1_len - 1 < len(char_mapping):
+                # 行1の最後の文字の位置を取得（削除された文字の場合は前の有効な文字を探す）
+                for i in range(original_line1_len - 1, -1, -1):
+                    if i < len(char_mapping) and char_mapping[i] != -1:
+                        split_pos = char_mapping[i] + 1
+                        break
+            
+            # 分割
+            line1 = cleaned_combined[:split_pos] if split_pos > 0 else ""
+            line2 = cleaned_combined[split_pos:] if subtitle.text_line2 else ""
 
             # 空の字幕をスキップ（句読点のみの行が削除されて空になった場合）
             if not line1.strip() and not line2.strip():
@@ -1925,6 +1939,47 @@ class Phase06Subtitles(PhaseBase):
 
         self.logger.info(f"Removed punctuation from {len(cleaned_subtitles)} subtitles")
         return cleaned_subtitles
+
+    def _remove_punctuation_except_in_quotation_with_mapping(
+        self,
+        text: str,
+        punctuation_to_remove: List[str]
+    ) -> tuple[str, List[int]]:
+        """
+        鍵かっこ内の句読点は残して削除（文字位置のマッピングも返す）
+        
+        Args:
+            text: 処理対象テキスト
+            punctuation_to_remove: 削除対象の句読点リスト
+        
+        Returns:
+            (処理後のテキスト, 元の位置→処理後位置のマッピング)
+        """
+        result = []
+        char_mapping = []  # 元の位置 -> 処理後の位置
+        in_quotation = False
+        result_pos = 0
+        
+        for i, char in enumerate(text):
+            if char == '「' or char == '『':
+                in_quotation = True
+                result.append(char)
+                char_mapping.append(result_pos)
+                result_pos += 1
+            elif char == '」' or char == '』':
+                in_quotation = False
+                result.append(char)
+                char_mapping.append(result_pos)
+                result_pos += 1
+            elif char in punctuation_to_remove and not in_quotation:
+                # 鍵かっこ外の句読点のみ削除（マッピングには含めない）
+                char_mapping.append(-1)  # 削除された文字
+            else:
+                result.append(char)
+                char_mapping.append(result_pos)
+                result_pos += 1
+        
+        return ''.join(result), char_mapping
 
     def _remove_punctuation_except_in_quotation(
         self,
