@@ -324,8 +324,7 @@ class SubtitleGenerator:
                     start_time=subtitle_start,
                     end_time=sentence_end,
                     text_line1=lines[0] if len(lines) > 0 else "",
-                    text_line2=lines[1] if len(lines) > 1 else "",
-                    text_line3=lines[2] if len(lines) > 2 else "",
+                    text_line2=lines[1] if len(lines) > 1 else ""
                 )
                 subtitles.append(subtitle)
         else:
@@ -361,8 +360,7 @@ class SubtitleGenerator:
                     start_time=current_time,
                     end_time=current_time + sentence_duration,
                     text_line1=lines[0] if len(lines) > 0 else "",
-                    text_line2=lines[1] if len(lines) > 1 else "",
-                    text_line3=lines[2] if len(lines) > 2 else "",
+                    text_line2=lines[1] if len(lines) > 1 else ""
                 )
                 subtitles.append(subtitle)
                 
@@ -1321,8 +1319,7 @@ class SubtitleGenerator:
                 start_time=subtitle_start,
                 end_time=subtitle_end,
                 text_line1=lines[0] if len(lines) > 0 else "",
-                text_line2=lines[1] if len(lines) > 1 else "",
-                text_line3=lines[2] if len(lines) > 2 else ""
+                text_line2=lines[1] if len(lines) > 1 else ""
             ))
             subtitle_index += 1
 
