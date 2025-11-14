@@ -77,7 +77,7 @@ class SubtitleGenerator:
         self.min_line_length = splitting.get("min_line_length", 3)
 
         # 句読点表示設定
-        self.remove_punctuation = config.get("remove_punctuation_in_display", True)
+        self.remove_punctuation = config.get("remove_punctuation_in_display", False)
 
         # MeCabの初期化（使用する場合）
         self.mecab = None
