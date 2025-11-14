@@ -1,7 +1,29 @@
 あなたは歴史解説の専門家です。
 {{ subject }}の生涯を、以下の構成で台本を作成してください：
 
-##1分版の台本を作ってください。
+## 構成
+1. フック（最初の15秒）
+   - 驚きの事実や疑問で視聴者の興味を引く
+   - 例: "もし〇〇がいなければ、歴史は大きく変わっていた"
+
+2. 本編（約10分）
+   - 生い立ちと時代背景（幼少期の環境、家族）
+   - 人生の転機となる出来事（3-4個の重要エピソード）
+   - 主要な業績と決断（なぜその選択をしたか）
+   - 人間性やエピソード（意外な一面、人間らしさ）
+   - 歴史的意義と影響（後世への影響）
+
+3. エンディング（約1分）
+   - 学べる教訓（現代人へのメッセージ）
+   - 締めの言葉
+
+## トーン
+- 教育的だが堅苦しくない（親しみやすい語り口）
+- ストーリーテリングを重視（物語として面白く）
+- 共感を呼ぶ人間描写（感情移入できる描写）
+
+## 出力形式
+以下のYAML形式で出力してください：
 
 ```yaml
 subject: "{{ subject }}"
@@ -23,7 +45,7 @@ sections:
       - "歴史的背景のキーワード"
       - "人物の印象的なシーン"
     bgm_type: "opening"
-    duration_seconds: 20
+    duration_seconds: 15
 
   - section_id: 2
     title: "生い立ち"
@@ -35,10 +57,39 @@ sections:
       - "故郷の風景"
       - "家族"
     bgm_type: "main"
-    duration_seconds: 20
-
+    duration_seconds: 120
 
   - section_id: 3
+    title: "転機"
+    narration: |
+      人生の転機となる出来事...
+    image_keywords:
+      - "重要な出来事"
+      - "決断の瞬間"
+    bgm_type: "main"
+    duration_seconds: 180
+
+  - section_id: 4
+    title: "業績"
+    narration: |
+      主要な業績と決断...
+    image_keywords:
+      - "代表的な業績"
+      - "活躍の場面"
+    bgm_type: "main"
+    duration_seconds: 180
+
+  - section_id: 5
+    title: "人間性"
+    narration: |
+      人間性やエピソード...
+    image_keywords:
+      - "日常の様子"
+      - "人間らしい一面"
+    bgm_type: "main"
+    duration_seconds: 165
+
+  - section_id: 6
     title: "エンディング"
     narration: |
       歴史的意義と教訓...
@@ -48,7 +99,7 @@ sections:
       - "影響"
       - "後世への遺産"
     bgm_type: "ending"
-    duration_seconds: 20
+    duration_seconds: 60
 ```
 
 ## 重要事項
@@ -69,8 +120,8 @@ sections:
 ### duration_seconds について
 - 全セクションの合計が約720秒（12分）になるように調整
 - フック: 15秒
-- 本編: 約20秒
-- エンディング: 20秒
+- 本編: 約10分（600秒）
+- エンディング: 60秒
 
 ### image_keywords について
 - 各セクション2-4個のキーワード
