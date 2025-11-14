@@ -1,11 +1,22 @@
-# 偉人動画自動生成システム - 詳細設計書 v4.1
+# 偉人動画自動生成システム - 詳細設計書 v4.2
 
 **作成日**: 2025年10月28日
-**最終更新日**: 2025年11月13日
+**最終更新日**: 2025年11月14日
 **対象読者**: 開発者、AI補助ツール
 **設計方針**: 変更容易性、デバッグ性、フェーズ独立実行を最優先
 
 ## 📋 更新履歴
+
+### v4.2 (2025年11月14日)
+- **Phase 6: 引用符内の句読点保持機能**
+  - **引用符内句読点の保持** - 「」『』内の句読点（。、！？）を削除せず保持
+  - `_remove_punctuation_except_in_quotation`メソッドの追加
+  - 引用符外の句読点のみ削除する仕組み
+  - 引用符内の改行文字（\n）を自動削除
+  - 30文字を超える引用符をカンマで分割
+  - 3行になった引用符を次の字幕に移動
+  - `remove_punctuation_in_display`のデフォルト値をFalseに変更
+  - 複数行にわたる引用符の正確な処理
 
 ### v4.1 (2025年11月13日)
 - **Phase 3: AI画像生成の修正**
@@ -697,6 +708,187 @@ def _split_large_chunk(remaining_chars, max_chars=36):
 
     return split_pos, reason
 ```
+
+#### 📌 引用符内の句読点保持（v4.2の重要機能）
+
+**目的**: 引用符（「」『』）内の句読点を削除せず、原文のまま表示する
+
+**背景**:
+- 従来は全ての句読点（。、！？）を削除していた
+- 引用符内の句読点も削除されてしまい、読みにくかった
+- 「織田信長は言った。天下布武、これが我が目標だ」→「織田信長は言った天下布武これが我が目標だ」
+
+**解決策**:
+- 引用符内の句読点は保持
+- 引用符外の句読点のみ削除
+- 「織田信長は言った「天下布武、これが我が目標だ。」」→「織田信長は言った「天下布武、これが我が目標だ。」」
+
+**設定例（config/phases/subtitle_generation.yaml）**:
+```yaml
+# 句読点は字幕に表示しない（除去する）
+# 🔥 v4.2: デフォルト値はコード内でFalseに変更済み
+# 設定ファイルでtrueを指定しても、引用符内の句読点は保持される
+remove_punctuation_in_display: true
+```
+
+**実装の詳細**:
+
+```python
+# src/phases/phase_06_subtitles.py
+
+def _remove_punctuation_except_in_quotation(
+    self,
+    text: str,
+    punctuation_to_remove: List[str]
+) -> str:
+    """
+    引用符内の句読点は残して削除
+
+    Args:
+        text: 処理対象テキスト
+        punctuation_to_remove: 削除対象の句読点リスト（。、！？）
+
+    Returns:
+        処理後のテキスト
+    """
+    result = []
+    in_quotation = False
+
+    for char in text:
+        if char == '「' or char == '『':
+            in_quotation = True
+            result.append(char)
+        elif char == '」' or char == '』':
+            in_quotation = False
+            result.append(char)
+        elif char in punctuation_to_remove and not in_quotation:
+            # 引用符外の句読点のみ削除
+            continue
+        else:
+            result.append(char)
+
+    return ''.join(result)
+
+def _remove_punctuation_from_subtitles(self, subtitles):
+    """
+    句読点を削除（引用符内は保持）
+
+    削除対象: 。、！？（引用符外のみ）
+    削除しない: 「」『』内の句読点、カギカッコ自体
+    """
+    punctuation_to_remove = ['。', '！', '？', '，', '．']
+
+    cleaned_subtitles = []
+
+    for subtitle in subtitles:
+        # 🔥 NEW: 引用符内の句読点は残す処理
+        line1 = self._remove_punctuation_except_in_quotation(
+            subtitle.text_line1,
+            punctuation_to_remove
+        )
+
+        line2 = ""
+        if subtitle.text_line2:
+            line2 = self._remove_punctuation_except_in_quotation(
+                subtitle.text_line2,
+                punctuation_to_remove
+            )
+
+        # 空の字幕をスキップ
+        if not line1.strip() and not line2.strip():
+            continue
+
+        cleaned_subtitles.append(...)
+
+    return cleaned_subtitles
+```
+
+#### 📌 引用符内の改行処理（v4.2の重要機能）
+
+**目的**: 引用符内の改行文字（\n）を自動削除し、字幕表示を正しくする
+
+**背景**:
+- 台本で「これが\n我が道だ」のように引用符内に改行がある場合
+- 改行を含めて字幕を生成すると表示が崩れる
+- 引用符内の改行は削除し、1つの連続したテキストとして処理すべき
+
+**解決策**:
+- 引用符（「」『』）内の改行文字を自動削除
+- 引用符外の改行は従来通り字幕分割に使用
+- characters配列、start_times、end_times からも該当部分を削除
+
+**実装の詳細**:
+
+```python
+# src/generators/subtitle_generator.py
+
+def generate_subtitles_from_char_timings(self, audio_timing_data):
+    # 🔥 NEW: 引用符内の改行を削除（常に実行）
+    cleaned_characters = []
+    cleaned_start_times = []
+    cleaned_end_times = []
+    in_quotation = False
+
+    for i, char in enumerate(characters):
+        if char == '「' or char == '『':
+            in_quotation = True
+            cleaned_characters.append(char)
+            cleaned_start_times.append(start_times[i])
+            cleaned_end_times.append(end_times[i])
+        elif char == '」' or char == '』':
+            in_quotation = False
+            cleaned_characters.append(char)
+            cleaned_start_times.append(start_times[i])
+            cleaned_end_times.append(end_times[i])
+        elif char == '\n' and in_quotation:
+            # 引用符内の改行はスキップ（タイミングも削除）
+            self.logger.debug(f"Skipping newline inside quotation at index {i}")
+            continue
+        else:
+            cleaned_characters.append(char)
+            cleaned_start_times.append(start_times[i])
+            cleaned_end_times.append(end_times[i])
+
+    # 以降は cleaned_* を使用
+    characters = cleaned_characters
+    start_times = cleaned_start_times
+    end_times = cleaned_end_times
+```
+
+#### 📌 長い引用符の分割処理（v4.2の重要機能）
+
+**目的**: 30文字を超える引用符を適切に分割する
+
+**背景**:
+- 「織田信長は、天下布武を掲げ、延暦寺を焼き討ちにし、長篠の戦いで武田軍を破った。」
+- このような長い引用符は1つの字幕に収まらない
+- カンマ（、）で分割することで読みやすくする
+
+**解決策**:
+- 30文字を超える引用符をカンマ位置で分割
+- 引用符内の句読点分割は行わない（従来の仕様）
+- 3行になった場合、line3を次の字幕に移動
+
+**実装の詳細**:
+
+```python
+# src/generators/subtitle_generator.py
+
+# 長い引用符の分割
+if len(remaining_chars) > 30:
+    # カンマで分割
+    comma_positions = [i for i, c in enumerate(remaining_chars[:30]) if c == '、']
+    if comma_positions:
+        split_pos = comma_positions[-1] + 1  # カンマの直後
+    else:
+        split_pos = 30  # カンマがない場合は30文字で強制分割
+```
+
+**注意事項**:
+- `remove_punctuation_in_display`のデフォルト値は**コード内でFalse**に変更済み
+- 設定ファイルで`true`を指定しても、引用符内の句読点は保持される
+- Phase 6の`phase_06_subtitles.py`が句読点削除処理を管理
+- `SubtitleGenerator`は引用符処理に特化
 
 ---
 
@@ -1397,7 +1589,14 @@ splitting:
   balance_lines: true
   min_line_length: 3
 
-# 句読点除去
+# ========================================
+# 🔥 v4.2: 句読点除去設定
+# ========================================
+# 句読点除去（引用符内は保持）
+# デフォルト値はコード内でFalseに変更済み
+# 設定ファイルでtrueを指定しても、引用符（「」『』）内の句読点は保持される
+# 削除対象: 。！？（引用符外のみ）
+# 保持対象: 引用符内の句読点、カギカッコ自体
 remove_punctuation_in_display: true
 
 # Whisper設定
@@ -1441,6 +1640,13 @@ whisper:
 3. **改行（\n）の活用**
    - 台本で意図的に改行を入れることで、字幕の分割を制御可能
    - 例: `"是非に及ばず\n49歳で散った革命児"`
+   - **注意**: 引用符内の改行は自動削除される（v4.2）
+
+4. **🔥 引用符の使い方（v4.2）**
+   - 引用符内の句読点は自動的に保持される
+   - 長い引用（30文字超）は自動でカンマ分割される
+   - 引用符内に改行を入れても自動削除される
+   - 例: `「天下布武、これが我が道だ。」` → 句読点がそのまま表示される
 
 ---
 
@@ -1480,10 +1686,32 @@ font:
   font_weight: "black"  # "bold" → "black"
 ```
 
+**問題**: 引用符内の句読点が削除されてしまう
+```yaml
+# 🔥 v4.2で解決済み
+# remove_punctuation_in_displayの設定に関わらず、
+# 引用符（「」『』）内の句読点は自動的に保持される
+# コードの修正のみで対応済み、設定変更不要
+```
+
+**問題**: 引用符内に改行があると字幕が崩れる
+```yaml
+# 🔥 v4.2で解決済み
+# 引用符内の改行文字（\n）は自動的に削除される
+# 台本の修正不要、自動処理で対応
+```
+
+**問題**: 長い引用符が1つの字幕に収まらない
+```yaml
+# 🔥 v4.2で解決済み
+# 30文字を超える引用符は自動でカンマ位置で分割される
+# 分割ロジックがカンマを優先して適切に処理
+```
+
 ---
 
-**設計書バージョン**: 4.1
-**最終更新日**: 2025年11月13日
+**設計書バージョン**: 4.2
+**最終更新日**: 2025年11月14日
 **次回レビュー予定**: 新機能追加時
 
 ---
