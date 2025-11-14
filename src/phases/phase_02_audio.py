@@ -98,6 +98,12 @@ class Phase02Audio(PhaseBase):
             # 2. 音声生成器を作成
             generator = self._create_audio_generator()
 
+            # 2.5. ElevenLabs使用時はひらがな変換
+            service = self.phase_config.get("service", "elevenlabs").lower()
+            if service == "elevenlabs":
+                self.logger.info("ElevenLabs detected - converting script to hiragana...")
+                script = self._convert_script_to_hiragana(script)
+
             # 3. with_timestamps が有効かチェック
             use_timestamps = self.phase_config.get("with_timestamps", True)
 
@@ -748,6 +754,129 @@ class Phase02Audio(PhaseBase):
         
         self.save_metadata(metadata, "metadata.json")
         self.logger.info("Generation metadata saved")
+
+    def _convert_script_to_hiragana(self, script: VideoScript) -> VideoScript:
+        """
+        台本全体をひらがなに変換（ElevenLabs用）
+
+        Args:
+            script: 元の台本
+
+        Returns:
+            ひらがな変換後の台本
+
+        Raises:
+            PhaseExecutionError: 変換失敗時
+        """
+        self.logger.info("Converting script to hiragana for ElevenLabs...")
+
+        try:
+            # Claude APIキーを取得
+            claude_api_key = self.config.get_api_key("CLAUDE_API_KEY")
+
+            # 台本全体のナレーションを結合
+            all_narrations = []
+            for section in script.sections:
+                all_narrations.append(f"[Section {section.section_id}]\n{section.narration}")
+
+            full_text = "\n\n".join(all_narrations)
+
+            # Claude APIでひらがな変換
+            hiragana_text = self._convert_to_hiragana_via_claude(
+                full_text,
+                claude_api_key
+            )
+
+            # セクションごとに分割して台本に戻す
+            hiragana_sections = hiragana_text.split("[Section")
+
+            for i, section in enumerate(script.sections):
+                if i + 1 < len(hiragana_sections):
+                    # セクション番号を除去してナレーションを取得
+                    section_text = hiragana_sections[i + 1]
+                    # "]" の後のテキストを取得（section_id部分をスキップ）
+                    if "]" in section_text:
+                        section_text = section_text.split("]", 1)[1].strip()
+                        section.narration = section_text
+                    else:
+                        self.logger.warning(f"Failed to parse hiragana text for section {section.section_id}")
+
+            self.logger.info("✓ Hiragana conversion completed")
+            return script
+
+        except Exception as e:
+            self.logger.error(f"Hiragana conversion failed: {e}")
+            self.logger.warning("Using original text without conversion")
+            # エラー時は元のscriptを返す
+            return script
+
+    def _convert_to_hiragana_via_claude(
+        self,
+        text: str,
+        api_key: str
+    ) -> str:
+        """
+        Claude APIでひらがな変換
+
+        Args:
+            text: 元のテキスト
+            api_key: Claude APIキー
+
+        Returns:
+            ひらがな変換後のテキスト
+
+        Raises:
+            Exception: API呼び出し失敗時
+        """
+        import anthropic
+
+        client = anthropic.Anthropic(api_key=api_key)
+
+        prompt = f"""以下の日本語テキストを、すべてひらがなに変換してください。
+
+【変換ルール】
+1. 漢字、カタカナをすべてひらがなに変換
+2. 句読点（。、！？）はそのまま保持
+3. 改行もそのまま保持
+4. [Section N] のようなマーカーもそのまま保持
+5. 数字は「いち」「に」「さん」などひらがなに変換
+6. 英数字が含まれる場合は、読み方をひらがなに変換
+
+【入力テキスト】
+\"\"\"
+{text}
+\"\"\"
+
+【出力】
+変換後のひらがなテキストのみを出力してください。
+説明や前置きは一切不要です。
+マーカー [Section N] は必ず保持してください。
+"""
+
+        try:
+            message = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=8000,
+                temperature=0,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ]
+            )
+
+            hiragana_text = message.content[0].text.strip()
+
+            # 不要な装飾を除去
+            hiragana_text = hiragana_text.replace('```', '').replace('"""', '').strip()
+
+            self.logger.info("✓ Hiragana conversion completed")
+            self.logger.debug(f"Original length: {len(text)} chars")
+            self.logger.debug(f"Converted length: {len(hiragana_text)} chars")
+
+            return hiragana_text
+
+        except Exception as e:
+            self.logger.error(f"Hiragana conversion API call failed: {e}")
+            raise
 
 
 # ========================================

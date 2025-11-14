@@ -5,10 +5,12 @@ Claude APIを使用して構造化された台本を生成する。
 """
 
 import json
+import yaml
 import sys
 from pathlib import Path
 from typing import Any, Optional
 import logging
+from datetime import datetime
 
 # プロジェクトルートをパスに追加
 if __name__ == "__main__":
@@ -24,6 +26,21 @@ from src.core.exceptions import (
     ClaudeAPIError
 )
 from src.generators.script_generator import create_script_generator
+
+# ScriptNormalizerをimport
+try:
+    from scripts.convert_manual_script import ScriptNormalizer
+except ImportError:
+    # フォールバック: 簡易版のnormalizer
+    class ScriptNormalizer:
+        @staticmethod
+        def normalize(data: dict) -> dict:
+            return data
+
+try:
+    import anthropic
+except ImportError:
+    anthropic = None
 
 
 class Phase01Script(PhaseBase):
@@ -82,13 +99,18 @@ class Phase01Script(PhaseBase):
             self._save_generation_metadata(manual_script)
             return manual_script
 
-        # === 自動生成処理 ===
+        # === ジャンル指定時はYAML→JSON変換フローを使用 ===
+        if self.genre:
+            self.logger.info(f"Generating script with genre: {self.genre}")
+            return self._execute_genre_generation()
+
+        # === 自動生成処理（従来の方法） ===
         self.logger.info(f"Generating script via API for: {self.subject}")
 
         try:
             # APIキーを取得
             api_key = self._get_api_key()
-            
+
             # 台本生成器を作成
             generator = create_script_generator(
                 api_key=api_key,
@@ -96,24 +118,24 @@ class Phase01Script(PhaseBase):
                 use_dummy=not api_key,  # APIキーがなければダミー使用
                 logger=self.logger
             )
-            
+
             # 台本を生成
             script_data = generator.generate(
                 subject=self.subject,
                 config=self.phase_config
             )
-            
+
             # Pydanticモデルに変換
             script = self._convert_to_model(script_data)
-            
+
             # ファイルに保存
             self._save_script(script)
-            
+
             # メタデータを保存
             self._save_generation_metadata(script)
-            
+
             return script
-            
+
         except Exception as e:
             raise PhaseExecutionError(
                 self.get_phase_number(),
@@ -360,28 +382,275 @@ class Phase01Script(PhaseBase):
     def load_script(self) -> Optional[VideoScript]:
         """
         保存済みの台本を読み込み
-        
+
         Returns:
             VideoScript または None（存在しない場合）
         """
         script_path = self.phase_dir / "script.json"
-        
+
         if not script_path.exists():
             return None
-        
+
         try:
             with open(script_path, 'r', encoding='utf-8') as f:
                 script_data = json.load(f)
-            
+
             # Pydanticモデルに変換
             script = self._convert_to_model(script_data)
-            
+
             self.logger.info(f"Script loaded: {script_path}")
             return script
-            
+
         except Exception as e:
             self.logger.error(f"Failed to load script: {e}")
             return None
+
+    def _execute_genre_generation(self) -> VideoScript:
+        """
+        ジャンル指定時の自動生成（YAML→JSON変換フロー）
+
+        フロー:
+        1. Claude APIでYAML生成
+        2. YAMLをファイルに保存（data/input/manual_scripts/）
+        3. YAML→JSON変換
+        4. JSONを保存
+
+        Returns:
+            VideoScript: 生成された台本
+
+        Raises:
+            PhaseExecutionError: 生成失敗時
+        """
+        try:
+            # 1. プロンプトテンプレートを読み込み
+            genre_config = self.config.get_genre_config(self.genre)
+            template_path = self.config.project_root / genre_config["prompts"]["script"]
+
+            self.logger.info(f"Loading prompt template: {template_path}")
+
+            # Jinja2テンプレートを読み込み
+            from jinja2 import Template
+            with open(template_path, 'r', encoding='utf-8') as f:
+                template = Template(f.read())
+
+            prompt = template.render(subject=self.subject)
+
+            # 2. Claude APIでYAML生成
+            self.logger.info("Calling Claude API to generate YAML script...")
+            yaml_content = self._call_claude_api_for_yaml(prompt)
+
+            # 3. YAMLファイルを保存
+            yaml_path = self._save_yaml_to_manual_scripts(yaml_content)
+
+            # 4. YAMLをパース
+            script_dict = yaml.safe_load(yaml_content)
+
+            # 5. YAML→JSON変換（ScriptNormalizerを使用）
+            self.logger.info("Normalizing script...")
+            script_dict = ScriptNormalizer.normalize(script_dict)
+
+            # 6. JSONを保存
+            json_path = self._save_script_as_json(script_dict)
+
+            # 7. Pydanticモデルに変換
+            script = self._convert_yaml_dict_to_model(script_dict)
+
+            # 8. メタデータを保存
+            self._save_generation_metadata(script)
+
+            self.logger.info(f"✅ Script generated successfully")
+            self.logger.info(f"  - YAML: {yaml_path}")
+            self.logger.info(f"  - JSON: {json_path}")
+
+            return script
+
+        except Exception as e:
+            self.logger.error(f"Genre generation failed: {e}", exc_info=True)
+            raise PhaseExecutionError(
+                self.get_phase_number(),
+                f"Genre generation failed: {e}"
+            ) from e
+
+    def _call_claude_api_for_yaml(self, prompt: str) -> str:
+        """
+        Claude APIでYAML台本を生成
+
+        Args:
+            prompt: プロンプト文字列
+
+        Returns:
+            YAML形式のテキスト
+
+        Raises:
+            PhaseExecutionError: API呼び出し失敗時
+        """
+        if anthropic is None:
+            raise PhaseExecutionError(
+                self.get_phase_number(),
+                "anthropic package is required. Install with: pip install anthropic"
+            )
+
+        try:
+            # APIキーを取得
+            api_key = self.config.get_api_key("CLAUDE_API_KEY")
+            client = anthropic.Anthropic(api_key=api_key)
+
+            # API呼び出し
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=8000,
+                temperature=1.0,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ]
+            )
+
+            # レスポンスからテキスト抽出
+            yaml_text = response.content[0].text
+
+            # ```yaml ``` で囲まれている場合は除去
+            if "```yaml" in yaml_text:
+                yaml_text = yaml_text.split("```yaml")[1].split("```")[0].strip()
+            elif "```" in yaml_text:
+                yaml_text = yaml_text.split("```")[1].split("```")[0].strip()
+
+            return yaml_text
+
+        except Exception as e:
+            self.logger.error(f"Claude API call failed: {e}")
+            raise PhaseExecutionError(
+                self.get_phase_number(),
+                f"Claude API call failed: {e}"
+            ) from e
+
+    def _save_yaml_to_manual_scripts(self, yaml_content: str) -> Path:
+        """
+        YAMLを data/input/manual_scripts/ に保存
+
+        Args:
+            yaml_content: YAML文字列
+
+        Returns:
+            保存先のPath
+        """
+        input_dir = self.config.get_path("input_dir")
+        manual_scripts_dir = input_dir / "manual_scripts"
+        manual_scripts_dir.mkdir(parents=True, exist_ok=True)
+
+        yaml_path = manual_scripts_dir / f"{self.subject}.yaml"
+
+        with open(yaml_path, 'w', encoding='utf-8') as f:
+            f.write(yaml_content)
+
+        self.logger.info(f"YAML saved: {yaml_path}")
+        return yaml_path
+
+    def _save_script_as_json(self, script_dict: dict) -> Path:
+        """
+        正規化済み台本をJSONとして保存
+
+        Args:
+            script_dict: 正規化済み台本データ
+
+        Returns:
+            保存先のPath
+        """
+        # サムネイル情報の取得
+        thumbnail_data = script_dict.get("thumbnail")
+        if thumbnail_data is None:
+            self.logger.warning("thumbnail field not found, using fallback")
+            thumbnail = {
+                "upper_text": script_dict["subject"],
+                "lower_text": ""
+            }
+        else:
+            thumbnail = {
+                "upper_text": thumbnail_data.get("upper_text", script_dict["subject"]),
+                "lower_text": thumbnail_data.get("lower_text", "")
+            }
+
+        # JSON形式に変換
+        script_json = {
+            "subject": script_dict["subject"],
+            "title": script_dict["title"],
+            "description": script_dict["description"],
+            "thumbnail": thumbnail,
+            "sections": [],
+            "total_estimated_duration": 0,
+            "generated_at": datetime.now().isoformat(),
+            "model_version": f"genre_{self.genre}_v1"
+        }
+
+        # セクションを変換
+        for section in script_dict["sections"]:
+            narration_text = section.get("narration", "")
+
+            script_json["sections"].append({
+                "section_id": section.get("section_id", 0),
+                "title": section.get("title", ""),
+                "narration": narration_text,
+                "estimated_duration": float(section.get("duration", 0)),
+                "image_keywords": section.get("keywords", []),
+                "atmosphere": section.get("atmosphere", ""),
+                "requires_ai_video": False,
+                "ai_video_prompt": None,
+                "bgm_suggestion": section.get("bgm", "")
+            })
+
+            script_json["total_estimated_duration"] += section.get("duration", 0)
+
+        # JSONファイルに保存
+        json_path = self.phase_dir / "script.json"
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(script_json, f, indent=2, ensure_ascii=False)
+
+        self.logger.info(f"JSON saved: {json_path}")
+        return json_path
+
+    def _convert_yaml_dict_to_model(self, script_dict: dict) -> VideoScript:
+        """
+        YAML辞書データをPydanticモデルに変換
+
+        Args:
+            script_dict: 正規化済みYAMLデータ
+
+        Returns:
+            VideoScript モデル
+        """
+        # セクションを変換（フィールド名をマッピング）
+        sections = [
+            ScriptSection(
+                section_id=section.get("section_id", 0),
+                title=section.get("title", ""),
+                narration=section.get("narration", ""),
+                estimated_duration=float(section.get("duration", 0)),
+                image_keywords=section.get("keywords", []),
+                atmosphere=section.get("atmosphere", ""),
+                requires_ai_video=section.get("requires_ai_video", False),
+                ai_video_prompt=section.get("ai_video_prompt"),
+                bgm_suggestion=section.get("bgm", "main")
+            )
+            for section in script_dict.get("sections", [])
+        ]
+
+        # 総時間を計算
+        total_duration = sum(section.get("duration", 0) for section in script_dict.get("sections", []))
+
+        # VideoScriptを作成
+        script = VideoScript(
+            subject=script_dict["subject"],
+            title=script_dict["title"],
+            description=script_dict["description"],
+            sections=sections,
+            total_estimated_duration=total_duration,
+            model_version=f"genre_{self.genre}_v1",
+            thumbnail=script_dict.get("thumbnail")
+        )
+
+        return script
 
 
 # ========================================
