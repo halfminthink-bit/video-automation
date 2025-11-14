@@ -665,10 +665,8 @@ class Phase06Subtitles(PhaseBase):
                 characters, char_start_times, char_end_times, offset
             )
 
-            # display_text を '。' で分割
-            display_sentences_text = display_text.split('。')
-            # 空文字列を削除し、'。'を再度付加
-            display_sentences_text = [s + '。' for s in display_sentences_text if s.strip()]
+            # display_text を '。' で分割（鍵かっこ内は無視）
+            display_sentences_text = self._split_by_period_smart(display_text)
 
             # display_text で置き換え
             sentences = []
@@ -867,6 +865,48 @@ class Phase06Subtitles(PhaseBase):
 
         return groups
 
+    def _split_by_period_smart(self, text: str) -> List[str]:
+        """
+        「。」で分割するが、鍵かっこ内の「。」は無視
+        
+        Args:
+            text: 分割するテキスト
+        
+        Returns:
+            分割された文のリスト（各文に「。」が含まれる）
+        
+        Examples:
+            >>> _split_by_period_smart("こんにちは。元気ですか。")
+            ['こんにちは。', '元気ですか。']
+            
+            >>> _split_by_period_smart("「見てくれ。太陽は動いている」と言った。")
+            ['「見てくれ。太陽は動いている」', 'と言った。']
+        """
+        sentences = []
+        current = ""
+        in_quotation = False
+        
+        for char in text:
+            current += char
+            
+            # 鍵かっこの開閉を追跡
+            if char == '「':
+                in_quotation = True
+            elif char == '」':
+                in_quotation = False
+            
+            # 句点で分割（ただし鍵かっこ内は除く）
+            elif char == '。' and not in_quotation:
+                if current.strip():
+                    sentences.append(current)
+                current = ""
+        
+        # 残りを追加
+        if current.strip():
+            sentences.append(current)
+        
+        return sentences
+
     def _split_by_period_with_timing(
         self,
         characters: List[str],
@@ -876,6 +916,8 @@ class Phase06Subtitles(PhaseBase):
     ) -> List[Dict[str, Any]]:
         """
         文字列を句読点「。」で分割し、各文のタイミング情報を付与
+        
+        ただし、鍵かっこ内の「。」では分割しない。
 
         Returns:
             [{'text': str, 'start_time': float, 'end_time': float,
@@ -885,6 +927,7 @@ class Phase06Subtitles(PhaseBase):
         current_sentence = ""
         sentence_start_time = None
         sentence_char_data = []
+        in_quotation = False  # 鍵かっこ内フラグ
 
         for i, char in enumerate(characters):
             if i >= len(char_start_times) or i >= len(char_end_times):
@@ -899,9 +942,15 @@ class Phase06Subtitles(PhaseBase):
             current_sentence += char
             sentence_char_data.append((char, char_start, char_end))
 
-            # 「。」で文を区切る
+            # 鍵かっこの開閉を追跡
+            if char == '「':
+                in_quotation = True
+            elif char == '」':
+                in_quotation = False
+
+            # 「。」で文を区切る（ただし鍵かっこ内は除く）
             # 修正: char が複数文字の場合も考慮して endswith を使用
-            if char.endswith('。'):
+            if char.endswith('。') and not in_quotation:
                 # ✅ 修正: 現在の文の終了時刻を次の文字の開始時刻に設定
                 # 句点後の間隔（約1秒）中も字幕を表示し続ける
                 if i + 1 < len(char_start_times):
