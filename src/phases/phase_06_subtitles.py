@@ -1875,8 +1875,8 @@ class Phase06Subtitles(PhaseBase):
         重要: 分割ロジックの後に実行すること
         分割位置の判定には句読点を使うため、削除は最後に行う
 
-        削除対象: 。、！？，．
-        削除しない: 「」『』・～…（カギカッコや中点等）
+        削除対象: 。、！？，．（ただし鍵かっこ内は除く）
+        削除しない: 「」『』・～…（カギカッコや中点等）、鍵かっこ内の句読点
 
         Args:
             subtitles: 句読点を含む字幕リスト
@@ -1884,21 +1884,24 @@ class Phase06Subtitles(PhaseBase):
         Returns:
             句読点を削除した字幕リスト
         """
-        # 削除対象の句読点（「、」は残す）
+        # 削除対象の句読点
         punctuation_to_remove = ['。', '！', '？', '，', '．']
 
         cleaned_subtitles = []
 
         for subtitle in subtitles:
-            # 各行から句読点を削除
-            line1 = subtitle.text_line1
-            for punct in punctuation_to_remove:
-                line1 = line1.replace(punct, '')
-
-            line2 = subtitle.text_line2
-            if line2:
-                for punct in punctuation_to_remove:
-                    line2 = line2.replace(punct, '')
+            # 🔥 NEW: 鍵かっこ内の句読点は残す処理
+            line1 = self._remove_punctuation_except_in_quotation(
+                subtitle.text_line1,
+                punctuation_to_remove
+            )
+            
+            line2 = ""
+            if subtitle.text_line2:
+                line2 = self._remove_punctuation_except_in_quotation(
+                    subtitle.text_line2,
+                    punctuation_to_remove
+                )
 
             # 空の字幕をスキップ（句読点のみの行が削除されて空になった場合）
             if not line1.strip() and not line2.strip():
@@ -1922,6 +1925,39 @@ class Phase06Subtitles(PhaseBase):
 
         self.logger.info(f"Removed punctuation from {len(cleaned_subtitles)} subtitles")
         return cleaned_subtitles
+
+    def _remove_punctuation_except_in_quotation(
+        self,
+        text: str,
+        punctuation_to_remove: List[str]
+    ) -> str:
+        """
+        鍵かっこ内の句読点は残して削除
+        
+        Args:
+            text: 処理対象テキスト
+            punctuation_to_remove: 削除対象の句読点リスト
+        
+        Returns:
+            処理後のテキスト
+        """
+        result = []
+        in_quotation = False
+        
+        for char in text:
+            if char == '「' or char == '『':
+                in_quotation = True
+                result.append(char)
+            elif char == '」' or char == '』':
+                in_quotation = False
+                result.append(char)
+            elif char in punctuation_to_remove and not in_quotation:
+                # 鍵かっこ外の句読点のみ削除
+                continue
+            else:
+                result.append(char)
+        
+        return ''.join(result)
 
     def _save_generation_metadata(self, subtitle_gen: SubtitleGeneration):
         """
