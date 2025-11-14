@@ -497,6 +497,11 @@ class Phase06Subtitles(PhaseBase):
         if quotation_info is not None:
             # 鍵かっこがある場合は専用ロジックで処理
             self.logger.debug(f"Quotation detected: {text[:30]}...")
+            self.logger.debug(
+                f"Quotation analysis: "
+                f"inner_length={quotation_info['inner_length']}, "
+                f"full='{quotation_info['full']}'"
+            )
             return self._split_sentence_with_quotation(sentence, max_chars, quotation_info)
         # ========== 【新規追加】鍵かっこチェック（ここまで） ==========
 
@@ -697,6 +702,7 @@ class Phase06Subtitles(PhaseBase):
             for sentence in sentences:
                 sentence_text = sentence['text']
                 sentence_len = len(sentence_text)
+                self.logger.debug(f"Processing sentence: '{sentence_text[:50]}...'")
 
                 # 鍵かっこの有無をチェック
                 has_quotation = '「' in sentence_text and '」' in sentence_text
@@ -896,7 +902,18 @@ class Phase06Subtitles(PhaseBase):
                 in_quotation = False
             
             # 句点で分割（ただし鍵かっこ内は除く）
-            elif char == '。' and not in_quotation:
+            if char == '。':
+                self.logger.debug(
+                    f"Period in display_text: in_quotation={in_quotation}, "
+                    f"current='{current[:30]}...'"
+                )
+                
+                if not in_quotation:
+                    self.logger.debug(f"  → Splitting")
+                else:
+                    self.logger.debug(f"  → Not splitting (inside quotation)")
+            
+            if char == '。' and not in_quotation:
                 if current.strip():
                     sentences.append(current)
                 current = ""
@@ -950,6 +967,17 @@ class Phase06Subtitles(PhaseBase):
 
             # 「。」で文を区切る（ただし鍵かっこ内は除く）
             # 修正: char が複数文字の場合も考慮して endswith を使用
+            if char.endswith('。'):
+                self.logger.debug(
+                    f"Period detected at pos {i}: char='{char}', "
+                    f"in_quotation={in_quotation}, current='{current_sentence[:30]}...'"
+                )
+                
+                if not in_quotation:
+                    self.logger.debug(f"  → Splitting sentence")
+                else:
+                    self.logger.debug(f"  → Not splitting (inside quotation)")
+            
             if char.endswith('。') and not in_quotation:
                 # ✅ 修正: 現在の文の終了時刻を次の文字の開始時刻に設定
                 # 句点後の間隔（約1秒）中も字幕を表示し続ける

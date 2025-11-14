@@ -87,7 +87,7 @@ def write_error_log(config: ConfigManager, subject: str, phase_number: int, erro
     return error_log_path
 
 
-def run_phase(subject: str, phase_number: int, skip_if_exists: bool = False, use_auto_script: bool = False) -> int:
+def run_phase(subject: str, phase_number: int, skip_if_exists: bool = False, use_auto_script: bool = False, verbose: bool = False) -> int:
     """
     指定されたフェーズを実行
 
@@ -104,10 +104,11 @@ def run_phase(subject: str, phase_number: int, skip_if_exists: bool = False, use
     config = ConfigManager()
 
     # ロガーを設定
+    log_level = "DEBUG" if verbose else "INFO"
     logger = setup_logger(
         name=f"cli_phase{phase_number}_{subject}",
         log_dir=config.get_path("logs_dir"),
-        level="INFO"
+        level=log_level
     )
 
     # フェーズクラスのマッピング
@@ -478,6 +479,11 @@ Examples:
         action="store_true",
         help="Use automatic script generation (Phase 1 only)"
     )
+    run_parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable verbose (DEBUG) logging"
+    )
 
     # 引数をパース
     args = parser.parse_args()
@@ -505,7 +511,8 @@ Examples:
             subject=args.subject,
             phase_number=args.phase,
             skip_if_exists=args.skip_if_exists,
-            use_auto_script=args.auto
+            use_auto_script=args.auto,
+            verbose=args.verbose
         )
 
     return 0
