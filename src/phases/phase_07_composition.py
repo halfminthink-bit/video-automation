@@ -82,7 +82,7 @@ class Phase07Composition(PhaseBase):
         self.subtitle_size = subtitle_config.get("font_size", 60)
         self.subtitle_color = subtitle_config.get("color", "white")
         self.subtitle_position = subtitle_config.get("position", "bottom")
-        self.subtitle_margin = subtitle_config.get("margin_bottom", 80)
+        self.subtitle_margin = subtitle_config.get("margin_bottom", 150)
 
         # 二分割レイアウト設定
         self.split_config = self.phase_config.get("split_layout", {})
@@ -720,9 +720,9 @@ class Phase07Composition(PhaseBase):
                 # ImageClipを作成
                 img_clip = ImageClip(img_array, duration=subtitle.end_time - subtitle.start_time)
                 img_clip = img_clip.with_start(subtitle.start_time)
-                
-                # 画面下部に配置
-                img_clip = img_clip.with_position(('center', self.resolution[1] - img_height - 20))
+
+                # 画面下部に配置（設定値を使用）
+                img_clip = img_clip.with_position(('center', self.resolution[1] - img_height - self.subtitle_margin))
                 
                 subtitle_clips.append(img_clip)
                 
