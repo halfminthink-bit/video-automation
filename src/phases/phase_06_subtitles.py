@@ -132,6 +132,10 @@ class Phase06Subtitles(PhaseBase):
                 subtitles = generator.generate_subtitles_from_char_timings(
                     audio_timing_data=audio_timing_data
                 )
+                
+                # 3行字幕を修正（鍵かっこの場合のみ）
+                subtitles = self._fix_three_line_quotations(subtitles)
+                self.logger.info("Fixed 3-line quotations")
             else:
                 # フォールバック：Whisperまたは文字数比率を使用
                 self.logger.warning("Audio timing data not found, using fallback method")
@@ -1787,6 +1791,79 @@ class Phase06Subtitles(PhaseBase):
             f"Subtitle timing adjustment complete: {extended_count}/{len(subtitles)} subtitles extended"
         )
         return adjusted
+
+    def _fix_three_line_quotations(
+        self,
+        subtitles: List[SubtitleEntry]
+    ) -> List[SubtitleEntry]:
+        """
+        鍵かっこ内で3行になっている字幕を修正
+        
+        3行目がある場合:
+        - 3行目を次の字幕の1行目に移動
+        - 鍵かっこの場合のみ適用
+        
+        Args:
+            subtitles: 字幕リスト
+        
+        Returns:
+            修正後の字幕リスト
+        """
+        fixed_subtitles = []
+        carry_over_text = ""  # 次の字幕に繰り越すテキスト
+        
+        for i, subtitle in enumerate(subtitles):
+            # 前の字幕からの繰り越しがある場合
+            if carry_over_text:
+                # 現在の字幕の1行目に追加
+                subtitle.text_line1 = carry_over_text + subtitle.text_line1
+                carry_over_text = ""
+            
+            # 3行目があるかチェック
+            if subtitle.text_line3:
+                # 鍵かっこがある場合のみ処理
+                full_text = subtitle.text_line1 + subtitle.text_line2 + subtitle.text_line3
+                
+                if '「' in full_text or '」' in full_text:
+                    self.logger.debug(
+                        f"Found 3-line quotation at subtitle {subtitle.index}, "
+                        f"moving line3 to next subtitle"
+                    )
+                    
+                    # 3行目を次の字幕に繰り越し
+                    carry_over_text = subtitle.text_line3
+                    
+                    # 現在の字幕は2行に修正
+                    new_subtitle = SubtitleEntry(
+                        index=subtitle.index,
+                        start_time=subtitle.start_time,
+                        end_time=subtitle.end_time,
+                        text_line1=subtitle.text_line1,
+                        text_line2=subtitle.text_line2
+                    )
+                    fixed_subtitles.append(new_subtitle)
+                else:
+                    # 鍵かっこがない場合はそのまま
+                    fixed_subtitles.append(subtitle)
+            else:
+                # 3行目がない場合はそのまま
+                fixed_subtitles.append(subtitle)
+        
+        # 最後に繰り越しが残っている場合（通常はありえない）
+        if carry_over_text:
+            self.logger.warning(f"Carry-over text remains: {carry_over_text}")
+            # 最後の字幕に追加
+            if fixed_subtitles:
+                last_subtitle = fixed_subtitles[-1]
+                fixed_subtitles[-1] = SubtitleEntry(
+                    index=last_subtitle.index,
+                    start_time=last_subtitle.start_time,
+                    end_time=last_subtitle.end_time,
+                    text_line1=last_subtitle.text_line1 + carry_over_text,
+                    text_line2=last_subtitle.text_line2
+                )
+        
+        return fixed_subtitles
 
     def _remove_punctuation_from_subtitles(
         self,
