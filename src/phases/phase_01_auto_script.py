@@ -333,10 +333,20 @@ class Phase01AutoScript(PhaseBase):
         Returns:
             VideoScript モデル
         """
-        # セクションを変換
+        # セクションを変換（フィールド名をマッピング）
         sections = [
-            ScriptSection(**section_data)
-            for section_data in script_dict.get("sections", [])
+            ScriptSection(
+                section_id=section.get("section_id", 0),
+                title=section.get("title", ""),
+                narration=section.get("narration", ""),
+                estimated_duration=float(section.get("duration", 0)),
+                image_keywords=section.get("keywords", []),
+                atmosphere=section.get("atmosphere", ""),
+                requires_ai_video=section.get("requires_ai_video", False),
+                ai_video_prompt=section.get("ai_video_prompt"),
+                bgm_suggestion=section.get("bgm", "main")
+            )
+            for section in script_dict.get("sections", [])
         ]
 
         # VideoScriptを作成
