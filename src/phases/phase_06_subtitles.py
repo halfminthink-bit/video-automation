@@ -700,12 +700,18 @@ class Phase06Subtitles(PhaseBase):
                 sentence_text = sentence['text']
                 sentence_len = len(sentence_text)
 
-                # 長い文（36文字超）→ 分割
-                if sentence_len > max_chars_per_subtitle:
-                    self.logger.debug(f"Long sentence ({sentence_len} chars), splitting...")
+                # 鍵かっこの有無をチェック
+                has_quotation = '「' in sentence_text and '」' in sentence_text
+
+                # 長い文、または鍵かっこがある文 → 分割処理
+                if sentence_len > max_chars_per_subtitle or has_quotation:
+                    if has_quotation:
+                        self.logger.debug(f"Sentence with quotation ({sentence_len} chars), using special logic...")
+                    else:
+                        self.logger.debug(f"Long sentence ({sentence_len} chars), splitting...")
                     sentence_parts = self._split_long_sentence(sentence, max_chars_per_subtitle)
                 else:
-                    # 短い文（36文字以内）→ そのまま
+                    # 短い文かつ鍵かっこなし → そのまま
                     sentence_parts = [sentence]
 
                 # ステップ3: 各パートを字幕に変換
