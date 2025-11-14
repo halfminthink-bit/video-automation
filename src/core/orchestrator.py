@@ -35,11 +35,19 @@ class PhaseOrchestrator:
     def __init__(
         self,
         config: ConfigManager,
-        logger: Optional[logging.Logger] = None
+        logger: Optional[logging.Logger] = None,
+        genre: Optional[str] = None,
+        audio_var: Optional[str] = None,
+        text_layout: Optional[str] = None,
+        thumbnail_style: Optional[str] = None
     ):
         self.config = config
         self.logger = logger or logging.getLogger(__name__)
         self.console = Console()
+        self.genre = genre
+        self.audio_var = audio_var
+        self.text_layout = text_layout
+        self.thumbnail_style = thumbnail_style
 
     def run_all_phases(
         self,
@@ -153,14 +161,14 @@ class PhaseOrchestrator:
         working_dir = self.config.get_path("working_dir") / subject
 
         return [
-            Phase01Script(subject=subject, config=self.config, logger=self.logger),
-            Phase02Audio(subject=subject, config=self.config, logger=self.logger),
-            Phase03Images(subject=subject, config=self.config, logger=self.logger),
+            Phase01Script(subject=subject, config=self.config, logger=self.logger, genre=self.genre),
+            Phase02Audio(subject=subject, config=self.config, logger=self.logger, audio_var=self.audio_var),
+            Phase03Images(subject=subject, config=self.config, logger=self.logger, genre=self.genre),
             Phase04Animation(subject=subject, config=self.config, logger=self.logger),
             Phase05BGM(subject=subject, config=self.config, logger=self.logger),
             Phase06Subtitles(subject=subject, config=self.config, logger=self.logger),
             Phase07Composition(subject=subject, config=self.config, logger=self.logger),
-            Phase08Thumbnail(subject=subject, config=self.config, logger=self.logger),
+            Phase08Thumbnail(subject=subject, config=self.config, logger=self.logger, genre=self.genre, text_layout=self.text_layout, style=self.thumbnail_style),
             Phase09YouTube(subject=subject, config=self.config, logger=self.logger),
         ]
 
