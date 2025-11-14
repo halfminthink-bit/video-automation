@@ -499,6 +499,15 @@ class Phase06Subtitles(PhaseBase):
         """
         text = sentence['text']
 
+        # ========== 【新規追加】鍵かっこチェック（ここから） ==========
+        quotation_info = self._analyze_quotation(text)
+
+        if quotation_info is not None:
+            # 鍵かっこがある場合は専用ロジックで処理
+            self.logger.debug(f"Quotation detected, using quotation-aware splitting: {text[:30]}...")
+            return self._split_sentence_with_quotation(sentence, max_chars, quotation_info)
+        # ========== 【新規追加】鍵かっこチェック（ここまで） ==========
+
         # 新規追加: 「...」。パターンのチェック
         # 正規表現: 「で始まり」で終わる（句点の有無は問わない）
         import re
@@ -1392,6 +1401,187 @@ class Phase06Subtitles(PhaseBase):
             return 'kanji'
 
         return 'other'
+
+    def _analyze_quotation(self, text: str) -> Optional[Dict[str, Any]]:
+        """
+        鍵かっこを分析（新規メソッド）
+
+        Args:
+            text: 分析対象のテキスト
+
+        Returns:
+            鍵かっこ情報の辞書、または None
+            {
+                'start': int,      # 「の位置
+                'end': int,        # 」の位置
+                'length': int,     # 「...」全体の長さ
+                'inner_text': str, # 「」の中身
+                'before': str,     # 「の前のテキスト
+                'after': str       # 」の後のテキスト
+            }
+        """
+        # 「と」を探す
+        start = text.find('「')
+        end = text.find('」')
+
+        # 鍵かっこがない、または不完全な場合はNone
+        if start == -1 or end == -1 or start >= end:
+            return None
+
+        # 複数の鍵かっこがある場合は最初の1組のみ処理
+        # （複雑なケースは既存ロジックに任せる）
+
+        inner_text = text[start+1:end]
+        quotation_full = text[start:end+1]  # 「...」全体
+
+        return {
+            'start': start,
+            'end': end,
+            'length': len(quotation_full),
+            'inner_text': inner_text,
+            'inner_length': len(inner_text),
+            'before': text[:start].strip(),
+            'after': text[end+1:].strip(),
+            'full': quotation_full
+        }
+
+    def _split_sentence_with_quotation(
+        self,
+        sentence: Dict,
+        max_chars: int,
+        quotation_info: Dict[str, Any]
+    ) -> List[Dict]:
+        """
+        鍵かっこを含む文を分割（新規メソッド）
+
+        Args:
+            sentence: 文の情報 {'text': str, 'start_time': float, 'end_time': float, ...}
+            max_chars: 最大文字数（36）
+            quotation_info: _analyze_quotation の結果
+
+        Returns:
+            分割された文のリスト
+        """
+        text = sentence['text']
+        q_info = quotation_info
+
+        # ケース1: 短い鍵かっこ（≤18文字）→ 前後とまとめる
+        if q_info['inner_length'] <= 18:
+            # 前の文と鍵かっこをまとめて36文字以内か確認
+            combined_before = q_info['before'] + q_info['full']
+
+            if len(combined_before) <= max_chars:
+                # まとめられる場合
+                parts = []
+
+                # パート1: 前文 + 鍵かっこ
+                if combined_before.strip():
+                    parts.append({
+                        'text': combined_before,
+                        'start_time': sentence['start_time'],
+                        'end_time': sentence['end_time'],
+                        'char_data': sentence.get('char_data', [])
+                    })
+
+                # パート2: 後ろの文
+                if q_info['after']:
+                    parts.append({
+                        'text': q_info['after'],
+                        'start_time': sentence['start_time'],
+                        'end_time': sentence['end_time'],
+                        'char_data': sentence.get('char_data', [])
+                    })
+
+                return parts if parts else [sentence]
+
+        # ケース2: 中程度の鍵かっこ（19-36文字）→ 鍵かっこを1つの字幕に
+        if q_info['inner_length'] <= 36:
+            parts = []
+
+            # パート1: 前の文
+            if q_info['before']:
+                parts.append({
+                    'text': q_info['before'],
+                    'start_time': sentence['start_time'],
+                    'end_time': sentence['end_time'],
+                    'char_data': sentence.get('char_data', [])
+                })
+
+            # パート2: 鍵かっこ部分
+            parts.append({
+                'text': q_info['full'],
+                'start_time': sentence['start_time'],
+                'end_time': sentence['end_time'],
+                'char_data': sentence.get('char_data', [])
+            })
+
+            # パート3: 後ろの文
+            if q_info['after']:
+                parts.append({
+                    'text': q_info['after'],
+                    'start_time': sentence['start_time'],
+                    'end_time': sentence['end_time'],
+                    'char_data': sentence.get('char_data', [])
+                })
+
+            return parts
+
+        # ケース3: 長い鍵かっこ（37文字以上）→ 鍵かっこ内で句点分割
+        inner_text = q_info['inner_text']
+        inner_sentences = []
+        current = ""
+
+        # 鍵かっこ内を句点で分割
+        for char in inner_text:
+            current += char
+            if char in ['。', '！', '？']:
+                inner_sentences.append(current)
+                current = ""
+
+        if current:  # 残りがあれば追加
+            inner_sentences.append(current)
+
+        # 分割結果を作成
+        parts = []
+
+        # パート0: 前の文
+        if q_info['before']:
+            parts.append({
+                'text': q_info['before'],
+                'start_time': sentence['start_time'],
+                'end_time': sentence['end_time'],
+                'char_data': sentence.get('char_data', [])
+            })
+
+        # パート1〜N: 鍵かっこ内の各文
+        for i, inner_sent in enumerate(inner_sentences):
+            if i == 0:
+                # 最初の文に「を付ける
+                text_part = '「' + inner_sent
+            elif i == len(inner_sentences) - 1:
+                # 最後の文に」を付ける
+                text_part = inner_sent + '」'
+            else:
+                # 中間の文はそのまま
+                text_part = inner_sent
+
+            parts.append({
+                'text': text_part,
+                'start_time': sentence['start_time'],
+                'end_time': sentence['end_time'],
+                'char_data': sentence.get('char_data', [])
+            })
+
+        # パートN+1: 後ろの文
+        if q_info['after']:
+            parts.append({
+                'text': q_info['after'],
+                'start_time': sentence['start_time'],
+                'end_time': sentence['end_time'],
+                'char_data': sentence.get('char_data', [])
+            })
+
+        return parts
 
     def _adjust_subtitle_timing_with_sentence_end(
         self,
