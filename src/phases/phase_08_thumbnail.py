@@ -41,7 +41,21 @@ load_dotenv(override=True)
 
 class Phase08Thumbnail(PhaseBase):
     """Phase 8: サムネイル生成"""
-    
+
+    def __init__(
+        self,
+        subject: str,
+        config: ConfigManager,
+        logger: logging.Logger,
+        genre: str = None,
+        text_layout: str = None,
+        style: str = None
+    ):
+        super().__init__(subject, config, logger)
+        self.genre = genre
+        self.text_layout = text_layout
+        self.style = style
+
     def get_phase_number(self) -> int:
         return 8
     
@@ -209,7 +223,55 @@ class Phase08Thumbnail(PhaseBase):
     # ========================================
     # 内部メソッド
     # ========================================
-    
+
+    def _find_layout(self, text_config: Dict[str, Any], layout_id: str) -> Dict[str, Any]:
+        """
+        レイアウトIDから設定を検索
+
+        Args:
+            text_config: thumbnail_text.yamlから読み込んだ設定
+            layout_id: レイアウトID
+
+        Returns:
+            レイアウト設定の辞書
+
+        Raises:
+            PhaseExecutionError: レイアウトが見つからない場合
+        """
+        layouts = text_config.get("text_layouts", [])
+        for layout in layouts:
+            if layout["id"] == layout_id:
+                return layout
+
+        raise PhaseExecutionError(
+            self.get_phase_number(),
+            f"Text layout not found: {layout_id}"
+        )
+
+    def _find_style(self, style_config: Dict[str, Any], style_id: str) -> Dict[str, Any]:
+        """
+        スタイルIDから設定を検索
+
+        Args:
+            style_config: thumbnail_style.yamlから読み込んだ設定
+            style_id: スタイルID
+
+        Returns:
+            スタイル設定の辞書
+
+        Raises:
+            PhaseExecutionError: スタイルが見つからない場合
+        """
+        styles = style_config.get("thumbnail_styles", [])
+        for style in styles:
+            if style["id"] == style_id:
+                return style
+
+        raise PhaseExecutionError(
+            self.get_phase_number(),
+            f"Thumbnail style not found: {style_id}"
+        )
+
     def _load_script(self) -> Dict[str, Any]:
         """
         Phase 1の台本を読み込み
@@ -346,6 +408,37 @@ class Phase08Thumbnail(PhaseBase):
         """
         self.logger.info("🧠 Using Intellectual Curiosity Thumbnail Generator (Bright Photos)")
 
+        # ジャンル別設定の読み込み
+        prompt_template = None
+        if self.genre:
+            try:
+                genre_config = self.config.get_genre_config(self.genre)
+                template_path = genre_config["prompts"]["thumbnail"]
+                prompt_template = self.config.load_prompt_template(template_path)
+                self.logger.info(f"Using genre-specific thumbnail prompt: {template_path}")
+            except Exception as e:
+                self.logger.warning(f"Failed to load genre template: {e}, using default")
+
+        # テキストレイアウトの読み込み
+        layout_config = None
+        if self.text_layout:
+            try:
+                text_config = self.config.get_variation_config("thumbnail_text")
+                layout_config = self._find_layout(text_config, self.text_layout)
+                self.logger.info(f"Using text layout: {self.text_layout}")
+            except Exception as e:
+                self.logger.warning(f"Failed to load text layout: {e}, using default")
+
+        # スタイルの読み込み
+        style_config = None
+        if self.style:
+            try:
+                style_var_config = self.config.get_variation_config("thumbnail_style")
+                style_config = self._find_style(style_var_config, self.style)
+                self.logger.info(f"Using thumbnail style: {self.style}")
+            except Exception as e:
+                self.logger.warning(f"Failed to load style: {e}, using default")
+
         # 出力ディレクトリを作成
         thumbnail_dir = self.phase_dir / "thumbnails"
         thumbnail_dir.mkdir(parents=True, exist_ok=True)
@@ -353,6 +446,15 @@ class Phase08Thumbnail(PhaseBase):
         # IntellectualCuriosityGeneratorを作成（SD生成用に設定）
         # Phase 8専用の設定を上書き
         phase8_config = self.phase_config.copy()
+
+        # カスタム設定を追加
+        if prompt_template:
+            phase8_config["prompt_template"] = prompt_template
+            phase8_config["template_subject"] = self.subject
+        if layout_config:
+            phase8_config["text_layout"] = layout_config
+        if style_config:
+            phase8_config["thumbnail_style"] = style_config
         phase8_config["use_stable_diffusion"] = True  # SD生成を有効化
         phase8_config["stable_diffusion"] = {
             "width": 1344,   # SD APIで1344x768を生成（SDXL標準サイズ）

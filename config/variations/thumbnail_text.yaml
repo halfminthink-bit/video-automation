@@ -1,0 +1,66 @@
+# ========================================
+# テキストレイアウトパターン
+# ========================================
+
+text_layouts:
+  - id: "two_line_red_white"
+    description: "上赤・下白の2行レイアウト"
+    upper:
+      position: [640, 100]           # 中央上部
+      font_size: 80
+      font_family: "fonts/NotoSansJP-Black.ttf"
+      color: "#FF0000"
+      stroke_width: 4
+      stroke_color: "#FFFFFF"
+      shadow: [3, 3, "#000000", 0.8]
+    lower:
+      position: [640, 650]           # 中央下部
+      font_size: 60
+      font_family: "fonts/NotoSansJP-Bold.ttf"
+      color: "#FFFFFF"
+      stroke_width: 3
+      stroke_color: "#000000"
+      shadow: [2, 2, "#000000", 0.8]
+
+  - id: "two_line_yellow_black"
+    description: "上黄・下黒の2行レイアウト"
+    upper:
+      position: [640, 100]
+      font_size: 85
+      font_family: "fonts/NotoSansJP-Black.ttf"
+      color: "#FFFF00"
+      stroke_width: 5
+      stroke_color: "#000000"
+      shadow: [3, 3, "#000000", 0.9]
+    lower:
+      position: [640, 650]
+      font_size: 65
+      font_family: "fonts/NotoSansJP-Bold.ttf"
+      color: "#000000"
+      stroke_width: 3
+      stroke_color: "#FFFFFF"
+      shadow: [2, 2, "#FFFFFF", 0.5]
+
+  - id: "three_zone"
+    description: "3ゾーンレイアウト"
+    upper:
+      position: [640, 80]
+      font_size: 50
+      font_family: "fonts/NotoSansJP-Bold.ttf"
+      color: "#FFFF00"
+      stroke_width: 3
+      stroke_color: "#000000"
+    middle:
+      position: [640, 360]
+      font_size: 100
+      font_family: "fonts/NotoSansJP-Black.ttf"
+      color: "#FFFFFF"
+      stroke_width: 4
+      stroke_color: "#000000"
+    lower:
+      position: [640, 640]
+      font_size: 45
+      font_family: "fonts/NotoSansJP-Regular.ttf"
+      color: "#CCCCCC"
+      stroke_width: 2
+      stroke_color: "#000000"

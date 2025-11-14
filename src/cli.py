@@ -87,7 +87,17 @@ def write_error_log(config: ConfigManager, subject: str, phase_number: int, erro
     return error_log_path
 
 
-def run_phase(subject: str, phase_number: int, skip_if_exists: bool = False, use_auto_script: bool = False, verbose: bool = False) -> int:
+def run_phase(
+    subject: str,
+    phase_number: int,
+    skip_if_exists: bool = False,
+    use_auto_script: bool = False,
+    verbose: bool = False,
+    genre: Optional[str] = None,
+    audio_var: Optional[str] = None,
+    text_layout: Optional[str] = None,
+    thumbnail_style: Optional[str] = None
+) -> int:
     """
     指定されたフェーズを実行
 
@@ -96,6 +106,10 @@ def run_phase(subject: str, phase_number: int, skip_if_exists: bool = False, use
         phase_number: フェーズ番号 (1-9)
         skip_if_exists: 既に出力が存在する場合はスキップ
         use_auto_script: Phase 1で自動台本生成を使用（--auto）
+        genre: ジャンル名
+        audio_var: 音声バリエーションID
+        text_layout: テキストレイアウトID
+        thumbnail_style: サムネイルスタイルID
 
     Returns:
         終了コード (0: 成功, 1: 失敗)
@@ -136,11 +150,44 @@ def run_phase(subject: str, phase_number: int, skip_if_exists: bool = False, use
 
         # フェーズインスタンスを作成
         phase_class = phase_classes[phase_number]
-        phase = phase_class(
-            subject=subject,
-            config=config,
-            logger=logger
-        )
+
+        # 各フェーズに応じたパラメータを渡す
+        if phase_number == 1:
+            phase = phase_class(
+                subject=subject,
+                config=config,
+                logger=logger,
+                genre=genre
+            )
+        elif phase_number == 2:
+            phase = phase_class(
+                subject=subject,
+                config=config,
+                logger=logger,
+                audio_var=audio_var
+            )
+        elif phase_number == 3:
+            phase = phase_class(
+                subject=subject,
+                config=config,
+                logger=logger,
+                genre=genre
+            )
+        elif phase_number == 8:
+            phase = phase_class(
+                subject=subject,
+                config=config,
+                logger=logger,
+                genre=genre,
+                text_layout=text_layout,
+                style=thumbnail_style
+            )
+        else:
+            phase = phase_class(
+                subject=subject,
+                config=config,
+                logger=logger
+            )
 
         # 実行
         execution = phase.run(skip_if_exists=skip_if_exists)
@@ -239,7 +286,11 @@ def generate_video(
     until_phase: int = 9,
     verbose: bool = False,
     auto: bool = False,
-    manual: bool = False
+    manual: bool = False,
+    genre: Optional[str] = None,
+    audio_var: Optional[str] = None,
+    text_layout: Optional[str] = None,
+    thumbnail_style: Optional[str] = None
 ) -> int:
     """
     動画を生成（全フェーズ一括実行）
@@ -252,6 +303,10 @@ def generate_video(
         verbose: 詳細ログ出力
         auto: 自動台本生成を使用（--auto）
         manual: 手動台本を使用（--manual）
+        genre: ジャンル名
+        audio_var: 音声バリエーションID
+        text_layout: テキストレイアウトID
+        thumbnail_style: サムネイルスタイルID
 
     Returns:
         終了コード (0: 成功, 1: 失敗)
@@ -306,7 +361,8 @@ def generate_video(
                 subject=subject,
                 phase_number=1,
                 skip_if_exists=not force,
-                use_auto_script=True
+                use_auto_script=True,
+                genre=genre
             )
             if result != 0:
                 logger.error("Auto script generation failed")
@@ -323,7 +379,14 @@ def generate_video(
             return 1
 
     # Orchestratorを作成
-    orchestrator = PhaseOrchestrator(config=config, logger=logger)
+    orchestrator = PhaseOrchestrator(
+        config=config,
+        logger=logger,
+        genre=genre,
+        audio_var=audio_var,
+        text_layout=text_layout,
+        thumbnail_style=thumbnail_style
+    )
 
     # 実行
     try:
@@ -451,6 +514,30 @@ Examples:
         action="store_true",
         help="Convert manual script before generation"
     )
+    generate_parser.add_argument(
+        "--genre",
+        type=str,
+        default=None,
+        help="Genre name (e.g., 'ijin')"
+    )
+    generate_parser.add_argument(
+        "--audio-var",
+        type=str,
+        default=None,
+        help="Audio variation ID (e.g., 'kokoro_standard')"
+    )
+    generate_parser.add_argument(
+        "--text-layout",
+        type=str,
+        default=None,
+        help="Thumbnail text layout ID (e.g., 'two_line_red_white')"
+    )
+    generate_parser.add_argument(
+        "--thumbnail-style",
+        type=str,
+        default=None,
+        help="Thumbnail style ID (e.g., 'dramatic_side')"
+    )
 
     # run-phase コマンド
     run_parser = subparsers.add_parser(
@@ -502,7 +589,11 @@ Examples:
             until_phase=args.until_phase,
             verbose=args.verbose,
             auto=args.auto,
-            manual=args.manual
+            manual=args.manual,
+            genre=args.genre,
+            audio_var=args.audio_var,
+            text_layout=args.text_layout,
+            thumbnail_style=args.thumbnail_style
         )
 
     # run-phase コマンド
@@ -512,7 +603,11 @@ Examples:
             phase_number=args.phase,
             skip_if_exists=args.skip_if_exists,
             use_auto_script=args.auto,
-            verbose=args.verbose
+            verbose=args.verbose,
+            genre=getattr(args, 'genre', None),
+            audio_var=getattr(args, 'audio_var', None),
+            text_layout=getattr(args, 'text_layout', None),
+            thumbnail_style=getattr(args, 'thumbnail_style', None)
         )
 
     return 0

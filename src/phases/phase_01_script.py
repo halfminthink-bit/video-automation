@@ -29,11 +29,15 @@ from src.generators.script_generator import create_script_generator
 class Phase01Script(PhaseBase):
     """
     Phase 1: 台本生成
-    
+
     Claude APIを使用して、偉人についての
     構造化された動画台本を生成する。
     """
-    
+
+    def __init__(self, subject: str, config: ConfigManager, logger: logging.Logger, genre: str = None):
+        super().__init__(subject, config, logger)
+        self.genre = genre
+
     def get_phase_number(self) -> int:
         return 1
     

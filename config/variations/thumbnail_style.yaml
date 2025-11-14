@@ -1,0 +1,31 @@
+# ========================================
+# サムネイル画像スタイル
+# ========================================
+
+thumbnail_styles:
+  - id: "dramatic_side"
+    description: "ドラマチックな横顔"
+    composition: "side_profile"
+    angle: "45度横顔"
+    framing: "バストアップ"
+    background: "epic_historical_scene"
+    lighting: "dramatic_high_contrast"
+    color_grade: "cinematic_dark"
+
+  - id: "bold_front"
+    description: "ボールドな正面"
+    composition: "frontal_centered"
+    angle: "正面"
+    framing: "顔クローズアップ"
+    background: "solid_color_gradient"
+    lighting: "bright_even"
+    color_grade: "vivid_saturated"
+
+  - id: "action_dynamic"
+    description: "アクション構図"
+    composition: "dynamic_action"
+    angle: "アクションポーズ"
+    framing: "半身から全身"
+    background: "action_scene"
+    lighting: "rim_light_dramatic"
+    color_grade: "high_contrast_cool"

@@ -20,6 +20,7 @@ from typing import Any, Dict, Optional
 
 import yaml
 from dotenv import load_dotenv, find_dotenv
+from jinja2 import Environment, FileSystemLoader
 
 from .exceptions import (
     ConfigurationError,
@@ -88,6 +89,12 @@ class ConfigManager:
         # 各フェーズの設定を読み込み
         self.phase_configs: Dict[str, Dict[str, Any]] = {}
         self._load_phase_configs()
+
+        # Jinja2環境の初期化
+        prompts_dir = self.project_root / "config" / "prompts"
+        self.jinja_env = Environment(
+            loader=FileSystemLoader(str(prompts_dir))
+        )
 
         # メモ: デバッグ用に .env の由来を残したい場合はここにロガーを挿入
         # ただしキー値そのものは絶対にログ出力しないこと。
@@ -277,6 +284,73 @@ class ConfigManager:
             raise ValueError(f"Invalid phase number: {phase_number}")
 
         return self.get_working_dir(subject) / phase_name
+
+    def get_genre_config(self, genre_name: str) -> Dict[str, Any]:
+        """
+        ジャンル設定を読み込み
+
+        Args:
+            genre_name: ジャンル名（例: "ijin"）
+
+        Returns:
+            ジャンル設定の辞書
+
+        Raises:
+            InvalidConfigError: ファイルが見つからない
+        """
+        genre_path = self.project_root / "config" / "genres" / f"{genre_name}.yaml"
+
+        if not genre_path.exists():
+            raise InvalidConfigError(
+                "genres",
+                f"Genre config not found: {genre_name}"
+            )
+
+        with open(genre_path, 'r', encoding='utf-8') as f:
+            return yaml.safe_load(f) or {}
+
+    def get_variation_config(self, variation_type: str) -> Dict[str, Any]:
+        """
+        バリエーション設定を読み込み
+
+        Args:
+            variation_type: バリエーション種類（例: "audio", "thumbnail_text"）
+
+        Returns:
+            バリエーション設定の辞書
+
+        Raises:
+            InvalidConfigError: ファイルが見つからない
+        """
+        variation_path = self.project_root / "config" / "variations" / f"{variation_type}.yaml"
+
+        if not variation_path.exists():
+            raise InvalidConfigError(
+                "variations",
+                f"Variation config not found: {variation_type}"
+            )
+
+        with open(variation_path, 'r', encoding='utf-8') as f:
+            return yaml.safe_load(f) or {}
+
+    def load_prompt_template(self, template_path: str):
+        """
+        Jinja2プロンプトテンプレートを読み込んでレンダリング
+
+        Args:
+            template_path: テンプレートの相対パス（例: "script/ijin.j2"）
+
+        Returns:
+            レンダリング済みテンプレート（変数は未展開）
+        """
+        try:
+            template = self.jinja_env.get_template(template_path)
+            return template
+        except Exception as e:
+            raise InvalidConfigError(
+                "prompts",
+                f"Failed to load template: {template_path}, {e}"
+            )
 
     def __repr__(self) -> str:
         return f"ConfigManager(root={self.project_root})"

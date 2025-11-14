@@ -44,10 +44,14 @@ class Phase03Images(PhaseBase):
         self,
         subject: str,
         config: ConfigManager,
-        logger: logging.Logger
+        logger: logging.Logger,
+        genre: str = None
     ):
         # PhaseBaseの初期化（working_dir, phase_dirなどを自動設定）
         super().__init__(subject, config, logger)
+
+        # ジャンル設定
+        self.genre = genre
 
         # Phase設定を読み込み
         self.phase_config = self._load_phase_config()
@@ -374,8 +378,19 @@ class Phase03Images(PhaseBase):
         
         # キャッシュディレクトリ
         cache_dir = Path(self.config.get("paths.cache_dir", "data/cache")) / "generated_images"
-        
-        return ImageGenerator(
+
+        # ジャンル設定に基づくプロンプトテンプレート
+        prompt_template = None
+        if self.genre:
+            try:
+                genre_config = self.config.get_genre_config(self.genre)
+                template_path = genre_config["prompts"]["image"]
+                prompt_template = self.config.load_prompt_template(template_path)
+                self.logger.info(f"Using genre-specific image prompt template: {template_path}")
+            except Exception as e:
+                self.logger.warning(f"Failed to load genre template: {e}, using default")
+
+        generator = ImageGenerator(
             api_key=api_key,
             service=service,
             claude_api_key=claude_key,
@@ -383,6 +398,13 @@ class Phase03Images(PhaseBase):
             cache_dir=cache_dir,
             logger=self.logger
         )
+
+        # プロンプトテンプレートをgeneratorに渡す（あれば）
+        if prompt_template:
+            generator.prompt_template = prompt_template
+            generator.template_subject = self.subject
+
+        return generator
     
     def _generate_section_images(
         self,
