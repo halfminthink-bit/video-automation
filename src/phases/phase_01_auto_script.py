@@ -89,6 +89,7 @@ class Phase01AutoScript(PhaseBase):
             self.phase_dir / self.auto_config["output"]["final_json_filename"]
         ]
         if self.auto_config["output"]["save_raw_yaml"]:
+            paths.append(self.phase_dir / "api_generated_script.yaml")
             paths.append(self.phase_dir / self.auto_config["output"]["raw_yaml_filename"])
         return paths
 
@@ -113,6 +114,9 @@ class Phase01AutoScript(PhaseBase):
         self.logger.info("Parsing YAML...")
         script_dict = yaml.safe_load(raw_yaml_text)
 
+        # 3.5. API生成YAMLを保存（デバッグ用）
+        api_yaml_path = self._save_api_yaml(script_dict)
+
         # 4. 正規化
         self.logger.info("Normalizing script...")
         script_dict = self._normalize_script(script_dict)
@@ -121,8 +125,8 @@ class Phase01AutoScript(PhaseBase):
         self.logger.info("Validating script...")
         self._validate_script(script_dict)
 
-        # 6. YAML保存（デバッグ用）
-        yaml_path = self._save_yaml(script_dict)
+        # 6. 正規化後YAMLを保存（デバッグ用）
+        normalized_yaml_path = self._save_yaml(script_dict)
 
         # 7. JSON変換・保存
         json_path = self._save_json(script_dict)
@@ -131,7 +135,8 @@ class Phase01AutoScript(PhaseBase):
         script = self._convert_to_model(script_dict)
 
         self.logger.info(f"✅ Script generated successfully")
-        self.logger.info(f"  - YAML: {yaml_path}")
+        self.logger.info(f"  - API YAML (raw): {api_yaml_path}")
+        self.logger.info(f"  - Normalized YAML: {normalized_yaml_path}")
         self.logger.info(f"  - JSON: {json_path}")
 
         return script
@@ -234,8 +239,22 @@ class Phase01AutoScript(PhaseBase):
                         f"Section {i}: Required field missing: {field}"
                     )
 
+    def _save_api_yaml(self, script_dict: dict) -> Optional[Path]:
+        """API生成直後のYAMLを保存（デバッグ用・正規化前）"""
+
+        if not self.auto_config["output"]["save_raw_yaml"]:
+            return None
+
+        filename = "api_generated_script.yaml"
+        yaml_path = self.phase_dir / filename
+
+        with open(yaml_path, 'w', encoding='utf-8') as f:
+            yaml.dump(script_dict, f, allow_unicode=True, sort_keys=False)
+
+        return yaml_path
+
     def _save_yaml(self, script_dict: dict) -> Optional[Path]:
-        """YAMLを保存（デバッグ用）"""
+        """正規化後のYAMLを保存（デバッグ用）"""
 
         if not self.auto_config["output"]["save_raw_yaml"]:
             return None
