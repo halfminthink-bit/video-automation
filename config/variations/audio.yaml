@@ -23,13 +23,13 @@ audio_variations:
   - id: "elevenlabs_standard"
     service: "elevenlabs"
     voice_id: "3JDquces8E8bkmvbh6Bc"
-    model: "eleven_turbo_v2_5"
+    model: "eleven_multilingual_v2"
     stability: 0.7
     similarity_boost: 0.75
 
   - id: "elevenlabs_expressive"
     service: "elevenlabs"
     voice_id: "3JDquces8E8bkmvbh6Bc"
-    model: "eleven_turbo_v2_5"
+    model: "eleven_multilingual_v2"
     stability: 0.5
     similarity_boost: 0.8
