@@ -1450,6 +1450,8 @@ class SubtitleGenerator:
     ) -> List[Dict[str, Any]]:
         """
         句読点で大まかに分割（「。」のみで分割、「、」では分割しない）
+        
+        ただし、鍵かっこ内の句読点では分割しない。
 
         Returns:
             チャンクのリスト（各チャンクは characters, start_times, end_times を持つ）
@@ -1458,15 +1460,26 @@ class SubtitleGenerator:
         current_chars = []
         current_starts = []
         current_ends = []
+        in_quotation = False  # 鍵かっこ内フラグ
 
         for i, char in enumerate(characters):
             current_chars.append(char)
             current_starts.append(start_times[i] + offset)
             current_ends.append(end_times[i] + offset)
 
+            # 鍵かっこの開閉を追跡
+            if char == '「':
+                in_quotation = True
+            elif char == '」':
+                in_quotation = False
+
             # 「。」「！」「？」の文字を含めて分割（「、」では分割しない）
+            # ただし、鍵かっこ内は分割しない
             current_punct = punctuation_positions.get(i)
-            should_split = (current_punct in ["。", "！", "？"]) or i == len(characters) - 1
+            should_split = (
+                (current_punct in ["。", "！", "？"] and not in_quotation)
+                or i == len(characters) - 1
+            )
 
             if should_split:
                 if current_chars:
