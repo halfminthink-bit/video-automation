@@ -721,11 +721,18 @@ class Phase06Subtitles(PhaseBase):
                 # ステップ3: 各パートを字幕に変換
                 for part in sentence_parts:
                     # 2行に分割（18文字×2）
-                    line1, line2 = self._split_text_into_lines_strict(
-                        part['text'],
-                        max_chars_per_line,
-                        ABSOLUTE_MAX_CHARS_PER_LINE
-                    )
+                    # 鍵かっこがある場合は専用メソッドを使用
+                    if '「' in part['text'] and '」' in part['text']:
+                        line1, line2 = self._split_quotation_into_two_lines(
+                            part['text'],
+                            max_chars_per_line
+                        )
+                    else:
+                        line1, line2 = self._split_text_into_lines_strict(
+                            part['text'],
+                            max_chars_per_line,
+                            ABSOLUTE_MAX_CHARS_PER_LINE
+                        )
 
                     # 字幕エントリ作成（句読点削除は後で実行される）
                     subtitle = SubtitleEntry(
@@ -1234,6 +1241,48 @@ class Phase06Subtitles(PhaseBase):
 
         return (line1, line2)
 
+    def _split_quotation_into_two_lines(
+        self,
+        text: str,
+        max_chars_per_line: int = 18
+    ) -> tuple[str, str]:
+        """
+        鍵かっこ内テキストを2行に分割
+        
+        優先順位:
+        1. \n がある場合は\nで分割（各行が18文字以内の場合）
+        2. それ以外は通常の分割ロジック
+        
+        Args:
+            text: 分割するテキスト（「」を含む可能性あり）
+            max_chars_per_line: 1行あたりの最大文字数
+        
+        Returns:
+            (line1, line2) のタプル
+        """
+        # 鍵かっこを除去
+        if text.startswith('「'):
+            text = text[1:]
+        if text.endswith('」'):
+            text = text[:-1]
+        
+        # 改行がある場合
+        if '\n' in text:
+            parts = text.split('\n', 1)  # 最初の改行で2分割
+            line1 = parts[0].strip()
+            line2 = parts[1].strip() if len(parts) > 1 else ""
+            
+            # 各行が18文字以内か確認
+            if len(line1) <= max_chars_per_line and len(line2) <= max_chars_per_line:
+                # 改行で分割可能
+                return (line1, line2)
+            
+            # 18文字超える場合は、改行を削除して通常分割
+            text = text.replace('\n', '')
+        
+        # 改行がない、または18文字超える場合は通常の分割
+        return self._split_text_into_lines_strict(text, max_chars_per_line, max_chars_per_line)
+
     def _split_text_into_lines_strict(
         self,
         text: str,
@@ -1531,13 +1580,16 @@ class Phase06Subtitles(PhaseBase):
 
         inner_text = text[start+1:end]
         quotation_full = text[start:end+1]  # 「...」全体
+        
+        # 改行を除いた長さを計算
+        inner_text_without_newline = inner_text.replace('\n', '')
 
         return {
             'start': start,
             'end': end,
             'length': len(quotation_full),
             'inner_text': inner_text,
-            'inner_length': len(inner_text),
+            'inner_length': len(inner_text_without_newline),  # 改行除外
             'before': text[:start].strip(),
             'after': text[end+1:].strip(),
             'full': quotation_full
