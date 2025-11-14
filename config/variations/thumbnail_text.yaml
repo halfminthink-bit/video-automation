@@ -64,3 +64,33 @@ text_layouts:
       color: "#CCCCCC"
       stroke_width: 2
       stroke_color: "#000000"
+
+  - id: "vertical_left_right"
+    description: "左右縦書きレイアウト（現行Phase 08）"
+    mode: "vertical"
+    canvas_size: [1280, 720]
+    right:
+      # 右側縦書きテキスト（赤文字）
+      position_x: 1160                # 右端から120px内側
+      position_y: 100                 # 上部から100px
+      font_size: 90
+      font_family: "fonts/NotoSansJP-Black.ttf"
+      color: "#DC143C"                # Crimson赤
+      stroke_width: 15
+      stroke_color: "#000000"
+      shadow: [8, 8, "#000000", 0.6]
+      char_spacing: 100               # 文字間隔（縦方向）
+      column_spacing: 120             # 列間隔（横方向）
+    left:
+      # 左側縦書きテキスト（白文字）
+      position_x: 100                 # 左端から100px内側
+      position_y: 100                 # 上部から100px
+      font_size: 70
+      font_family: "fonts/NotoSansJP-Bold.ttf"
+      color: "#FFFFFF"                # 白
+      stroke_width: 12
+      stroke_color: "#000000"
+      shadow: [8, 8, "#000000", 0.6]
+      char_spacing: 85                # 文字間隔（縦方向）
+      column_spacing: 100             # 列間隔（横方向）
+
