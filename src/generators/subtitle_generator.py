@@ -1350,8 +1350,38 @@ class SubtitleGenerator:
         Returns:
             サブセクションのリスト（各サブセクションは characters, start_times, end_times を持つ）
         """
+        # 🔥 NEW: 鍵かっこ内の改行を削除（常に実行）
+        cleaned_characters = []
+        cleaned_start_times = []
+        cleaned_end_times = []
+        in_quotation = False
+
+        for i, char in enumerate(characters):
+            if char == '「':
+                in_quotation = True
+                cleaned_characters.append(char)
+                cleaned_start_times.append(start_times[i])
+                cleaned_end_times.append(end_times[i])
+            elif char == '」':
+                in_quotation = False
+                cleaned_characters.append(char)
+                cleaned_start_times.append(start_times[i])
+                cleaned_end_times.append(end_times[i])
+            elif char == '\n' and in_quotation:
+                # 鍵かっこ内の改行はスキップ（タイミングも削除）
+                continue
+            else:
+                cleaned_characters.append(char)
+                cleaned_start_times.append(start_times[i])
+                cleaned_end_times.append(end_times[i])
+
+        # 以降、cleaned_* を使用
+        characters = cleaned_characters
+        start_times = cleaned_start_times
+        end_times = cleaned_end_times
+
         if '\n' not in text:
-            # \n がない場合はそのまま返す
+            # \n がない場合はそのまま返す（改行削除後）
             return [{
                 "characters": characters,
                 "start_times": start_times,
@@ -1383,7 +1413,7 @@ class SubtitleGenerator:
             text_parts.append(current_part.strip())
 
         if len(text_parts) <= 1:
-            # 分割の必要がない
+            # 分割の必要がない（改行削除済み）
             return [{
                 "characters": characters,
                 "start_times": start_times,
