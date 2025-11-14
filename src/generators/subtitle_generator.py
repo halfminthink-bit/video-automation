@@ -1335,6 +1335,8 @@ class SubtitleGenerator:
     ) -> List[Dict[str, Any]]:
         """
         テキストを \n で分割（明示的な改行を優先）
+        
+        ただし、鍵かっこ内の改行は無視する。
 
         文字列マッチングで text と characters の対応を取る。
         記号（カッコ類、空白）は除外してマッチング。句読点は含める。
@@ -1356,8 +1358,29 @@ class SubtitleGenerator:
                 "end_times": end_times
             }]
 
-        # text を \n で分割
-        text_parts = [part.strip() for part in text.split('\n') if part.strip()]
+        # 鍵かっこ内の改行を無視して分割
+        text_parts = []
+        current_part = ""
+        in_quotation = False
+        
+        for char in text:
+            if char == '「':
+                in_quotation = True
+                current_part += char
+            elif char == '」':
+                in_quotation = False
+                current_part += char
+            elif char == '\n' and not in_quotation:
+                # 鍵かっこ外の改行でのみ分割
+                if current_part.strip():
+                    text_parts.append(current_part.strip())
+                current_part = ""
+            else:
+                current_part += char
+        
+        # 最後の部分を追加
+        if current_part.strip():
+            text_parts.append(current_part.strip())
 
         if len(text_parts) <= 1:
             # 分割の必要がない
