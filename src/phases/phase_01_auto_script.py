@@ -349,13 +349,20 @@ class Phase01AutoScript(PhaseBase):
             for section in script_dict.get("sections", [])
         ]
 
+        # total_estimated_durationを計算（存在しない場合はsectionsのdurationを合計）
+        if "total_estimated_duration" in script_dict:
+            total_duration = script_dict["total_estimated_duration"]
+        else:
+            # sectionsのdurationを合計して計算（_save_jsonと同じロジック）
+            total_duration = sum(section.get("duration", 0) for section in script_dict.get("sections", []))
+
         # VideoScriptを作成
         script = VideoScript(
             subject=script_dict["subject"],
             title=script_dict["title"],
             description=script_dict["description"],
             sections=sections,
-            total_estimated_duration=script_dict["total_estimated_duration"],
+            total_estimated_duration=total_duration,
             model_version=script_dict.get("model_version", "auto_v1"),
             thumbnail=script_dict.get("thumbnail")
         )
