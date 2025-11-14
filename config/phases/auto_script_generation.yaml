@@ -4,7 +4,7 @@
 
 # Claude API設定
 claude_api:
-  model: "claude-haiku-4-5"
+  model: "claude-sonnet-4-5"
   max_tokens: 16000
   temperature: 1.0  # クリエイティブに
 

@@ -22,7 +22,7 @@ upload:
   mode: "auto"
 
   # 公開設定
-  privacy_status: "private"  # public / unlisted / private
+  privacy_status: "public"  # public / unlisted / private
 
   # カテゴリID（YouTube標準カテゴリ）
   # 22: People & Blogs
@@ -44,7 +44,7 @@ metadata_generation:
   enabled: true
 
   # Claude API設定
-  model: "claude-sonnet-4-20250514"
+  model: "claude-haiku-4-5"
   max_tokens: 4000
   temperature: 0.7
 
