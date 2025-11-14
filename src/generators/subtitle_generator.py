@@ -1473,12 +1473,16 @@ class SubtitleGenerator:
             elif char == '」':
                 in_quotation = False
 
-            # 「。」「！」「？」の文字を含めて分割（「、」では分割しない）
-            # ただし、鍵かっこ内は分割しない
+            # 「。」「！」「？」の文字を含めて分割
+            # 鍵かっこ内でも、30文字超えた場合は「、」で分割
             current_punct = punctuation_positions.get(i)
             should_split = (
+                # 通常の句点では分割（鍵かっこ外のみ）
                 (current_punct in ["。", "！", "？"] and not in_quotation)
+                # 最後の文字は必ず分割
                 or i == len(characters) - 1
+                # 🔥 NEW: 鍵かっこ内でも30文字超えたら「、」で分割
+                or (in_quotation and current_punct == "、" and len(current_chars) > 30)
             )
 
             if should_split:
