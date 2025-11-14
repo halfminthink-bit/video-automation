@@ -6,7 +6,7 @@ output:
   fps: 30                   # フレームレート
   codec: "libx264"          # ビデオコーデック
   audio_codec: "aac"        # オーディオコーデック
-  preset: "fast"            # エンコード速度 (ultrafast/fast/medium/slow) - fastで高速化
+  preset: "ultrafast"            # エンコード速度 (ultrafast/fast/medium/slow) - fastで高速化
   bitrate: "3000k"          # ビットレート - 3000kで品質と速度のバランス
 
 # 二分割レイアウト設定
@@ -25,6 +25,7 @@ split_layout:
     background_color: "#000000"  # 真っ黒
     subtitle_position: "center"  # 中央配置
     subtitle_valign: "center"    # 縦方向も中央
+    subtitle_offset_y: -20       # 縦方向のオフセット（負の値で上に移動）- 少し高めに調整
     max_lines: 3                 # 最大3行
     line_spacing: 1.3            # 行間
 
@@ -59,7 +60,7 @@ subtitle:
   stroke_color: "#000000"           # 縁取り色
   stroke_width: 2                   # 縁取り幅
   position: "bottom"                # 位置（top/center/bottom）
-  margin_bottom: 80                 # 下からのマージン（ピクセル）
+  margin_bottom: 120                # 下からのマージン（ピクセル）- 少し高めに調整
   align: "center"                   # 揃え（left/center/right）
   method: "caption"                 # レンダリング方法
 

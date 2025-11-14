@@ -1067,7 +1067,10 @@ class Phase07Composition(PhaseBase):
         total_height = sum(line_heights) + spacing_px * (len(lines) - 1)
 
         # 描画開始位置（中央）
-        start_y = (height - total_height) // 2
+        base_y = (height - total_height) // 2
+        # オフセットを適用（負の値で上に移動）
+        offset_y = self.split_config.get('bottom_side', {}).get('subtitle_offset_y', 0)
+        start_y = base_y + offset_y
 
         # 各行を描画
         current_y = start_y
