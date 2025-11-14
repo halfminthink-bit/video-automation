@@ -364,12 +364,10 @@ class Phase06Subtitles(PhaseBase):
                 end_str = self._format_srt_time(subtitle.end_time)
                 f.write(f"{start_str} --> {end_str}\n")
 
-                # テキスト（3行まで）
+                # テキスト（2行まで）
                 f.write(f"{subtitle.text_line1}\n")
                 if subtitle.text_line2:
                     f.write(f"{subtitle.text_line2}\n")
-                if hasattr(subtitle, 'text_line3') and subtitle.text_line3:
-                    f.write(f"{subtitle.text_line3}\n")
 
                 # 空行
                 f.write("\n")
@@ -417,8 +415,7 @@ class Phase06Subtitles(PhaseBase):
                     "end_time": s.end_time,
                     "duration": s.end_time - s.start_time,
                     "text_line1": s.text_line1,
-                    "text_line2": s.text_line2,
-                    "text_line3": s.text_line3 if hasattr(s, 'text_line3') else ""
+                    "text_line2": s.text_line2
                 }
                 for s in subtitles
             ]
@@ -482,6 +479,9 @@ class Phase06Subtitles(PhaseBase):
         """
         36文字を超える長い文を分割
 
+        追加ルール:
+        - 「...」。で終わる文は、なるべく1つの字幕にまとめる
+
         分割の優先順位:
         1. 20~36文字の範囲で、36文字目に一番近い「、」
         2. 「、」がない場合:
@@ -498,6 +498,14 @@ class Phase06Subtitles(PhaseBase):
             分割された文のリスト
         """
         text = sentence['text']
+
+        # 新規追加: 「...」。パターンのチェック
+        # 正規表現: 「で始まり」で終わる（句点の有無は問わない）
+        import re
+        if re.match(r'^「[^」]+」[。！？]?$', text) and len(text) <= max_chars:
+            # 36文字以内の「...」。パターンはそのまま返す
+            self.logger.debug(f"Keeping quoted sentence as single subtitle: {text[:30]}...")
+            return [sentence]
 
         # 36文字以内 → そのまま返す
         if len(text) <= max_chars:
@@ -1426,8 +1434,6 @@ class Phase06Subtitles(PhaseBase):
             full_text = sub.text_line1
             if sub.text_line2:
                 full_text += sub.text_line2
-            if hasattr(sub, 'text_line3') and sub.text_line3:
-                full_text += sub.text_line3
 
             # デフォルトは元の終了時刻
             new_end = sub.end_time
@@ -1456,8 +1462,7 @@ class Phase06Subtitles(PhaseBase):
                 start_time=sub.start_time,  # 開始は絶対に変更しない
                 end_time=new_end,           # 句点で終わる場合のみ延長
                 text_line1=sub.text_line1,
-                text_line2=sub.text_line2,
-                text_line3=sub.text_line3 if hasattr(sub, 'text_line3') else ""
+                text_line2=sub.text_line2
             )
             adjusted.append(adjusted_sub)
 
@@ -1501,13 +1506,8 @@ class Phase06Subtitles(PhaseBase):
                 for punct in punctuation_to_remove:
                     line2 = line2.replace(punct, '')
 
-            line3 = subtitle.text_line3 if hasattr(subtitle, 'text_line3') else ""
-            if line3:
-                for punct in punctuation_to_remove:
-                    line3 = line3.replace(punct, '')
-
             # 空の字幕をスキップ（句読点のみの行が削除されて空になった場合）
-            if not line1.strip() and not line2.strip() and not (line3 and line3.strip()):
+            if not line1.strip() and not line2.strip():
                 self.logger.debug(f"Skipping empty subtitle at index {subtitle.index}")
                 continue
 
@@ -1517,8 +1517,7 @@ class Phase06Subtitles(PhaseBase):
                 start_time=subtitle.start_time,
                 end_time=subtitle.end_time,
                 text_line1=line1,
-                text_line2=line2,
-                text_line3=line3
+                text_line2=line2
             )
 
             cleaned_subtitles.append(cleaned_subtitle)
