@@ -254,32 +254,50 @@ class Phase01AutoScript(PhaseBase):
         filename = self.auto_config["output"]["final_json_filename"]
         json_path = self.phase_dir / filename
 
+        # サムネイル情報の取得（convert_manual_script.pyと同じロジック）
+        thumbnail_data = script_dict.get("thumbnail")
+        if thumbnail_data is None:
+            self.logger.warning("thumbnail field not found, using fallback")
+            thumbnail = {
+                "upper_text": script_dict["subject"],
+                "lower_text": ""
+            }
+        else:
+            thumbnail = {
+                "upper_text": thumbnail_data.get("upper_text", script_dict["subject"]),
+                "lower_text": thumbnail_data.get("lower_text", "")
+            }
+
         # JSON形式に変換（convert_manual_script.pyと同じ形式）
         script_json = {
             "subject": script_dict["subject"],
             "title": script_dict["title"],
             "description": script_dict["description"],
-            "thumbnail": script_dict.get("thumbnail", {}),
+            "thumbnail": thumbnail,
             "sections": [],
             "total_estimated_duration": 0,
             "generated_at": self._get_timestamp(),
             "model_version": "auto_v1"
         }
 
+        # セクションを変換（正規化済みデータから）
         for section in script_dict["sections"]:
+            # narrationは既に正規化済み（ScriptNormalizerで処理済み）
+            narration_text = section.get("narration", "")
+
             script_json["sections"].append({
-                "section_id": section["section_id"],
-                "title": section["title"],
-                "narration": section["narration"],
-                "estimated_duration": float(section["duration"]),
-                "image_keywords": section["keywords"],
-                "atmosphere": section["atmosphere"],
+                "section_id": section.get("section_id", 0),
+                "title": section.get("title", ""),
+                "narration": narration_text,
+                "estimated_duration": float(section.get("duration", 0)),
+                "image_keywords": section.get("keywords", []),
+                "atmosphere": section.get("atmosphere", ""),
                 "requires_ai_video": False,
                 "ai_video_prompt": None,
-                "bgm_suggestion": section["bgm"]
+                "bgm_suggestion": section.get("bgm", "")
             })
 
-            script_json["total_estimated_duration"] += section["duration"]
+            script_json["total_estimated_duration"] += section.get("duration", 0)
 
         with open(json_path, 'w', encoding='utf-8') as f:
             json.dump(script_json, f, indent=2, ensure_ascii=False)
