@@ -430,16 +430,33 @@ class Phase07CompositionLegacy02(PhaseBase):
 
                 # リスト形式のaudio_timingから該当セクションを探す
                 if isinstance(audio_timing, list):
-                    for timing_section in audio_timing:
-                        if timing_section.get('section_id') == section_id:
-                            # 文字レベルタイミングの最後から長さを取得
-                            char_end_times = timing_section.get('character_end_times_seconds', [])
+                    for section_data in audio_timing:
+                        if section_data.get('section_id') == section_id:
+                            # 🔥 重要: durationフィールドを直接使用（優先）
+                            duration = section_data.get('duration')
+
+                            if duration is not None:
+                                self.logger.info(f"Section {section_id} duration from audio_timing: {duration:.2f}s")
+                                return duration
+
+                            # フォールバック1: char_end_timesの最後の値
+                            char_end_times = section_data.get('char_end_times', [])
                             if char_end_times:
                                 duration = char_end_times[-1]
-                                self.logger.debug(f"Section {section_id} duration from audio_timing: {duration:.2f}s")
+                                self.logger.info(f"Section {section_id} duration from char_end_times: {duration:.2f}s")
                                 return duration
+
+                            # フォールバック2: character_end_times_seconds（古い形式）
+                            char_end_times = section_data.get('character_end_times_seconds', [])
+                            if char_end_times:
+                                duration = char_end_times[-1]
+                                self.logger.info(f"Section {section_id} duration from character_end_times_seconds: {duration:.2f}s")
+                                return duration
+
+                self.logger.warning(f"Section {section_id} not found in audio_timing.json")
+
             except Exception as e:
-                self.logger.warning(f"Failed to load audio_timing.json: {e}")
+                self.logger.error(f"Failed to read audio_timing.json: {e}")
 
         # フォールバック: スクリプトのduration
         for section in script.get('sections', []):
@@ -449,7 +466,7 @@ class Phase07CompositionLegacy02(PhaseBase):
                 return duration
 
         # 最後のフォールバック
-        self.logger.warning(f"Could not find duration for section {section_id}, using default 120s")
+        self.logger.warning(f"Using default duration 120s for section {section_id}")
         return 120.0
     
     def _load_bgm(self) -> Optional[dict]:
@@ -873,45 +890,117 @@ class Phase07CompositionLegacy02(PhaseBase):
         """
         二分割レイアウトの動画を生成（オーバーレイ方式）
 
-        - 動画：1920x1080（フルサイズ）
-        - 下部に黒バー（1920x324）をオーバーレイ
-        - 黒バーの上に字幕を表示
+        - 背景: Phase03の画像スライドショー（1920x1080フルサイズ）
+        - Layer 1: 黒バーオーバーレイ（1920x216、常に表示）
+        - Layer 2+: 字幕（黒バーの上に配置、タイミングで表示）
 
         Args:
-            animated_clips: Phase 4の動画ファイルパスリスト
+            animated_clips: Phase03の画像パスリスト
             subtitles: 字幕データ
-            total_duration: 全体の長さ（秒）
+            total_duration: 音声の総時間（秒）
 
         Returns:
-            合成された動画（下部に黒バー+字幕がオーバーレイ）
+            合成された動画クリップ
         """
         self.logger.info("Creating split layout video (overlay mode)...")
 
-        # 比率を取得（デフォルト0.7 = 70%）
-        ratio = self.split_config.get('ratio', 0.7)
-        top_height = int(1080 * ratio)        # 756px (70%)
-        bottom_height = 1080 - top_height     # 324px (30%)
+        # レイアウト設定（80% 動画 + 20% 字幕）
+        top_height = int(1080 * 0.8)  # 864px (80%)
+        bottom_height = 1080 - top_height  # 216px (20%)
 
         self.logger.info(f"Layout: Full video 1920x1080 + Bottom overlay {bottom_height}px (subtitle)")
 
-        # Step 1: 動画を1920x1080のままロードして連結
-        self.logger.info("Loading video clips (full size 1920x1080)...")
-        video_clips = self._create_video_clips(animated_clips, total_duration)
-        base_video = self._concatenate_clips(video_clips, total_duration)
+        # 1. 背景: 画像スライドショー（1920x1080フルサイズ）
+        self.logger.info("Creating image slideshow (full 1920x1080)...")
+        background_video = self._create_top_video_area(animated_clips, total_duration, 1080)
 
-        # Step 2: 下部の字幕バー（オーバーレイ用）を生成
-        self.logger.info("Creating bottom subtitle overlay...")
-        bottom_overlay = self._create_bottom_subtitle_bar(subtitles, total_duration, bottom_height)
+        # 🔥 重要: 背景動画の長さを確認
+        actual_bg_duration = background_video.duration
+        self.logger.info(f"Background video duration: {actual_bg_duration:.2f}s")
 
-        # Step 3: 動画の上に下部バーをオーバーレイ
-        self.logger.info("Overlaying subtitle bar on video...")
+        # 2. 黒バーオーバーレイ（独立レイヤー、常に表示）
+        self.logger.info("Creating black bar overlay...")
+        black_bar = ColorClip(
+            size=(1920, bottom_height),
+            color=(0, 0, 0)
+        ).with_duration(actual_bg_duration).with_position((0, top_height))
+
+        self.logger.info(f"Black bar overlay: {1920}x{bottom_height}px at y={top_height}")
+
+        # 3. 字幕クリップ（黒バーの上に配置）
+        self.logger.info("Creating subtitle clips...")
+        subtitle_clips = self._create_subtitle_clips_on_black_bar(
+            subtitles,
+            black_bar_y=top_height,
+            black_bar_height=bottom_height
+        )
+
+        self.logger.info(f"Created {len(subtitle_clips)} subtitle clips")
+
+        # 4. 全てのレイヤーを合成
+        self.logger.info("Compositing all layers...")
         final_video = CompositeVideoClip([
-            base_video.with_position((0, 0)),                    # フルサイズ動画
-            bottom_overlay.with_position((0, top_height))        # 下部にオーバーレイ
-        ], size=(1920, 1080))
+            background_video,  # Layer 0: 背景（画像スライドショー）
+            black_bar,         # Layer 1: 黒バー（常に表示）
+            *subtitle_clips    # Layer 2+: 字幕（タイミングで表示）
+        ])
 
-        self.logger.info("Overlay layout video created successfully")
+        self.logger.info(f"✓ Overlay layout video created: {final_video.duration:.2f}s")
+
         return final_video
+
+    def _create_subtitle_clips_on_black_bar(
+        self,
+        subtitles: List[SubtitleEntry],
+        black_bar_y: int,
+        black_bar_height: int
+    ) -> List['ImageClip']:
+        """
+        黒バーの上に配置する字幕クリップを生成
+
+        Args:
+            subtitles: 字幕データ
+            black_bar_y: 黒バーのY座標（864px）
+            black_bar_height: 黒バーの高さ（216px）
+
+        Returns:
+            字幕クリップのリスト
+        """
+        from PIL import Image, ImageDraw, ImageFont
+        import numpy as np
+
+        subtitle_clips = []
+
+        # フォント読み込み
+        font = self._load_japanese_font(self.subtitle_size)
+
+        for subtitle in subtitles:
+            try:
+                # 字幕画像を生成（透明背景、3行対応）
+                img = self._create_subtitle_image(
+                    text_line1=subtitle.text_line1,
+                    text_line2=subtitle.text_line2,
+                    text_line3=subtitle.text_line3,
+                    width=1920,
+                    height=black_bar_height,
+                    font=font
+                )
+
+                # ImageClipに変換
+                img_array = np.array(img)
+                clip = ImageClip(img_array, duration=subtitle.end_time - subtitle.start_time)
+                clip = clip.with_start(subtitle.start_time)
+
+                # 黒バーの位置に配置
+                clip = clip.with_position((0, black_bar_y))
+
+                subtitle_clips.append(clip)
+
+            except Exception as e:
+                self.logger.warning(f"Failed to create subtitle clip for index {subtitle.index}: {e}")
+                continue
+
+        return subtitle_clips
 
     def _create_bottom_subtitle_bar(
         self,
@@ -990,57 +1079,70 @@ class Phase07CompositionLegacy02(PhaseBase):
         area_height: int
     ) -> 'VideoFileClip':
         """
-        上部の動画エリアを生成
+        上部の動画エリアを生成（画像スライドショー）
 
-        - Phase 4の動画を 1920 x area_height にリサイズ
-        - 連結してループ
+        - Phase03の画像を 1920 x area_height にリサイズ
+        - 各画像を対応するセクションの長さで表示
+        - 連結してスライドショー化
 
         Args:
-            clip_paths: Phase 4の動画ファイルパスリスト
-            duration: 動画の長さ（秒）
-            area_height: 上部エリアの高さ（756px）
+            clip_paths: Phase03の画像パスリスト
+            duration: 総時間（音声の長さ）
+            area_height: エリアの高さ（864px）
 
         Returns:
-            動画エリアのクリップ
+            連結された動画クリップ
         """
         width = 1920
-        height = area_height
+        height = area_height  # 864px（全体1080の80%）
 
-        # 各クリップを読み込んでリサイズ
+        self.logger.info("Creating image slideshow from Phase03...")
+
+        # スクリプトを読み込む（セクション長を取得するため）
+        script = self._load_script()
+
+        # 各画像クリップを作成
         video_clips = []
-        for i, clip_path in enumerate(clip_paths, 1):
-            try:
-                self.logger.debug(f"Loading clip {i}/{len(clip_paths)}: {clip_path.name}")
-                clip = VideoFileClip(str(clip_path))
 
-                # 1920 x area_height にリサイズ（crop or fit）
+        for i, image_path in enumerate(clip_paths):
+            try:
+                section_id = i + 1
+
+                # 🔥 重要: audio_timing.jsonから正確な長さを取得
+                section_duration = self._get_section_duration(section_id, script)
+
+                self.logger.debug(f"Creating clip from {image_path.name} (duration: {section_duration:.1f}s)")
+
+                # 画像クリップを作成
+                clip = ImageClip(str(image_path))
+
+                # 1920 x area_height にリサイズ（クロップまたはフィット）
                 clip_resized = self._resize_clip_for_split_layout(clip, width, height)
+
+                # 🔥 重要: セクションの実際の長さを設定
+                clip_resized = clip_resized.with_duration(section_duration)
+
                 video_clips.append(clip_resized)
 
-                self.logger.debug(f"  Resized to {width}x{height}")
+                self.logger.debug(f"✓ Section {section_id}: {section_duration:.2f}s")
 
             except Exception as e:
-                self.logger.error(f"Failed to load clip {clip_path.name}: {e}")
+                self.logger.error(f"Failed to load clip {image_path.name}: {e}")
                 continue
 
-        # クリップを連結
+        # 🔥 重要: クリップを連結してスライドショー化
         if video_clips:
-            concatenated = concatenate_videoclips(video_clips, method="compose")
+            self.logger.info(f"Concatenating {len(video_clips)} image clips...")
+            final_clip = concatenate_videoclips(video_clips, method="compose")
 
-            # 音声の長さに合わせてループ
-            if concatenated.duration < duration:
-                loops = int(duration / concatenated.duration) + 1
-                self.logger.info(f"Looping video clips {loops} times to match duration")
-                concatenated = concatenate_videoclips([concatenated] * loops, method="compose")
+            total_duration = final_clip.duration
+            self.logger.info(f"✓ Image slideshow created: {total_duration:.2f}s")
 
-            # 長さを調整
-            final_clip = concatenated.subclipped(0, duration)
+            return final_clip
         else:
-            # クリップがない場合は黒画面
-            self.logger.warning("No video clips loaded, using black background")
-            final_clip = ColorClip(size=(width, height), color=(0, 0, 0), duration=duration)
-
-        return final_clip
+            # フォールバック: 黒画面
+            self.logger.warning("No video clips created, using black screen")
+            return ColorClip(size=(width, height), color=(0, 0, 0)).with_duration(duration)
 
     def _resize_clip_for_split_layout(
         self,
