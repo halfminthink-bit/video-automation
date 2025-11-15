@@ -33,3 +33,39 @@ audio_variations:
     model: "eleven_multilingual_v2"
     stability: 0.5
     similarity_boost: 0.8
+
+  # Azure系（高品質、日本語精度高）
+  - id: "azure_nanami_standard"
+    service: "azure"
+    voice_name: "ja-JP-NanamiNeural"
+    speed: 1.0
+    pitch: "+0%"
+    style: null
+
+  - id: "azure_nanami_cheerful"
+    service: "azure"
+    voice_name: "ja-JP-NanamiNeural"
+    speed: 1.0
+    pitch: "+0%"
+    style: "cheerful"
+
+  - id: "azure_naoki_standard"
+    service: "azure"
+    voice_name: "ja-JP-NaokiNeural"
+    speed: 1.0
+    pitch: "+0%"
+    style: null
+
+  - id: "azure_nanami_fast"
+    service: "azure"
+    voice_name: "ja-JP-NanamiNeural"
+    speed: 1.1
+    pitch: "+0%"
+    style: null
+
+  - id: "azure_nanami_slow"
+    service: "azure"
+    voice_name: "ja-JP-NanamiNeural"
+    speed: 0.9
+    pitch: "+0%"
+    style: null
