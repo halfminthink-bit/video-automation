@@ -19,8 +19,8 @@ from src.utils.logger import setup_logger
 from src.phases.phase_01_script import Phase01Script
 from src.phases.phase_02_audio import Phase02Audio
 from src.phases.phase_03_images import Phase03Images
-from src.phases.phase_04_animation import Phase04Animation
-from src.phases.phase_05_bgm import Phase05BGM
+# from src.phases.phase_04_animation import Phase04Animation  # ❌ 無効化
+# from src.phases.phase_05_bgm import Phase05BGM              # ❌ 無効化
 from src.phases.phase_06_subtitles import Phase06Subtitles
 from src.phases.phase_07_composition import Phase07Composition
 from src.phases.phase_08_thumbnail import Phase08Thumbnail
@@ -162,6 +162,10 @@ class PhaseOrchestrator:
         """
         全フェーズのインスタンスを作成
 
+        Phase04/05はデフォルトで無効化:
+        - Phase04 Animation: Phase03の静止画をそのまま使用（処理時間削減）
+        - Phase05 BGM: Phase07で直接統合（ffmpeg直接処理）
+
         Args:
             subject: 偉人名
 
@@ -174,8 +178,8 @@ class PhaseOrchestrator:
             Phase01Script(subject=subject, config=self.config, logger=self.logger, genre=self.genre),
             Phase02Audio(subject=subject, config=self.config, logger=self.logger, audio_var=self.audio_var),
             Phase03Images(subject=subject, config=self.config, logger=self.logger, genre=self.genre),
-            Phase04Animation(subject=subject, config=self.config, logger=self.logger),
-            Phase05BGM(subject=subject, config=self.config, logger=self.logger),
+            # Phase04Animation(subject=subject, config=self.config, logger=self.logger),  # ❌ 無効化: 静止画をそのまま使用
+            # Phase05BGM(subject=subject, config=self.config, logger=self.logger),        # ❌ 無効化: Phase07で直接統合
             Phase06Subtitles(subject=subject, config=self.config, logger=self.logger),
             Phase07Composition(subject=subject, config=self.config, logger=self.logger),
             Phase08Thumbnail(subject=subject, config=self.config, logger=self.logger, genre=self.genre, text_layout=self.text_layout, style=self.thumbnail_style),

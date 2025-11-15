@@ -4,7 +4,7 @@
 # パフォーマンス設定
 # ========================================
 performance:
-  use_ffmpeg_direct: false      # ffmpeg直接統合を使用（高速化）
+  use_ffmpeg_direct: true       # ffmpeg直接統合を使用（高速化）✅ Phase04/05無効化により有効化
   preset: "faster"              # エンコードプリセット (ultrafast/veryfast/faster/fast/medium)
   parallel_processing: true     # 並列処理有効化
   threads: 0                    # 使用スレッド数（0=自動検出）
@@ -15,7 +15,7 @@ output:
   fps: 30                   # フレームレート
   codec: "libx264"          # ビデオコーデック
   audio_codec: "aac"        # オーディオコーデック
-  preset: "ultrafast"            # エンコード速度 (ultrafast/fast/medium/slow) - fastで高速化
+  preset: "faster"              # エンコード速度 (ultrafast/veryfast/faster/fast/medium) - fasterで品質と速度のバランス
   bitrate: "3000k"          # ビットレート - 3000kで品質と速度のバランス
 
 # 二分割レイアウト設定

@@ -105,34 +105,58 @@ class Phase07Composition(PhaseBase):
         return self.working_dir / "07_composition"
     
     def check_inputs_exist(self) -> bool:
-        """必要な入力ファイルの存在確認"""
+        """
+        必要な入力ファイルの存在確認
+
+        Phase04無効化により、Phase03の画像を直接使用
+        """
         required_files = []
-        
+
         # Phase 1: 台本
         script_path = self.working_dir / "01_script" / "script.json"
         required_files.append(("Script", script_path))
-        
+
         # Phase 2: 音声
         audio_path = self.working_dir / "02_audio" / "narration_full.mp3"
         required_files.append(("Audio", audio_path))
-        
-        # Phase 4: アニメ化動画
-        animated_dir = self.working_dir / "04_animated"
-        if not animated_dir.exists() or not list(animated_dir.glob("*.mp4")):
-            self.logger.error(f"No animated clips found in: {animated_dir}")
+
+        # Phase 3: 画像（Phase04無効化により直接使用）
+        images_dir = self.working_dir / "03_images"
+        if not images_dir.exists():
+            self.logger.error(f"Images directory not found: {images_dir}")
             return False
-        
+
+        # 画像の存在確認（resized または generated ディレクトリ）
+        resized_dir = images_dir / "resized"
+        generated_dir = images_dir / "generated"
+        classified_json = images_dir / "classified.json"
+
+        has_images = False
+        if resized_dir.exists() and list(resized_dir.glob("*.png")):
+            has_images = True
+            self.logger.info(f"Found images in: {resized_dir}")
+        elif generated_dir.exists() and list(generated_dir.glob("*.png")):
+            has_images = True
+            self.logger.info(f"Found images in: {generated_dir}")
+        elif classified_json.exists():
+            has_images = True
+            self.logger.info(f"Found image metadata: {classified_json}")
+
+        if not has_images:
+            self.logger.error(f"No images found in: {images_dir}")
+            return False
+
         # Phase 6: 字幕
         subtitle_path = self.working_dir / "06_subtitles" / "subtitle_timing.json"
         required_files.append(("Subtitles", subtitle_path))
-        
+
         # 各ファイルの存在確認
         all_exist = True
         for name, path in required_files:
             if not path.exists():
                 self.logger.error(f"{name} not found: {path}")
                 all_exist = False
-        
+
         return all_exist
     
     def check_outputs_exist(self) -> bool:
@@ -1278,6 +1302,8 @@ class Phase07Composition(PhaseBase):
         """
         ffmpeg concat用のタイミングファイル生成
 
+        Phase03のメタデータから画像パスを読み込み、各セクションの長さに合わせて配置
+
         フォーマット:
         file 'image1.png'
         duration 3.5
@@ -1285,19 +1311,64 @@ class Phase07Composition(PhaseBase):
         duration 4.2
         ...
         """
-        import tempfile
-
         concat_file = self.phase_dir / "ffmpeg_concat.txt"
 
+        # Phase03のメタデータから画像パスを取得
+        classified_json = images_dir / "classified.json"
+        image_paths = []
+
+        if classified_json.exists():
+            try:
+                with open(classified_json, 'r', encoding='utf-8') as f:
+                    classified_data = json.load(f)
+
+                # セクションごとに最初の画像を取得
+                for section in classified_data.get("sections", []):
+                    if section.get("images"):
+                        first_image = section["images"][0]
+                        image_path = Path(first_image["file_path"])
+                        image_paths.append(image_path)
+
+                self.logger.info(f"Loaded {len(image_paths)} images from classified.json")
+            except Exception as e:
+                self.logger.warning(f"Failed to load classified.json: {e}, falling back to directory search")
+                image_paths = []
+
+        # フォールバック: ディレクトリから直接検索
+        if not image_paths:
+            # リサイズ済みの画像を検索（1920x1080 PNG）
+            resized_dir = images_dir / "resized"
+            if resized_dir.exists():
+                # セクション順にソート（section_01, section_02, ...）
+                for i in range(1, len(sections) + 1):
+                    pattern = f"section_{i:02d}_*_001.png"
+                    matches = list(resized_dir.glob(pattern))
+                    if matches:
+                        image_paths.append(matches[0])
+                    else:
+                        self.logger.warning(f"No image found for section {i:02d}")
+            else:
+                # generatedディレクトリから検索
+                generated_dir = images_dir / "generated"
+                for i in range(1, len(sections) + 1):
+                    pattern = f"section_{i:02d}_*_001.png"
+                    matches = list(generated_dir.glob(pattern))
+                    if matches:
+                        image_paths.append(matches[0])
+                    else:
+                        self.logger.warning(f"No image found for section {i:02d}")
+
+        # concat用ファイルを作成
         with open(concat_file, 'w', encoding='utf-8') as f:
             for i, section in enumerate(sections):
-                # 画像パスを取得（Phase03で生成された画像）
-                image_num = i + 1
-                image_path = images_dir / f"section_{image_num:02d}_image_1.png"
+                if i >= len(image_paths):
+                    self.logger.warning(f"No image for section {i+1}, skipping")
+                    continue
+
+                image_path = image_paths[i]
 
                 if not image_path.exists():
-                    self.logger.warning(f"Image not found: {image_path}, using placeholder")
-                    # TODO: プレースホルダー画像を生成
+                    self.logger.warning(f"Image not found: {image_path}, skipping")
                     continue
 
                 # セクションの長さを計算
@@ -1308,18 +1379,18 @@ class Phase07Composition(PhaseBase):
                 escaped_path = str(abs_path).replace("'", "'\\''")
 
                 f.write(f"file '{escaped_path}'\n")
-                f.write(f"duration {duration}\n")
+                if i < len(sections) - 1:  # 最後以外はdurationを指定
+                    f.write(f"duration {duration}\n")
 
-            # 最後の画像はdurationなし
-            if sections:
-                last_section_num = len(sections)
-                last_image = images_dir / f"section_{last_section_num:02d}_image_1.png"
+            # 最後の画像（durationなし）
+            if image_paths and sections:
+                last_image = image_paths[-1]
                 if last_image.exists():
                     abs_path = last_image.absolute()
                     escaped_path = str(abs_path).replace("'", "'\\''")
                     f.write(f"file '{escaped_path}'\n")
 
-        self.logger.info(f"Concat file created: {concat_file}")
+        self.logger.info(f"Concat file created with {len(image_paths)} images: {concat_file}")
         return concat_file
 
     def _build_ffmpeg_command(
@@ -1330,7 +1401,13 @@ class Phase07Composition(PhaseBase):
         output_path: Path,
         bgm_data: Optional[dict]
     ) -> list:
-        """ffmpegコマンドを構築"""
+        """
+        ffmpegコマンドを構築
+
+        - 黒バー（下部216px）を追加
+        - SRT字幕を焼き込み
+        - BGMをナレーションとミックス（音量調整、フェード付き）
+        """
         import multiprocessing
 
         # スレッド数を決定
@@ -1341,30 +1418,53 @@ class Phase07Composition(PhaseBase):
             'ffmpeg',
             '-f', 'concat',
             '-safe', '0',
-            '-i', str(concat_file),      # 画像+タイミング
-            '-i', str(audio_path),        # 音声
+            '-i', str(concat_file),      # 入力0: 画像+タイミング
+            '-i', str(audio_path),        # 入力1: 音声
         ]
 
-        # BGMがある場合は追加
-        bgm_input_index = 2
+        # BGMファイルを入力として追加
+        bgm_segments = []
         if bgm_data and bgm_data.get("segments"):
-            # TODO: BGMセグメントの処理
-            # 複数のBGMファイルをconcatして追加
-            pass
+            bgm_segments = bgm_data.get("segments", [])
+            for segment in bgm_segments:
+                bgm_path = segment.get("file_path")
+                if bgm_path and Path(bgm_path).exists():
+                    cmd.extend(['-i', str(bgm_path)])
 
-        # フィルタグラフを構築
-        filters = []
+        # ビデオフィルタを構築
+        video_filters = []
 
-        # 字幕フィルタ
+        # 1. 黒バーを追加（下部216px）
+        video_filters.append("drawbox=y=ih-216:color=black@1.0:width=iw:height=216:t=fill")
+
+        # 2. 字幕フィルタ
         if srt_path.exists():
             # パスをエスケープ
             srt_str = str(srt_path).replace('\\', '\\\\').replace(':', '\\:')
-            subtitle_filter = f"subtitles={srt_str}:force_style='FontName={self.subtitle_font},FontSize={self.subtitle_size},PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,Outline=2,MarginV={self.subtitle_margin}'"
-            filters.append(subtitle_filter)
+            subtitle_filter = (
+                f"subtitles={srt_str}:force_style='"
+                f"FontName={self.subtitle_font},"
+                f"FontSize={self.subtitle_size},"
+                f"PrimaryColour=&HFFFFFF&,"
+                f"OutlineColour=&H000000&,"
+                f"Outline=2,"
+                f"Shadow=2,"
+                f"MarginV=20"
+                f"'"
+            )
+            video_filters.append(subtitle_filter)
 
-        # フィルタを適用
-        if filters:
-            cmd.extend(['-vf', ','.join(filters)])
+        # ビデオフィルタを適用
+        cmd.extend(['-vf', ','.join(video_filters)])
+
+        # オーディオフィルタ（BGMがある場合）
+        if bgm_segments:
+            audio_filter = self._build_audio_filter(bgm_segments)
+            cmd.extend(['-filter_complex', audio_filter])
+            cmd.extend(['-map', '0:v', '-map', '[audio]'])
+        else:
+            # BGMなし: ナレーションのみ
+            cmd.extend(['-map', '0:v', '-map', '1:a'])
 
         # エンコード設定
         cmd.extend([
@@ -1381,6 +1481,55 @@ class Phase07Composition(PhaseBase):
         ])
 
         return cmd
+
+    def _build_audio_filter(self, bgm_segments: List[dict]) -> str:
+        """
+        BGMミックス用のffmpegフィルター生成
+
+        Args:
+            bgm_segments: BGMセグメント情報のリスト
+
+        Returns:
+            filter_complex文字列
+
+        例:
+            [1:a]volume=1.0[narration];
+            [2:a]volume=0.1,afade=t=in:st=0:d=3,afade=t=out:st=147:d=3[bgm0];
+            [3:a]volume=0.1,afade=t=in:st=150:d=3,afade=t=out:st=297:d=3[bgm1];
+            [narration][bgm0][bgm1]amix=inputs=3:duration=first[audio]
+        """
+        filters = []
+
+        # ナレーション（入力1）
+        filters.append("[1:a]volume=1.0[narration]")
+
+        # 各BGMセグメント（入力2以降）
+        for i, segment in enumerate(bgm_segments):
+            input_idx = i + 2  # BGMは入力2から
+            volume = segment.get('volume', self.bgm_volume)
+            start_time = segment.get('start_time', 0)
+            duration = segment.get('duration', 0)
+            fade_in = segment.get('fade_in', self.bgm_fade_in)
+            fade_out = segment.get('fade_out', self.bgm_fade_out)
+
+            # フェードアウトの開始時刻を計算
+            fade_out_start = start_time + duration - fade_out
+
+            bgm_filter = (
+                f"[{input_idx}:a]"
+                f"volume={volume},"
+                f"afade=t=in:st={start_time}:d={fade_in},"
+                f"afade=t=out:st={fade_out_start}:d={fade_out}"
+                f"[bgm{i}]"
+            )
+            filters.append(bgm_filter)
+
+        # ミックス
+        inputs = ['[narration]'] + [f'[bgm{i}]' for i in range(len(bgm_segments))]
+        mix_filter = f"{''.join(inputs)}amix=inputs={len(inputs)}:duration=first[audio]"
+        filters.append(mix_filter)
+
+        return ";".join(filters)
 
     def _generate_thumbnail_with_ffmpeg(self, video_path: Path) -> Path:
         """ffmpegでサムネイルを生成"""
