@@ -4,8 +4,6 @@ Phase 1-6で生成した全ての素材を統合し、完成動画を生成す�
 """
 
 import json
-import platform
-import re
 import time
 from pathlib import Path
 from typing import List, Dict, Any, Optional, TYPE_CHECKING
@@ -89,13 +87,6 @@ class Phase07Composition(PhaseBase):
         # 二分割レイアウト設定
         self.split_config = self.phase_config.get("split_layout", {})
         self.split_enabled = self.split_config.get("enabled", False)
-
-        # パフォーマンス設定
-        perf_config = self.phase_config.get("performance", {})
-        self.use_ffmpeg_direct = perf_config.get("use_ffmpeg_direct", False)
-        self.encode_preset = perf_config.get("preset", "faster")
-        self.parallel_processing = perf_config.get("parallel_processing", True)
-        self.threads = perf_config.get("threads", 0)
     
     def get_phase_number(self) -> int:
         return 7
@@ -107,58 +98,34 @@ class Phase07Composition(PhaseBase):
         return self.working_dir / "07_composition"
     
     def check_inputs_exist(self) -> bool:
-        """
-        必要な入力ファイルの存在確認
-
-        Phase04無効化により、Phase03の画像を直接使用
-        """
+        """必要な入力ファイルの存在確認"""
         required_files = []
-
+        
         # Phase 1: 台本
         script_path = self.working_dir / "01_script" / "script.json"
         required_files.append(("Script", script_path))
-
+        
         # Phase 2: 音声
         audio_path = self.working_dir / "02_audio" / "narration_full.mp3"
         required_files.append(("Audio", audio_path))
-
-        # Phase 3: 画像（Phase04無効化により直接使用）
-        images_dir = self.working_dir / "03_images"
-        if not images_dir.exists():
-            self.logger.error(f"Images directory not found: {images_dir}")
+        
+        # Phase 4: アニメ化動画
+        animated_dir = self.working_dir / "04_animated"
+        if not animated_dir.exists() or not list(animated_dir.glob("*.mp4")):
+            self.logger.error(f"No animated clips found in: {animated_dir}")
             return False
-
-        # 画像の存在確認（resized または generated ディレクトリ）
-        resized_dir = images_dir / "resized"
-        generated_dir = images_dir / "generated"
-        classified_json = images_dir / "classified.json"
-
-        has_images = False
-        if resized_dir.exists() and list(resized_dir.glob("*.png")):
-            has_images = True
-            self.logger.info(f"Found images in: {resized_dir}")
-        elif generated_dir.exists() and list(generated_dir.glob("*.png")):
-            has_images = True
-            self.logger.info(f"Found images in: {generated_dir}")
-        elif classified_json.exists():
-            has_images = True
-            self.logger.info(f"Found image metadata: {classified_json}")
-
-        if not has_images:
-            self.logger.error(f"No images found in: {images_dir}")
-            return False
-
+        
         # Phase 6: 字幕
         subtitle_path = self.working_dir / "06_subtitles" / "subtitle_timing.json"
         required_files.append(("Subtitles", subtitle_path))
-
+        
         # 各ファイルの存在確認
         all_exist = True
         for name, path in required_files:
             if not path.exists():
                 self.logger.error(f"{name} not found: {path}")
                 all_exist = False
-
+        
         return all_exist
     
     def check_outputs_exist(self) -> bool:
@@ -171,19 +138,7 @@ class Phase07Composition(PhaseBase):
         """動画統合の実行"""
         self.logger.info(f"Starting video composition for: {self.subject}")
         render_start = time.time()
-
-        # ffmpeg直接統合モードの分岐
-        if self.use_ffmpeg_direct:
-            self.logger.info("🔥 Using ffmpeg direct integration (high-speed mode)")
-            return self._execute_ffmpeg_direct()
-        else:
-            self.logger.info("Using MoviePy integration (standard mode)")
-            return self._execute_moviepy()
-
-    def _execute_moviepy(self) -> VideoComposition:
-        """MoviePyを使用した動画統合（従来の方法）"""
-        render_start = time.time()
-
+        
         try:
             # 1. データ読み込み
             self.logger.info("Loading data...")
@@ -311,40 +266,6 @@ class Phase07Composition(PhaseBase):
         """音声ファイルパスを取得"""
         return self.working_dir / "02_audio" / "narration_full.mp3"
     
-    def _get_audio_duration(self, audio_path: Path) -> float:
-        """
-        音声ファイルの長さを取得
-        
-        Args:
-            audio_path: 音声ファイルのパス
-        
-        Returns:
-            音声の長さ（秒）
-        """
-        try:
-            from moviepy import AudioFileClip
-            audio_clip = AudioFileClip(str(audio_path))
-            duration = audio_clip.duration
-            audio_clip.close()
-            self.logger.debug(f"Audio duration: {duration:.2f}s")
-            return duration
-        except Exception as e:
-            self.logger.warning(f"Failed to get audio duration from file: {e}")
-            # フォールバック: audio_timing.jsonから合計時間を計算
-            audio_timing = self._load_audio_timing()
-            if isinstance(audio_timing, list):
-                total_duration = 0.0
-                for section in audio_timing:
-                    char_end_times = section.get('character_end_times_seconds', [])
-                    if char_end_times:
-                        total_duration = max(total_duration, char_end_times[-1])
-                if total_duration > 0:
-                    self.logger.info(f"Audio duration from timing data: {total_duration:.2f}s")
-                    return total_duration
-            # 最後のフォールバック: デフォルト値
-            self.logger.warning("Using default audio duration: 420.0s")
-            return 420.0
-    
     def _load_animated_clips(self) -> List[Path]:
         """アニメ化動画クリップを読み込み（セクション順を保持）"""
         animated_dir = self.working_dir / "04_animated"
@@ -432,22 +353,16 @@ class Phase07Composition(PhaseBase):
             return None
     
     def _get_section_duration(self, section_id: int, audio_timing: Optional[dict]) -> float:
-        """
-        セクションの実際の音声長を取得
-        
-        Args:
-            section_id: セクションID
-            audio_timing: audio_timing.jsonの内容（リスト形式または辞書形式）
-        """
+        """セクションの実際の音声長を取得"""
         if not audio_timing:
             # フォールバック: 音声ファイルから直接取得
-            audio_file = self.working_dir / "02_audio" / "sections" / f"section_{section_id:02d}.mp3"
+            audio_file = self.working_dir / "02_audio" / f"section_{section_id:02d}.mp3"
             if audio_file.exists():
                 try:
                     audio_clip = AudioFileClip(str(audio_file))
                     duration = audio_clip.duration
                     audio_clip.close()
-                    self.logger.debug(f"Section {section_id} duration from audio file: {duration:.2f}s")
+                    self.logger.debug(f"Got duration from audio file: {duration:.2f}s")
                     return duration
                 except Exception as e:
                     self.logger.warning(f"Failed to get duration from {audio_file}: {e}")
@@ -456,49 +371,14 @@ class Phase07Composition(PhaseBase):
             self.logger.warning(f"Using default duration for section {section_id}")
             return 120.0
         
-        # audio_timing.jsonの構造チェック
-        if isinstance(audio_timing, dict):
-            # 辞書形式（古い形式）
-            sections = audio_timing.get('sections', [])
-        elif isinstance(audio_timing, list):
-            # リスト形式（新しい形式）
-            sections = audio_timing
-        else:
-            self.logger.warning(f"Unexpected audio_timing type: {type(audio_timing)}")
-            return 120.0
-        
-        # セクションを探す
-        for section in sections:
+        # audio_timing.jsonから取得
+        for section in audio_timing.get('sections', []):
             if section.get('section_id') == section_id:
-                # 文字レベルタイミングから長さを計算
-                char_end_times = section.get('character_end_times_seconds', [])
-                if char_end_times:
-                    duration = char_end_times[-1]  # 最後の文字の終了時刻
-                    self.logger.debug(f"Section {section_id} actual duration from timings: {duration:.2f}s")
-                    return duration
-                
-                # フォールバック: durationフィールド
                 duration = section.get('duration', 120.0)
-                self.logger.debug(f"Section {section_id} duration from field: {duration:.2f}s")
+                self.logger.debug(f"Section {section_id} actual duration: {duration:.2f}s")
                 return duration
         
-        # セクションが見つからない場合
-        self.logger.warning(f"Section {section_id} not found in audio_timing")
-        
-        # 最後のフォールバック: 音声ファイルから直接取得
-        audio_file = self.working_dir / "02_audio" / "sections" / f"section_{section_id:02d}.mp3"
-        if audio_file.exists():
-            try:
-                audio_clip = AudioFileClip(str(audio_file))
-                duration = audio_clip.duration
-                audio_clip.close()
-                self.logger.debug(f"Section {section_id} duration from audio file: {duration:.2f}s")
-                return duration
-            except Exception as e:
-                self.logger.warning(f"Failed to get duration from {audio_file}: {e}")
-        
-        # 最後のフォールバック: デフォルト値
-        self.logger.warning(f"Using default duration for section {section_id}")
+        self.logger.warning(f"Section {section_id} not found in audio_timing.json")
         return 120.0
     
     def _load_bgm(self) -> Optional[dict]:
@@ -1249,663 +1129,10 @@ class Phase07Composition(PhaseBase):
         self.logger.warning("Japanese font not found, using default font")
         return ImageFont.load_default()
 
-    def _execute_ffmpeg_direct(self) -> VideoComposition:
-        """
-        ffmpegで直接統合（高速版・2パス方式）
-        
-        Pass 1: 字幕なし動画生成（黒バー + 映像 + 音声 + BGM）
-        Pass 2: 字幕焼き込み（シンプルなコマンドでエスケープ問題を回避）
-        
-        利点:
-        - Windows環境でのパスエスケープ問題を完全回避
-        - force_styleの複雑なクォート処理が不要
-        - デバッグが容易（各パスを個別に確認可能）
-        """
-        import subprocess
-
-        render_start = time.time()
-
-        try:
-            # 1-4. データ読み込み（既存コード）
-            self.logger.info("Loading data...")
-            audio_path = self._get_audio_path()
-            audio_timing = self._load_audio_timing()
-            subtitles = self._load_subtitles()
-            bgm_data = self._load_bgm()
-            script = self._load_script()
-            
-            self.logger.info("Creating ffmpeg concat file...")
-            concat_file = self._create_ffmpeg_concat_file(script)
-            
-            self.logger.info("Preparing subtitle file...")
-            srt_path = self.working_dir / "06_subtitles" / "subtitles.srt"
-            
-            if not srt_path.exists():
-                raise FileNotFoundError(f"❌ Subtitle file not found: {srt_path}")
-            
-            file_size = srt_path.stat().st_size
-            if file_size == 0:
-                raise ValueError(f"❌ Subtitle file is empty: {srt_path}")
-            
-            self.logger.info(f"✅ Subtitle file found: {srt_path.name} ({file_size} bytes)")
-
-            # 5. 出力パス準備
-            output_dir = Path(self.config.get("paths", {}).get("output_dir", "data/output"))
-            output_dir = output_dir / "videos"
-            output_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Pass 1: 字幕なし動画（一時ファイル）
-            temp_output = self.working_dir / "07_composition" / f"{self.subject}_temp_no_subs.mp4"
-            final_output = output_dir / f"{self.subject}.mp4"
-
-            # 6. Pass 1: 字幕なし動画を生成
-            self.logger.info("Pass 1: Building video without subtitles...")
-            cmd_pass1 = self._build_ffmpeg_command(
-                concat_file=concat_file,
-                audio_path=audio_path,
-                srt_path=None,  # 字幕なし
-                output_path=temp_output,
-                bgm_data=bgm_data
-            )
-            
-            self.logger.info(f"Running ffmpeg Pass 1 (preset: {self.encode_preset})...")
-            try:
-                result = subprocess.run(
-                    cmd_pass1,
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                    encoding='utf-8'
-                )
-                self.logger.info(f"✅ Pass 1 completed: {temp_output}")
-                
-            except subprocess.CalledProcessError as e:
-                self.logger.error(f"❌ ffmpeg Pass 1 failed with code {e.returncode}")
-                self.logger.error(f"STDOUT:\n{e.stdout}")
-                self.logger.error(f"STDERR:\n{e.stderr}")
-                
-                cmd_str = ' '.join(f'"{c}"' if ' ' in str(c) else str(c) for c in cmd_pass1)
-                self.logger.error(f"Command:\n{cmd_str}")
-                raise
-
-            # 7. Pass 2: 字幕を焼き込む
-            self.logger.info("Pass 2: Burning subtitles...")
-            self._burn_subtitles(temp_output, srt_path, final_output)
-            
-            # 8. 一時ファイルを削除
-            if temp_output.exists():
-                temp_output.unlink()
-                self.logger.info(f"Temporary file deleted: {temp_output.name}")
-
-            # 9. サムネイル生成
-            self.logger.info("Generating thumbnail...")
-            thumbnail_path = self._generate_thumbnail_with_ffmpeg(final_output)
-
-            # 10. メタデータ生成
-            render_time = time.time() - render_start
-            file_size_mb = final_output.stat().st_size / (1024 * 1024)
-
-            composition = VideoComposition(
-                subject=self.subject,
-                output_video_path=str(final_output),
-                thumbnail_path=str(thumbnail_path),
-                metadata_path=str(self.phase_dir / "metadata.json"),
-                timeline=VideoTimeline(
-                    subject=self.subject,
-                    clips=[],
-                    audio_path=str(audio_path),
-                    bgm_segments=[],
-                    subtitles=subtitles,
-                    total_duration=0.0,  # TODO: 計算
-                    resolution=self.resolution,
-                    fps=self.fps
-                ),
-                render_time_seconds=render_time,
-                file_size_mb=file_size_mb,
-                completed_at=datetime.now()
-            )
-
-            self._save_metadata(composition)
-
-            self.logger.info(f"✅ Composition completed in {render_time:.1f}s (2-pass mode)")
-            self.logger.info(f"Final video: {final_output}")
-            self.logger.info(f"File size: {file_size_mb:.1f} MB")
-            return composition
-
-        except subprocess.CalledProcessError as e:
-            self.logger.error(f"ffmpeg failed: {e.stderr}")
-            raise
-        except Exception as e:
-            self.logger.error(f"Video composition failed: {e}", exc_info=True)
-            raise
-
-    def _load_audio_timing(self) -> dict:
-        """audio_timing.jsonを読み込み"""
-        timing_path = self.working_dir / "02_audio" / "audio_timing.json"
-        if not timing_path.exists():
-            raise FileNotFoundError(f"audio_timing.json not found: {timing_path}")
-
-        with open(timing_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-
-    def _create_ffmpeg_concat_file(self, script: dict) -> Path:
-        """
-        18枚の画像をセクション単位で分割して表示
-        
-        処理フロー:
-        1. BGMデータから各セクションの時間を取得
-        2. classified.jsonから全18枚の画像を取得
-        3. 画像をセクション番号でグループ化
-        4. 各セクション内で画像を均等分割
-        5. concat fileを生成
-        
-        Args:
-            script: スクリプトデータ（sectionsを含む）
-        
-        Returns:
-            concatファイルのパス
-        """
-        concat_file = self.phase_dir / "ffmpeg_concat.txt"
-        
-        # BGMデータから各セクションの時間を取得
-        bgm_data = self._load_bgm()
-        segments = bgm_data.get('segments', [])
-        
-        if not segments:
-            raise ValueError("No BGM segments found. Cannot determine section durations.")
-        
-        # classified.jsonから全画像を取得
-        classified_path = self.working_dir / "03_images" / "classified.json"
-        
-        if not classified_path.exists():
-            raise FileNotFoundError(f"classified.json not found: {classified_path}")
-        
-        with open(classified_path, 'r', encoding='utf-8') as f:
-            classified_data = json.load(f)
-        
-        all_images = classified_data.get('images', [])
-        self.logger.info(f"Total images in classified.json: {len(all_images)}")
-        
-        # セクションごとに画像をグループ化
-        section_images = {
-            1: [],  # section_01_*
-            2: [],  # section_02_*
-            3: [],  # section_03_*
-            4: [],  # section_04_*
-            5: [],  # section_05_*
-            6: []   # section_06_*
-        }
-        
-        # 画像をセクション番号で分類
-        for img in all_images:
-            file_path_str = img.get('file_path', '')
-            file_path = Path(file_path_str)
-            
-            if not file_path.exists():
-                self.logger.warning(f"Image file not found: {file_path}")
-                continue
-            
-            # ファイル名からセクション番号を抽出（section_01_, section_02_など）
-            filename = file_path.name
-            match = re.search(r'section_(\d+)', filename)
-            if match:
-                section_num = int(match.group(1))
-                if 1 <= section_num <= 6:
-                    section_images[section_num].append(file_path)
-        
-        # 各セクション内でファイル名順にソート（順序を保証）
-        for section_num in range(1, 7):
-            section_images[section_num].sort(key=lambda p: p.name)
-            self.logger.debug(f"Section {section_num}: {len(section_images[section_num])} images")
-        
-        # concat file生成
-        concat_lines = []
-        total_images = 0
-        
-        is_windows = platform.system() == 'Windows'
-        
-        def normalize_concat_path(p: Path) -> str:
-            """concatファイル用にパスを正規化"""
-            path_str = str(p.resolve())
-            if is_windows:
-                # Windowsパスを/区切りに
-                path_str = path_str.replace('\\', '/')
-            # シングルクォートでエスケープ
-            return f"'{path_str}'"
-        
-        for i, segment in enumerate(segments, 1):
-            section_duration = segment.get('duration', 0)
-            images = section_images.get(i, [])
-            images_count = len(images)
-            
-            if images_count == 0:
-                self.logger.warning(f"⚠️ No images found for section {i}")
-                continue
-            
-            if section_duration == 0:
-                self.logger.warning(f"⚠️ Section {i} duration is 0, skipping")
-                continue
-            
-            # このセクションの各画像の表示時間
-            duration_per_image = section_duration / images_count
-            
-            self.logger.info(
-                f"Section {i}: {images_count} images × {duration_per_image:.1f}s = {section_duration:.1f}s"
-            )
-            
-            for j, image_path in enumerate(images):
-                # パス正規化
-                normalized_path = normalize_concat_path(image_path)
-                concat_lines.append(f"file {normalized_path}")
-                
-                # 最後の画像以外はduration指定
-                is_last_image = (i == len(segments) and j == len(images) - 1)
-                if not is_last_image:
-                    concat_lines.append(f"duration {duration_per_image:.3f}")
-                
-                total_images += 1
-        
-        # 最後の画像を追加（ffmpeg concat仕様）
-        if section_images[6]:
-            last_image = section_images[6][-1]
-            normalized_last = normalize_concat_path(last_image)
-            # 既に追加されている場合は何もしない
-            if concat_lines[-1] != f"file {normalized_last}":
-                concat_lines.append(f"file {normalized_last}")
-        
-        # ファイルに書き込み
-        with open(concat_file, 'w', encoding='utf-8') as f:
-            f.write('\n'.join(concat_lines))
-        
-        # 検証
-        if not concat_file.exists() or concat_file.stat().st_size == 0:
-            raise ValueError("Failed to create valid concat file (empty or not created)")
-        
-        self.logger.info(f"✅ Concat file created: {total_images} images total")
-        self.logger.info(f"Concat file path: {concat_file}")
-        
-        # デバッグ: concatファイルの内容を表示（最初の10行のみ）
-        with open(concat_file, 'r', encoding='utf-8') as f:
-            concat_content = f.read()
-            lines = concat_content.split('\n')
-            preview = '\n'.join(lines[:10])
-            self.logger.debug(f"Concat file preview (first 10 lines):\n{preview}...")
-        
-        return concat_file
-    
-    def _get_section_duration_from_script(self, section: dict) -> float:
-        """
-        スクリプトからセクションの長さを取得
-        
-        Args:
-            section: スクリプトのセクション辞書
-        
-        Returns:
-            長さ（秒）
-        """
-        section_id = section.get('section_id')
-        
-        # audio_timing.jsonから正確な長さを取得
-        audio_timing_path = self.working_dir / "02_audio" / "audio_timing.json"
-        
-        if audio_timing_path.exists():
-            try:
-                with open(audio_timing_path, 'r', encoding='utf-8') as f:
-                    audio_timing = json.load(f)
-                
-                # リスト形式のaudio_timingから該当セクションを探す
-                if isinstance(audio_timing, list):
-                    for timing_section in audio_timing:
-                        if timing_section.get('section_id') == section_id:
-                            # 文字レベルタイミングの最後から長さを取得
-                            char_end_times = timing_section.get('character_end_times_seconds', [])
-                            if char_end_times:
-                                duration = char_end_times[-1]
-                                self.logger.debug(f"Section {section_id} duration from timings: {duration:.2f}s")
-                                return duration
-                elif isinstance(audio_timing, dict):
-                    # 辞書形式の場合
-                    for timing_section in audio_timing.get('sections', []):
-                        if timing_section.get('section_id') == section_id:
-                            char_end_times = timing_section.get('character_end_times_seconds', [])
-                            if char_end_times:
-                                duration = char_end_times[-1]
-                                self.logger.debug(f"Section {section_id} duration from timings: {duration:.2f}s")
-                                return duration
-            except Exception as e:
-                self.logger.warning(f"Failed to load audio_timing.json: {e}")
-        
-        # フォールバック: スクリプトのduration
-        duration = section.get('duration', 120.0)
-        self.logger.debug(f"Section {section_id} duration from script: {duration:.2f}s")
-        return duration
-    
-    def _convert_srt_to_ass(self, srt_path: Path) -> Path:
-        """
-        SRTファイルをASS形式に変換（スタイル埋め込み）
-        
-        Args:
-            srt_path: SRTファイルのパス
-        
-        Returns:
-            ASS形式の字幕ファイルパス
-        """
-        import re
-        
-        ass_path = srt_path.with_suffix('.ass')
-        
-        # ASSヘッダー（フォント・スタイル定義）
-        ass_header = f"""[Script Info]
-ScriptType: v4.00+
-Collisions: Normal
-PlayDepth: 0
-
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,{self.subtitle_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,3,3,0,2,10,10,80,1
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-"""
-        
-        # SRTを読み込んでASSに変換
-        with open(srt_path, 'r', encoding='utf-8') as f:
-            srt_content = f.read()
-        
-        # SRTパース
-        subtitle_blocks = re.split(r'\n\n+', srt_content.strip())
-        
-        ass_events = []
-        for block in subtitle_blocks:
-            lines = block.strip().split('\n')
-            if len(lines) < 3:
-                continue
-            
-            # タイムスタンプ行を取得
-            time_line = lines[1]
-            match = re.match(
-                r'(\d{2}):(\d{2}):(\d{2}),(\d{3}) --> (\d{2}):(\d{2}):(\d{2}),(\d{3})', 
-                time_line
-            )
-            if not match:
-                continue
-            
-            # ASS形式のタイムスタンプに変換（H:MM:SS.CS）
-            start = f"{match.group(1)}:{match.group(2)}:{match.group(3)}.{match.group(4)[:2]}"
-            end = f"{match.group(5)}:{match.group(6)}:{match.group(7)}.{match.group(8)[:2]}"
-            
-            # テキスト取得（改行を\Nに変換）
-            text = '\\N'.join(lines[2:])
-            
-            ass_events.append(f"Dialogue: 0,{start},{end},Default,,0,0,0,,{text}")
-        
-        # ASSファイルに書き込み
-        with open(ass_path, 'w', encoding='utf-8') as f:
-            f.write(ass_header)
-            f.write('\n'.join(ass_events))
-        
-        self.logger.info(f"✅ Converted SRT to ASS: {ass_path.name}")
-        return ass_path
-
-    def _build_ffmpeg_command(
-        self,
-        concat_file: Path,
-        audio_path: Path,
-        srt_path: Optional[Path],  # Noneの場合は字幕なし
-        output_path: Path,
-        bgm_data: Optional[dict]
-    ) -> list:
-        """
-        ffmpegコマンドを構築
-
-        - 黒バー（下部216px）を追加
-        - SRT字幕を焼き込み（srt_pathがNoneでない場合のみ）
-        - BGMをナレーションとミックス（音量調整、フェード付き）
-        
-        Args:
-            srt_path: 字幕ファイル（Noneの場合は字幕フィルタをスキップ）
-        
-        修正点:
-        - Windowsパスを/区切りに統一
-        - 字幕フィルタはPass 1ではスキップ（Pass 2で別途追加）
-        """
-        import multiprocessing
-
-        # Windowsの場合はパスを正規化
-        is_windows = platform.system() == 'Windows'
-        
-        def normalize_path(p: Path) -> str:
-            """WindowsパスをUnix形式に変換（ffmpeg互換）"""
-            path_str = str(p.resolve())
-            if is_windows:
-                # C:\Users\... → C:/Users/...
-                path_str = path_str.replace('\\', '/')
-            return path_str
-
-        # スレッド数を決定
-        threads = self.threads if self.threads > 0 else multiprocessing.cpu_count()
-
-        # 基本コマンド
-        cmd = [
-            'ffmpeg',
-            '-f', 'concat',
-            '-safe', '0',
-            '-i', normalize_path(concat_file),
-            '-i', normalize_path(audio_path),
-        ]
-
-        # BGMファイルを入力として追加
-        bgm_segments = []
-        if bgm_data and bgm_data.get("segments"):
-            bgm_segments = bgm_data.get("segments", [])
-            for segment in bgm_segments:
-                bgm_path = segment.get("file_path")
-                if bgm_path and Path(bgm_path).exists():
-                    cmd.extend(['-i', normalize_path(Path(bgm_path))])
-
-        # ビデオフィルタを構築
-        video_filters = []
-
-        # 1. 黒バーを追加（下部216px）
-        video_filters.append("drawbox=y=ih-216:color=black@1.0:width=iw:height=216:t=fill")
-
-        # 2. 字幕フィルタ（srt_pathがNoneでない場合のみ追加）
-        # Pass 1では字幕なし、Pass 2で別途追加
-        if srt_path and srt_path.exists():
-            self.logger.warning("⚠️ Subtitle filter in Pass 1 is deprecated. Use Pass 2 instead.")
-
-        # ビデオフィルタを適用
-        if video_filters:
-            cmd.extend(['-vf', ','.join(video_filters)])
-
-        # オーディオフィルタ（BGMがある場合）
-        if bgm_segments:
-            audio_filter = self._build_audio_filter(bgm_segments)
-            cmd.extend(['-filter_complex', audio_filter])
-            cmd.extend(['-map', '0:v', '-map', '[audio]'])
-        else:
-            # BGMなし: ナレーションのみ
-            cmd.extend(['-map', '0:v', '-map', '1:a'])
-
-        # 音声の長さを取得
-        audio_duration = self._get_audio_duration(audio_path)
-        
-        # エンコード設定
-        cmd.extend([
-            '-c:v', 'libx264',
-            '-preset', self.encode_preset,
-            '-crf', '23',
-            '-pix_fmt', 'yuv420p',
-            '-c:a', 'aac',
-            '-b:a', '192k',
-            '-threads', str(threads),
-            '-t', str(audio_duration),  # 音声の長さを明示的に指定
-            '-shortest',
-            '-y',
-            normalize_path(output_path)
-        ])
-
-        return cmd
-
-    def _build_audio_filter(self, bgm_segments: List[dict]) -> str:
-        """
-        BGMミックス用のffmpegフィルター生成
-
-        Args:
-            bgm_segments: BGMセグメント情報のリスト
-
-        Returns:
-            filter_complex文字列
-
-        例:
-            [1:a]volume=1.0[narration];
-            [2:a]volume=0.1,afade=t=in:st=0:d=3,afade=t=out:st=147:d=3[bgm0];
-            [3:a]volume=0.1,afade=t=in:st=150:d=3,afade=t=out:st=297:d=3[bgm1];
-            [narration][bgm0][bgm1]amix=inputs=3:duration=first[audio]
-        """
-        filters = []
-
-        # ナレーション（入力1）
-        filters.append("[1:a]volume=1.0[narration]")
-
-        # 各BGMセグメント（入力2以降）
-        for i, segment in enumerate(bgm_segments):
-            input_idx = i + 2  # BGMは入力2から
-            volume = segment.get('volume', self.bgm_volume)
-            start_time = segment.get('start_time', 0)
-            duration = segment.get('duration', 0)
-            fade_in = segment.get('fade_in', self.bgm_fade_in)
-            fade_out = segment.get('fade_out', self.bgm_fade_out)
-
-            # フェードアウトの開始時刻を計算
-            fade_out_start = start_time + duration - fade_out
-
-            bgm_filter = (
-                f"[{input_idx}:a]"
-                f"volume={volume},"
-                f"afade=t=in:st={start_time}:d={fade_in},"
-                f"afade=t=out:st={fade_out_start}:d={fade_out}"
-                f"[bgm{i}]"
-            )
-            filters.append(bgm_filter)
-
-        # ミックス
-        inputs = ['[narration]'] + [f'[bgm{i}]' for i in range(len(bgm_segments))]
-        mix_filter = f"{''.join(inputs)}amix=inputs={len(inputs)}:duration=first[audio]"
-        filters.append(mix_filter)
-
-        return ";".join(filters)
-
-    def _burn_subtitles(self, input_video: Path, srt_path: Path, output_path: Path) -> None:
-        """
-        Pass 2: 動画に字幕を焼き込む
-        
-        シンプルなffmpegコマンドでエスケープ問題を回避
-        
-        Args:
-            input_video: Pass 1で生成した字幕なし動画
-            srt_path: 字幕ファイル（SRT）
-            output_path: 最終出力パス
-        """
-        import subprocess
-        
-        is_windows = platform.system() == 'Windows'
-        
-        # パス正規化
-        def normalize_path(p: Path) -> str:
-            path_str = str(p.resolve())
-            if is_windows:
-                path_str = path_str.replace('\\', '/')
-            return path_str
-        
-        input_normalized = normalize_path(input_video)
-        output_normalized = normalize_path(output_path)
-        
-        # 字幕ファイルは相対パスまたは短いパスを使用（エスケープ問題回避）
-        # Windowsの場合、作業ディレクトリを字幕ファイルと同じ場所に設定
-        srt_filename = srt_path.name
-        srt_dir = srt_path.parent
-        
-        # force_styleの定義（MoviePy版コミット 5beb5add と同じ設定値）
-        # MoviePy版の設定: subtitle_size=60, subtitle_margin=150
-        force_style = (
-            "FontName=Arial,"           # MoviePy版と同じフォント
-            "FontSize=60,"              # MoviePy版: subtitle_size=60
-            "PrimaryColour=&HFFFFFF,"   # MoviePy版: color=white
-            "OutlineColour=&H00000000," # MoviePy版: stroke_width=3の黒縁取り
-            "Outline=3,"                # MoviePy版: stroke_width=3
-            "Shadow=0,"                 # MoviePy版: 影なし（4方向の縁取りで代用）
-            "Alignment=2,"              # MoviePy版: position=bottom（下部中央）
-            "MarginV=70"                # MoviePy版: margin_bottom=150から調整（黒バー216px内に配置）
-        )
-        
-        # コマンド構築（字幕ファイル名のみ使用）
-        cmd = [
-            'ffmpeg',
-            '-i', input_normalized,
-            '-vf', f"subtitles={srt_filename}:force_style='{force_style}'",
-            '-c:v', 'libx264',
-            '-preset', self.encode_preset,
-            '-crf', '23',
-            '-c:a', 'copy',  # 音声は再エンコードしない
-            '-y',
-            output_normalized
-        ]
-        
-        self.logger.info(f"Burning subtitles: {srt_filename}")
-        self.logger.debug(f"Force style: {force_style}")
-        
-        try:
-            # 字幕ファイルのディレクトリで実行（相対パス解決のため）
-            result = subprocess.run(
-                cmd,
-                check=True,
-                capture_output=True,
-                text=True,
-                encoding='utf-8',
-                cwd=str(srt_dir)  # 作業ディレクトリを字幕ディレクトリに設定
-            )
-            
-            self.logger.info(f"✅ Pass 2 completed: {output_path}")
-            
-        except subprocess.CalledProcessError as e:
-            self.logger.error(f"❌ ffmpeg Pass 2 failed with code {e.returncode}")
-            self.logger.error(f"STDOUT:\n{e.stdout}")
-            self.logger.error(f"STDERR:\n{e.stderr}")
-            
-            # コマンドをログ
-            cmd_str = ' '.join(f'"{c}"' if ' ' in str(c) else str(c) for c in cmd)
-            self.logger.error(f"Command:\n{cmd_str}")
-            
-            raise
-    
-    def _generate_thumbnail_with_ffmpeg(self, video_path: Path) -> Path:
-        """ffmpegでサムネイルを生成"""
-        import subprocess
-
-        thumbnail_dir = Path(self.config.get("paths", {}).get("output_dir", "data/output")) / "thumbnails"
-        thumbnail_dir.mkdir(parents=True, exist_ok=True)
-        thumbnail_path = thumbnail_dir / f"{self.subject}_preview.jpg"
-
-        # 5秒の位置からサムネイルを抽出
-        cmd = [
-            'ffmpeg',
-            '-i', str(video_path),
-            '-ss', '5.0',
-            '-vframes', '1',
-            '-q:v', '2',
-            '-y',
-            str(thumbnail_path)
-        ]
-
-        subprocess.run(cmd, check=True, capture_output=True)
-        self.logger.info(f"Thumbnail generated: {thumbnail_path}")
-        return thumbnail_path
-
     def _save_metadata(self, composition: VideoComposition):
         """メタデータを保存"""
         metadata_path = self.phase_dir / "metadata.json"
-
+        
         data = {
             "subject": composition.subject,
             "output_video_path": composition.output_video_path,
@@ -1916,8 +1143,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             "resolution": list(self.resolution),
             "fps": self.fps
         }
-
+        
         with open(metadata_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
-
+        
         self.logger.info(f"Metadata saved: {metadata_path}")
