@@ -25,6 +25,7 @@ context_awareness:
 # ========================================
 # "kokoro": Kokoro TTS FastAPI（完全無料、タイムスタンプ対応）
 # "elevenlabs": ElevenLabs API（高品質、有料）
+# "azure": Azure AI Speech（高品質、日本語精度高、有料）
 service: "kokoro"
 
 # ========================================
@@ -66,6 +67,36 @@ kokoro:
 
   # 出力フォーマット
   response_format: "mp3"  # mp3, wav, opus, flac
+
+# ========================================
+# Azure AI Speech 設定（service: "azure" の場合）
+# ========================================
+azure:
+  # APIキー（環境変数 AZURE_SPEECH_KEY で上書き可能）
+  # .envファイルに AZURE_SPEECH_KEY=your_key_here を設定してください
+  api_key: null  # .envから自動取得
+
+  # リージョン（環境変数 AZURE_SPEECH_REGION で上書き可能）
+  region: "japaneast"  # 日本語に最適
+
+  # 使用する音声名
+  # 日本語女性音声: ja-JP-NanamiNeural（推奨）, ja-JP-MayuNeural, ja-JP-AoiNeural, ja-JP-ShioriNeural
+  # 日本語男性音声: ja-JP-NaokiNeural（推奨）, ja-JP-KeitaNeural, ja-JP-DaichiNeural
+  voice_name: "ja-JP-NanamiNeural"  # デフォルト女性音声
+
+  # 感情スタイル（オプション）
+  # cheerful（明るい）, sad（悲しい）, angry（怒り）, fearful（恐れ）,
+  # disgruntled（不満）, serious（真面目）, friendly（親しみやすい）, hopeful（希望に満ちた）
+  style: null  # スタイルなし
+
+  # 速度（0.5-2.0）
+  speed: 1.0
+
+  # ピッチ（-50% ～ +50%）
+  pitch: "+0%"
+
+  # 出力フォーマット設定
+  output_format: "Audio16Khz32KBitRateMonoMp3"  # MP3形式
 
 # ========================================
 # タイミング抽出設定

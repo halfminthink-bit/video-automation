@@ -9,6 +9,7 @@ Phase 1で生成された台本からElevenLabs APIを使用してナレーシ�
 import json
 import sys
 import base64
+import os
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 import logging
@@ -301,6 +302,13 @@ class Phase02Audio(PhaseBase):
                     self.phase_config["kokoro"] = {}
                 self.phase_config["kokoro"]["voice"] = var_settings.get("voice", "jf_alpha")
                 self.phase_config["kokoro"]["speed"] = var_settings.get("speed", 1.0)
+            elif var_settings["service"] == "azure":
+                if "azure" not in self.phase_config:
+                    self.phase_config["azure"] = {}
+                self.phase_config["azure"]["voice_name"] = var_settings.get("voice_name", "ja-JP-NanamiNeural")
+                self.phase_config["azure"]["speed"] = var_settings.get("speed", 1.0)
+                self.phase_config["azure"]["pitch"] = var_settings.get("pitch", "+0%")
+                self.phase_config["azure"]["style"] = var_settings.get("style")
             else:
                 self.phase_config["voice_id"] = var_settings.get("voice_id")
                 self.phase_config["model"] = var_settings.get("model", "eleven_turbo_v2_5")
@@ -309,7 +317,56 @@ class Phase02Audio(PhaseBase):
 
         service = self.phase_config.get("service", "elevenlabs").lower()
 
-        if service == "kokoro":
+        if service == "azure":
+            # Azure AI Speech を使用
+            self.logger.info("Using Azure AI Speech for audio generation")
+
+            try:
+                from src.generators.azure_audio_generator import AzureAudioGenerator
+
+                azure_config = self.phase_config.get("azure", {})
+                whisper_config = self.phase_config.get("whisper", {})
+                punctuation_pause_config = self.phase_config.get("punctuation_pause", {})
+
+                # APIキー取得（環境変数から）
+                api_key = self.config.get_api_key("AZURE_SPEECH_KEY")
+
+                # リージョン取得（環境変数または設定から）
+                region = os.getenv("AZURE_SPEECH_REGION", azure_config.get("region", "japaneast"))
+
+                # ElevenLabs FA設定
+                use_elevenlabs_fa = self.phase_config.get("use_elevenlabs_fa", True)
+                elevenlabs_api_key = self.phase_config.get("elevenlabs_api_key")
+
+                generator = AzureAudioGenerator(
+                    api_key=api_key,
+                    region=region,
+                    voice_name=azure_config.get("voice_name", "ja-JP-NanamiNeural"),
+                    style=azure_config.get("style"),
+                    speed=azure_config.get("speed", 1.0),
+                    pitch=azure_config.get("pitch", "+0%"),
+                    logger=self.logger,
+                    whisper_config=whisper_config,
+                    punctuation_pause_config=punctuation_pause_config,
+                    use_elevenlabs_fa=use_elevenlabs_fa,
+                    elevenlabs_api_key=elevenlabs_api_key
+                )
+
+                self.logger.info(
+                    f"Azure Speech initialized: "
+                    f"voice={azure_config.get('voice_name', 'ja-JP-NanamiNeural')}, "
+                    f"region={region}, "
+                    f"style={azure_config.get('style')}, "
+                    f"whisper_enabled={whisper_config.get('enabled', True)}, "
+                    f"elevenlabs_fa_enabled={use_elevenlabs_fa}"
+                )
+                return generator
+
+            except Exception as e:
+                self.logger.error(f"Failed to initialize Azure Speech: {e}")
+                raise
+
+        elif service == "kokoro":
             # Kokoro TTS を使用
             self.logger.info("Using Kokoro TTS for audio generation")
 
