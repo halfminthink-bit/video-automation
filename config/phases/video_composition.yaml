@@ -1,5 +1,14 @@
 ﻿# Phase 7: 動画統合設定
 
+# ========================================
+# パフォーマンス設定
+# ========================================
+performance:
+  use_ffmpeg_direct: false      # ffmpeg直接統合を使用（高速化）
+  preset: "faster"              # エンコードプリセット (ultrafast/veryfast/faster/fast/medium)
+  parallel_processing: true     # 並列処理有効化
+  threads: 0                    # 使用スレッド数（0=自動検出）
+
 # 出力動画設定
 output:
   resolution: [1920, 1080]  # 解像度

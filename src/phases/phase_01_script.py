@@ -405,6 +405,36 @@ class Phase01Script(PhaseBase):
             self.logger.error(f"Failed to load script: {e}")
             return None
 
+    def _get_template_path(self) -> Path:
+        """
+        テンプレートパスを取得
+
+        環境変数 SCRIPT_MODE で切り替え:
+        - "short": ijin_1min.j2 (1分版)
+        - "standard": ijin.j2 (15分版・デフォルト)
+
+        Returns:
+            Path: テンプレートファイルのパス
+        """
+        import os
+
+        mode = os.getenv("SCRIPT_MODE", "standard")
+
+        if mode == "short":
+            template_name = "ijin_1min.j2"
+            self.logger.info("Using SHORT template (1 minute)")
+        else:
+            template_name = "ijin.j2"
+            self.logger.info("Using STANDARD template (15 minutes)")
+
+        genre_config = self.config.get_genre_config(self.genre)
+        base_path = self.config.project_root / genre_config["prompts"]["script"]
+
+        # テンプレート名を置き換え
+        template_path = base_path.parent / template_name
+
+        return template_path
+
     def _execute_genre_generation(self) -> VideoScript:
         """
         ジャンル指定時の自動生成（YAML→JSON変換フロー）
@@ -423,8 +453,7 @@ class Phase01Script(PhaseBase):
         """
         try:
             # 1. プロンプトテンプレートを読み込み
-            genre_config = self.config.get_genre_config(self.genre)
-            template_path = self.config.project_root / genre_config["prompts"]["script"]
+            template_path = self._get_template_path()
 
             self.logger.info(f"Loading prompt template: {template_path}")
 
