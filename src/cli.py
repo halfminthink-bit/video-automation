@@ -97,7 +97,8 @@ def run_phase(
     audio_var: Optional[str] = None,
     text_layout: Optional[str] = None,
     thumbnail_style: Optional[str] = None,
-    use_legacy: bool = False
+    use_legacy: bool = False,
+    use_legacy02: bool = False
 ) -> int:
     """
     指定されたフェーズを実行
@@ -111,7 +112,8 @@ def run_phase(
         audio_var: 音声バリエーションID
         text_layout: テキストレイアウトID
         thumbnail_style: サムネイルスタイルID
-        use_legacy: Phase 7でlegacy (moviepy) 版を使用
+        use_legacy: Phase 7でlegacy (moviepy) 版を使用 (Phase04の動画)
+        use_legacy02: Phase 7でlegacy02 (moviepy) 版を使用 (Phase03の画像)
 
     Returns:
         終了コード (0: 成功, 1: 失敗)
@@ -176,13 +178,23 @@ def run_phase(
                 genre=genre
             )
         elif phase_number == 7:
-            # Phase 7: 動画統合（--legacy オプション対応）
-            phase = phase_class(
-                subject=subject,
-                config=config,
-                logger=logger,
-                use_legacy=use_legacy
-            )
+            # Phase 7: 動画統合（--legacy / --legacy02 オプション対応）
+            if use_legacy02:
+                # Legacy02版を使用（Phase03の画像）
+                from src.phases.phase_07_composition_legacy02 import Phase07CompositionLegacy02
+                phase = Phase07CompositionLegacy02(
+                    subject=subject,
+                    config=config,
+                    logger=logger
+                )
+            else:
+                # 通常版またはLegacy版（Phase04の動画）
+                phase = phase_class(
+                    subject=subject,
+                    config=config,
+                    logger=logger,
+                    use_legacy=use_legacy
+                )
         elif phase_number == 8:
             phase = phase_class(
                 subject=subject,
@@ -608,7 +620,12 @@ Examples:
     run_parser.add_argument(
         "--legacy",
         action="store_true",
-        help="Use legacy (moviepy) implementation for Phase 7"
+        help="Use legacy (moviepy) implementation for Phase 7 with Phase04 videos"
+    )
+    run_parser.add_argument(
+        "--legacy02",
+        action="store_true",
+        help="Use legacy02 (moviepy) implementation for Phase 7 with Phase03 images"
     )
 
     # 引数をパース
@@ -649,7 +666,8 @@ Examples:
             audio_var=getattr(args, 'audio_var', None),
             text_layout=getattr(args, 'text_layout', None),
             thumbnail_style=getattr(args, 'thumbnail_style', None),
-            use_legacy=args.legacy
+            use_legacy=args.legacy,
+            use_legacy02=getattr(args, 'legacy02', False)
         )
 
     return 0
