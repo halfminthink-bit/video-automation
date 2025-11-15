@@ -294,27 +294,69 @@ class Phase07CompositionLegacy02(PhaseBase):
         with open(classified_path, 'r', encoding='utf-8') as f:
             classified_data = json.load(f)
 
-        # セクションごとの最初の画像を取得
+        # 画像を取得（sections形式とimages形式の両方に対応）
         image_paths = []
-        for section_data in classified_data.get('sections', []):
-            section_id = section_data.get('section_id')
-            images = section_data.get('images', [])
+        
+        # 1. sections形式を試す（古い形式）
+        if 'sections' in classified_data and classified_data['sections']:
+            for section_data in classified_data.get('sections', []):
+                section_id = section_data.get('section_id')
+                images = section_data.get('images', [])
 
-            if images:
-                # 最初の画像を使用
-                first_image = Path(images[0].get('file_path'))
+                if images:
+                    # 最初の画像を使用
+                    first_image = Path(images[0].get('file_path'))
 
+                    # PNG形式に変換されているはず
+                    if first_image.suffix.lower() == '.jpg':
+                        first_image = first_image.with_suffix('.png')
+
+                    if first_image.exists():
+                        image_paths.append(first_image)
+                        self.logger.debug(f"Section {section_id}: {first_image.name}")
+                    else:
+                        self.logger.warning(f"Image not found: {first_image}")
+                else:
+                    self.logger.warning(f"No images for section {section_id}")
+        
+        # 2. images形式（新しい形式）- sectionsがない場合
+        elif 'images' in classified_data and classified_data['images']:
+            # セクションごとにグループ化（ファイル名から抽出）
+            import re
+            section_images = {}
+            
+            for img_data in classified_data['images']:
+                file_path = img_data.get('file_path')
+                if not file_path:
+                    continue
+                
+                # ファイル名からセクション番号を抽出 (section_01, section_02, etc.)
+                match = re.search(r'section_(\d+)', file_path)
+                if match:
+                    section_id = int(match.group(1))
+                    if section_id not in section_images:
+                        section_images[section_id] = []
+                    section_images[section_id].append(file_path)
+            
+            # セクション番号順にソートして、各セクションの最初の画像を使用
+            for section_id in sorted(section_images.keys()):
+                first_image_path = section_images[section_id][0]
+                first_image = Path(first_image_path)
+                
                 # PNG形式に変換されているはず
                 if first_image.suffix.lower() == '.jpg':
                     first_image = first_image.with_suffix('.png')
-
+                
                 if first_image.exists():
                     image_paths.append(first_image)
                     self.logger.debug(f"Section {section_id}: {first_image.name}")
                 else:
                     self.logger.warning(f"Image not found: {first_image}")
-            else:
-                self.logger.warning(f"No images for section {section_id}")
+        
+        # 3. どちらもない場合
+        else:
+            self.logger.error("classified.json has neither 'sections' nor 'images' array")
+            raise ValueError("Invalid classified.json format: missing 'sections' or 'images'")
 
         self.logger.info(f"Loaded {len(image_paths)} images from Phase03")
 
