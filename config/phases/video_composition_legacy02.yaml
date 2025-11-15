@@ -1,0 +1,83 @@
+﻿# Phase 7: 動画統合設定（Legacy02版）
+# Phase03の静止画を直接使用
+
+# 出力動画設定
+output:
+  resolution: [1920, 1080]  # 解像度
+  fps: 30                   # フレームレート
+  codec: "libx264"          # ビデオコーデック
+  audio_codec: "aac"        # オーディオコーデック
+  preset: "ultrafast"            # エンコード速度 (ultrafast/fast/medium/slow) - fastで高速化
+  bitrate: "3000k"          # ビットレート - 3000kで品質と速度のバランス
+
+# 二分割レイアウト設定
+split_layout:
+  enabled: true             # 二分割レイアウトを有効化
+  direction: "vertical"     # レイアウト方向: "horizontal" (左右) or "vertical" (上下)
+  ratio: 0.8                # 上部エリアの比率（0.8 = 80%, 下部20%は字幕）
+
+  # 上部（動画側）の設定
+  top_side:
+    resize_method: "crop"        # crop / fit / stretch
+    background_color: "#000000"  # 余白がある場合の背景色
+
+  # 下部（字幕側）の設定
+  bottom_side:
+    background_color: "#000000"  # 真っ黒
+    subtitle_position: "center"  # 中央配置
+    subtitle_valign: "center"    # 縦方向も中央
+    subtitle_offset_y: -20       # 縦方向のオフセット（負の値で上に移動）- 少し高めに調整
+    max_lines: 3                 # 最大3行
+    line_spacing: 1.3            # 行間
+
+# クリップループ設定
+clip_loop:
+  enabled: true             # クリップをループして音声の長さに合わせる
+  crossfade_duration: 0.5   # クロスフェード時間（秒）
+  min_clip_duration: 4.0    # 最小クリップ長（秒）
+  max_clip_duration: 30.0   # 最大クリップ長（秒）
+
+# トランジション設定
+transitions:
+  default: "crossfade"      # デフォルトのトランジション
+  fade_duration: 1.0        # フェード時間（秒）
+  crossfade_duration: 1.0   # クロスフェード時間（秒）
+
+# BGM設定
+bgm:
+  volume: 0.10              # BGM音量（0.0-1.0） - ナレーションの10%
+  fade_in: 2.0              # フェードイン時間（秒）
+  fade_out: 2.0             # フェードアウト時間（秒）
+  crossfade: 3.0            # BGM切り替え時のクロスフェード（秒）
+  loop_enabled: true        # BGMループを有効化
+
+# 字幕設定
+subtitle:
+  font_family: "Noto-Sans-JP-Bold"  # フォント名
+  font_size: 60                     # フォントサイズ（ピクセル）
+  color: "white"                    # テキスト色
+  background_color: "#000000"       # 背景色
+  background_opacity: 0.7           # 背景の透明度
+  stroke_color: "#000000"           # 縁取り色
+  stroke_width: 2                   # 縁取り幅
+  position: "bottom"                # 位置（top/center/bottom）
+  margin_bottom: 120                # 下からのマージン（ピクセル）- 少し高めに調整
+  align: "center"                   # 揃え（left/center/right）
+  method: "caption"                 # レンダリング方法
+
+# サムネイル設定
+thumbnail:
+  timestamp: 5.0            # 抽出する時間（秒）
+  resolution: [1280, 720]   # サムネイル解像度
+  format: "jpeg"            # フォーマット
+  quality: 90               # JPEG品質（0-100）
+
+# メモリ管理
+memory:
+  max_clips_in_memory: 10   # 同時にメモリに保持する最大クリップ数
+  release_clips: true       # 使用済みクリップを解放
+
+# プログレスバー
+progress:
+  enabled: true             # プログレスバーを表示
+  show_eta: true            # 推定残り時間を表示
