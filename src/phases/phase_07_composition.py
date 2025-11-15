@@ -4,6 +4,8 @@ Phase 1-6で生成した全ての素材を統合し、完成動画を生成す�
 """
 
 import json
+import platform
+import re
 import time
 from pathlib import Path
 from typing import List, Dict, Any, Optional, TYPE_CHECKING
@@ -1246,19 +1248,12 @@ class Phase07Composition(PhaseBase):
             subtitles = self._load_subtitles()
             bgm_data = self._load_bgm()
 
-            # 2. 画像リストとタイミング情報を取得
-            images_dir = self.working_dir / "03_images"
-            # audio_timing.jsonの構造チェック（リスト形式または辞書形式）
-            if isinstance(audio_timing, dict):
-                sections = audio_timing.get("sections", [])
-            elif isinstance(audio_timing, list):
-                sections = audio_timing
-            else:
-                raise ValueError(f"Unexpected audio_timing type: {type(audio_timing)}")
+            # 2. スクリプトを読み込み
+            script = self._load_script()
 
             # 3. concat用のタイミングファイル作成
             self.logger.info("Creating ffmpeg concat file...")
-            concat_file = self._create_ffmpeg_concat_file(sections, images_dir)
+            concat_file = self._create_ffmpeg_concat_file(script)
 
             # 4. 字幕ファイル準備（SRT形式）
             self.logger.info("Preparing subtitle file...")
@@ -1287,14 +1282,28 @@ class Phase07Composition(PhaseBase):
             self.logger.info(f"Running ffmpeg (preset: {self.encode_preset})...")
             self.logger.debug(f"Command: {' '.join(str(c) for c in cmd[:15])}...")
 
-            result = subprocess.run(
-                cmd,
-                check=True,
-                capture_output=True,
-                text=True
-            )
-
-            self.logger.info(f"✅ Video rendered: {output_path}")
+            try:
+                result = subprocess.run(
+                    cmd,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    encoding='utf-8'
+                )
+                
+                self.logger.info(f"✅ Video rendered: {output_path}")
+                
+            except subprocess.CalledProcessError as e:
+                # エラーログを詳細に出力
+                self.logger.error(f"❌ ffmpeg failed with code {e.returncode}")
+                self.logger.error(f"STDOUT:\n{e.stdout}")
+                self.logger.error(f"STDERR:\n{e.stderr}")
+                
+                # コマンドをログ
+                cmd_str = ' '.join(f'"{c}"' if ' ' in str(c) else str(c) for c in cmd)
+                self.logger.error(f"Command:\n{cmd_str}")
+                
+                raise
 
             # 8. サムネイル生成
             self.logger.info("Generating thumbnail...")
@@ -1345,109 +1354,177 @@ class Phase07Composition(PhaseBase):
         with open(timing_path, 'r', encoding='utf-8') as f:
             return json.load(f)
 
-    def _create_ffmpeg_concat_file(self, sections: list, images_dir: Path) -> Path:
+    def _create_ffmpeg_concat_file(self, script: dict) -> Path:
         """
-        ffmpeg concat用のタイミングファイル生成
-
-        Phase03のメタデータから画像パスを読み込み、各セクションの長さに合わせて配置
-
-        フォーマット:
-        file 'image1.png'
-        duration 3.5
-        file 'image2.png'
-        duration 4.2
-        ...
+        ffmpeg concat用のファイルを作成
+        
+        Args:
+            script: スクリプトデータ（sectionsを含む）
+        
+        Returns:
+            concatファイルのパス
         """
         concat_file = self.phase_dir / "ffmpeg_concat.txt"
-
-        # Phase03のメタデータから画像パスを取得
-        classified_json = images_dir / "classified.json"
-        image_paths = []
-
-        if classified_json.exists():
-            try:
-                with open(classified_json, 'r', encoding='utf-8') as f:
-                    classified_data = json.load(f)
-
-                # セクションごとに最初の画像を取得
-                for section in classified_data.get("sections", []):
-                    if section.get("images"):
-                        first_image = section["images"][0]
-                        image_path = Path(first_image["file_path"])
-                        image_paths.append(image_path)
-
-                self.logger.info(f"Loaded {len(image_paths)} images from classified.json")
-            except Exception as e:
-                self.logger.warning(f"Failed to load classified.json: {e}, falling back to directory search")
-                image_paths = []
-
-        # フォールバック: ディレクトリから直接検索
-        if not image_paths:
-            # リサイズ済みの画像を検索（1920x1080 PNG）
-            resized_dir = images_dir / "resized"
-            if resized_dir.exists():
-                # セクション順にソート（section_01, section_02, ...）
-                for i in range(1, len(sections) + 1):
-                    pattern = f"section_{i:02d}_*_001.png"
-                    matches = list(resized_dir.glob(pattern))
-                    if matches:
-                        image_paths.append(matches[0])
+        
+        # classified.jsonから画像を読み込む
+        classified_path = self.working_dir / "03_images" / "classified.json"
+        
+        if not classified_path.exists():
+            raise FileNotFoundError(f"classified.json not found: {classified_path}")
+        
+        with open(classified_path, 'r', encoding='utf-8') as f:
+            classified_data = json.load(f)
+        
+        # セクションごとの画像を収集
+        section_images = {}
+        
+        # パターン1: sections配列がある場合（新しい形式）
+        if 'sections' in classified_data:
+            for section_data in classified_data.get('sections', []):
+                section_id = section_data.get('section_id')
+                images = section_data.get('images', [])
+                
+                if images:
+                    # 最初の画像を使用（複数ある場合）
+                    first_image_path = Path(images[0].get('file_path'))
+                    
+                    # PNG形式に変換されているはず
+                    if first_image_path.suffix.lower() == '.jpg':
+                        # JPGの場合はPNGに置き換え
+                        first_image_path = first_image_path.with_suffix('.png')
+                    
+                    if first_image_path.exists():
+                        section_images[section_id] = first_image_path
+                        self.logger.debug(f"Section {section_id}: {first_image_path.name}")
                     else:
-                        self.logger.warning(f"No image found for section {i:02d}")
-            else:
-                # generatedディレクトリから検索
-                generated_dir = images_dir / "generated"
-                for i in range(1, len(sections) + 1):
-                    pattern = f"section_{i:02d}_*_001.png"
-                    matches = list(generated_dir.glob(pattern))
-                    if matches:
-                        image_paths.append(matches[0])
-                    else:
-                        self.logger.warning(f"No image found for section {i:02d}")
-
-        # concat用ファイルを作成
-        with open(concat_file, 'w', encoding='utf-8') as f:
-            for i, section in enumerate(sections):
-                if i >= len(image_paths):
-                    self.logger.warning(f"No image for section {i+1}, skipping")
+                        self.logger.warning(f"Image file not found: {first_image_path}")
+        
+        # パターン2: images配列がある場合（古い形式）- ファイル名からセクション番号を推測
+        elif 'images' in classified_data:
+            for image_data in classified_data.get('images', []):
+                file_path = Path(image_data.get('file_path', ''))
+                
+                if not file_path.exists():
                     continue
-
-                image_path = image_paths[i]
-
+                
+                # ファイル名からセクション番号を抽出（section_01_, section_02_など）
+                filename = file_path.name
+                match = re.search(r'section_(\d+)', filename)
+                if match:
+                    section_id = int(match.group(1))
+                    
+                    # 同じセクションの最初の画像のみを使用
+                    if section_id not in section_images:
+                        section_images[section_id] = file_path
+                        self.logger.debug(f"Section {section_id}: {file_path.name}")
+        
+        self.logger.info(f"Loaded {len(section_images)} images from classified.json")
+        
+        # concatファイルを作成
+        is_windows = platform.system() == 'Windows'
+        
+        def normalize_concat_path(p: Path) -> str:
+            """concatファイル用にパスを正規化"""
+            path_str = str(p.resolve())
+            if is_windows:
+                # Windowsパスを/区切りに
+                path_str = path_str.replace('\\', '/')
+            # シングルクォートでエスケープ
+            return f"'{path_str}'"
+        
+        with open(concat_file, 'w', encoding='utf-8') as f:
+            for section in script.get('sections', []):
+                section_id = section.get('section_id')
+                
+                # 画像パスを取得
+                if section_id not in section_images:
+                    self.logger.warning(f"No image for section {section_id}, skipping")
+                    continue
+                
+                image_path = section_images[section_id]
+                
                 if not image_path.exists():
                     self.logger.warning(f"Image not found: {image_path}, skipping")
                     continue
-
-                # セクションの長さを計算
-                # 文字レベルタイミングから長さを計算（最も正確）
-                char_end_times = section.get('character_end_times_seconds', [])
-                if char_end_times:
-                    duration = char_end_times[-1]  # 最後の文字の終了時刻
-                elif "end_time" in section and "start_time" in section:
-                    # フォールバック: start_time/end_time
-                    duration = section.get("end_time", 0) - section.get("start_time", 0)
-                else:
-                    # 最後のフォールバック: durationフィールド
-                    duration = section.get("duration", 20.0)
-
-                # パスをエスケープ（絶対パスに変換）
-                abs_path = image_path.absolute()
-                escaped_path = str(abs_path).replace("'", "'\\''")
-
-                f.write(f"file '{escaped_path}'\n")
-                if i < len(sections) - 1:  # 最後以外はdurationを指定
-                    f.write(f"duration {duration}\n")
-
-            # 最後の画像（durationなし）
-            if image_paths and sections:
-                last_image = image_paths[-1]
-                if last_image.exists():
-                    abs_path = last_image.absolute()
-                    escaped_path = str(abs_path).replace("'", "'\\''")
-                    f.write(f"file '{escaped_path}'\n")
-
-        self.logger.info(f"Concat file created with {len(image_paths)} images: {concat_file}")
+                
+                # セクションの長さを取得
+                duration = self._get_section_duration_from_script(section)
+                
+                # パスを正規化してクォート
+                normalized_path = normalize_concat_path(image_path)
+                
+                f.write(f"file {normalized_path}\n")
+                f.write(f"duration {duration}\n")
+            
+            # 最後の画像を繰り返し（ffmpeg concat仕様）
+            if section_images:
+                # 最後のセクションの画像を取得
+                script_sections = script.get('sections', [])
+                if script_sections:
+                    last_section_id = script_sections[-1].get('section_id')
+                    if last_section_id in section_images:
+                        last_image = section_images[last_section_id]
+                        normalized_last = normalize_concat_path(last_image)
+                        f.write(f"file {normalized_last}\n")
+        
+        # 検証
+        if not concat_file.exists() or concat_file.stat().st_size == 0:
+            raise ValueError("Failed to create valid concat file (empty or not created)")
+        
+        # 🔥 デバッグ: concatファイルの内容を表示
+        with open(concat_file, 'r', encoding='utf-8') as f:
+            concat_content = f.read()
+        self.logger.debug(f"Concat file content:\n{concat_content}")
+        
+        self.logger.info(f"Concat file created: {concat_file}")
         return concat_file
+    
+    def _get_section_duration_from_script(self, section: dict) -> float:
+        """
+        スクリプトからセクションの長さを取得
+        
+        Args:
+            section: スクリプトのセクション辞書
+        
+        Returns:
+            長さ（秒）
+        """
+        section_id = section.get('section_id')
+        
+        # audio_timing.jsonから正確な長さを取得
+        audio_timing_path = self.working_dir / "02_audio" / "audio_timing.json"
+        
+        if audio_timing_path.exists():
+            try:
+                with open(audio_timing_path, 'r', encoding='utf-8') as f:
+                    audio_timing = json.load(f)
+                
+                # リスト形式のaudio_timingから該当セクションを探す
+                if isinstance(audio_timing, list):
+                    for timing_section in audio_timing:
+                        if timing_section.get('section_id') == section_id:
+                            # 文字レベルタイミングの最後から長さを取得
+                            char_end_times = timing_section.get('character_end_times_seconds', [])
+                            if char_end_times:
+                                duration = char_end_times[-1]
+                                self.logger.debug(f"Section {section_id} duration from timings: {duration:.2f}s")
+                                return duration
+                elif isinstance(audio_timing, dict):
+                    # 辞書形式の場合
+                    for timing_section in audio_timing.get('sections', []):
+                        if timing_section.get('section_id') == section_id:
+                            char_end_times = timing_section.get('character_end_times_seconds', [])
+                            if char_end_times:
+                                duration = char_end_times[-1]
+                                self.logger.debug(f"Section {section_id} duration from timings: {duration:.2f}s")
+                                return duration
+            except Exception as e:
+                self.logger.warning(f"Failed to load audio_timing.json: {e}")
+        
+        # フォールバック: スクリプトのduration
+        duration = section.get('duration', 120.0)
+        self.logger.debug(f"Section {section_id} duration from script: {duration:.2f}s")
+        return duration
 
     def _build_ffmpeg_command(
         self,
@@ -1463,8 +1540,23 @@ class Phase07Composition(PhaseBase):
         - 黒バー（下部216px）を追加
         - SRT字幕を焼き込み
         - BGMをナレーションとミックス（音量調整、フェード付き）
+        
+        修正点:
+        - Windowsパスを/区切りに統一
+        - subtitlesフィルタのエスケープを簡素化
         """
         import multiprocessing
+
+        # Windowsの場合はパスを正規化
+        is_windows = platform.system() == 'Windows'
+        
+        def normalize_path(p: Path) -> str:
+            """WindowsパスをUnix形式に変換（ffmpeg互換）"""
+            path_str = str(p.resolve())
+            if is_windows:
+                # C:\Users\... → C:/Users/...
+                path_str = path_str.replace('\\', '/')
+            return path_str
 
         # スレッド数を決定
         threads = self.threads if self.threads > 0 else multiprocessing.cpu_count()
@@ -1474,8 +1566,8 @@ class Phase07Composition(PhaseBase):
             'ffmpeg',
             '-f', 'concat',
             '-safe', '0',
-            '-i', str(concat_file),      # 入力0: 画像+タイミング
-            '-i', str(audio_path),        # 入力1: 音声
+            '-i', normalize_path(concat_file),
+            '-i', normalize_path(audio_path),
         ]
 
         # BGMファイルを入力として追加
@@ -1485,7 +1577,7 @@ class Phase07Composition(PhaseBase):
             for segment in bgm_segments:
                 bgm_path = segment.get("file_path")
                 if bgm_path and Path(bgm_path).exists():
-                    cmd.extend(['-i', str(bgm_path)])
+                    cmd.extend(['-i', normalize_path(Path(bgm_path))])
 
         # ビデオフィルタを構築
         video_filters = []
@@ -1493,12 +1585,17 @@ class Phase07Composition(PhaseBase):
         # 1. 黒バーを追加（下部216px）
         video_filters.append("drawbox=y=ih-216:color=black@1.0:width=iw:height=216:t=fill")
 
-        # 2. 字幕フィルタ
+        # 2. 字幕フィルタ（修正版）
         if srt_path.exists():
-            # パスをエスケープ
-            srt_str = str(srt_path).replace('\\', '\\\\').replace(':', '\\:')
+            # Windowsパスをエスケープ（シンプルに）
+            srt_normalized = normalize_path(srt_path)
+            
+            # subtitlesフィルタ用にエスケープ
+            # ffmpegは : と \ を特別扱いするため
+            srt_escaped = srt_normalized.replace(':', '\\:').replace('\\', '\\\\')
+            
             subtitle_filter = (
-                f"subtitles={srt_str}:force_style='"
+                f"subtitles={srt_escaped}:force_style='"
                 f"FontName={self.subtitle_font},"
                 f"FontSize={self.subtitle_size},"
                 f"PrimaryColour=&HFFFFFF&,"
@@ -1511,7 +1608,8 @@ class Phase07Composition(PhaseBase):
             video_filters.append(subtitle_filter)
 
         # ビデオフィルタを適用
-        cmd.extend(['-vf', ','.join(video_filters)])
+        if video_filters:
+            cmd.extend(['-vf', ','.join(video_filters)])
 
         # オーディオフィルタ（BGMがある場合）
         if bgm_segments:
@@ -1533,7 +1631,7 @@ class Phase07Composition(PhaseBase):
             '-threads', str(threads),
             '-shortest',
             '-y',
-            str(output_path)
+            normalize_path(output_path)
         ])
 
         return cmd
