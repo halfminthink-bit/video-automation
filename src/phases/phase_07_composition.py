@@ -46,17 +46,31 @@ class Phase07Composition(PhaseBase):
         self,
         subject: str,
         config: ConfigManager,
-        logger
+        logger,
+        use_legacy: bool = False
     ):
         super().__init__(subject, config, logger)
-        
+
         if not MOVIEPY_AVAILABLE:
             error_msg = "MoviePy is required. Install with: pip install moviepy"
             if MOVIEPY_IMPORT_ERROR:
                 error_msg += f"\n\nImport error details: {MOVIEPY_IMPORT_ERROR}"
             raise ImportError(error_msg)
-        
+
+        self.use_legacy = use_legacy
         self.phase_config = config.get_phase_config(7)
+
+        # Legacy版を使う場合は、legacy設定を読み込む
+        if self.use_legacy:
+            self.logger.info("🔄 Using legacy (moviepy) mode")
+            legacy_config_path = Path(__file__).parent.parent.parent / "config/phases/video_composition_legacy.yaml"
+            if legacy_config_path.exists():
+                import yaml
+                with open(legacy_config_path, 'r', encoding='utf-8') as f:
+                    legacy_config = yaml.safe_load(f)
+                # phase_configを上書き
+                self.phase_config.update(legacy_config)
+                self.logger.info(f"✓ Loaded legacy config: {legacy_config_path}")
 
         # 出力設定
         output_config = self.phase_config.get("output", {})
@@ -171,6 +185,11 @@ class Phase07Composition(PhaseBase):
         """動画統合の実行"""
         self.logger.info(f"Starting video composition for: {self.subject}")
         render_start = time.time()
+
+        # Legacy版の分岐
+        if self.use_legacy:
+            self.logger.info("🎬 Executing legacy moviepy composition")
+            return self._execute_legacy()
 
         # ffmpeg直接統合モードの分岐
         if self.use_ffmpeg_direct:
@@ -300,7 +319,43 @@ class Phase07Composition(PhaseBase):
         
         self.logger.info("Output validation passed")
         return True
-    
+
+    def _execute_legacy(self) -> VideoComposition:
+        """
+        Legacy版の実行
+
+        phase_07_composition_legacy.py の実装をそのまま実行
+        """
+        import importlib.util
+
+        legacy_module_path = Path(__file__).parent / "phase_07_composition_legacy.py"
+
+        if not legacy_module_path.exists():
+            raise FileNotFoundError(
+                f"Legacy module not found: {legacy_module_path}\n"
+                "Please ensure phase_07_composition_legacy.py exists in the same directory."
+            )
+
+        # legacy版モジュールをインポート
+        spec = importlib.util.spec_from_file_location(
+            "phase_07_composition_legacy",
+            legacy_module_path
+        )
+        legacy_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(legacy_module)
+
+        # legacy版のクラスをインスタンス化
+        LegacyPhase07 = legacy_module.Phase07Composition
+        legacy_phase = LegacyPhase07(
+            subject=self.subject,
+            config=self.config,
+            logger=self.logger
+        )
+
+        # legacy版のexecute_phaseを実行
+        self.logger.info("Executing legacy Phase07Composition.execute_phase()")
+        return legacy_phase.execute_phase()
+
     def _load_script(self) -> dict:
         """台本データを読み込み"""
         script_path = self.working_dir / "01_script" / "script.json"
