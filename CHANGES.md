@@ -1,14 +1,65 @@
 # ジャンル別設定機能の実装
 
+## 最新の変更（2025-11-14）- プロンプトファイルのパス修正
+
 実装日: 2025-11-14
 
-## 目的
+### 目的
+
+`config/genres/ijin.yaml`で指定されているプロンプトファイルのパスに合わせて、
+`prompts/`ディレクトリにプロンプトテンプレートを配置し、ジャンル別設定機能を完全に動作させる。
+
+### 変更内容
+
+#### 新規ディレクトリ・ファイル
+
+- `prompts/script/ijin.j2`: 台本プロンプトテンプレート（config/prompts/script/ijin.j2からコピー）
+- `prompts/image/ijin.j2`: 画像生成プロンプトテンプレート（config/prompts/image/ijin.j2からコピー）
+- `prompts/thumbnail/ijin.j2`: サムネイルプロンプトテンプレート（config/prompts/thumbnail/ijin.j2からコピー）
+
+### 修正内容
+
+**問題**: `config/genres/ijin.yaml`では `prompts/script/ijin.j2` を指定しているが、
+実際のファイルは `config/prompts/script/ijin.j2` に配置されていたため、Phase 01で
+「ファイルが見つからない」エラーが発生していた。
+
+**解決策**: `prompts/`ディレクトリを作成し、ijin.yamlで指定されているパス通りに
+プロンプトファイルを配置することで、ジャンル別設定機能が正しく動作するようになった。
+
+### 動作確認
+
+以下のコマンドで動作確認が可能：
+
+```bash
+python -m src.cli generate "野口英世" --genre ijin --audio-var elevenlabs_standard --text-layout vertical_left_right --thumbnail-style dramatic_side
+```
+
+**期待される動作:**
+- Phase 01: `prompts/script/ijin.j2`テンプレートを使用してYAML台本を生成
+- Phase 02: `elevenlabs_standard`設定でElevenLabs音声を生成（ひらがな変換あり）
+- Phase 03: `prompts/image/ijin.j2`テンプレートを使用して偉人風の画像を生成
+- Phase 08: `vertical_left_right`レイアウトと`dramatic_side`スタイルでサムネイルを生成
+
+### 確認済み機能
+
+✅ Phase 01: ジャンル別プロンプトテンプレートの読み込み
+✅ Phase 02: 音声バリエーション設定の切り替え（すでに実装済み）
+✅ Phase 03: ジャンル別画像プロンプトテンプレートの読み込み（すでに実装済み）
+✅ Phase 08: テキストレイアウトとスタイルの切り替え（すでに実装済み）
+
+---
+
+## 初回実装（2025-11-14）
+
+実装日: 2025-11-14
+
+### 目的
 
 複数のYouTubeチャンネルを運用するため、ジャンル別にプロンプトと設定をカスタマイズ可能にする。
 
-## 変更内容
+### 変更内容
 
-### 新規ファイル
+#### 新規ファイル
 
 - `config/genres/ijin.yaml`: 偉人ジャンル設定
 - `config/prompts/script/ijin.j2`: 台本プロンプトテンプレート
