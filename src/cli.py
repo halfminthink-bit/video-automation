@@ -96,7 +96,8 @@ def run_phase(
     genre: Optional[str] = None,
     audio_var: Optional[str] = None,
     text_layout: Optional[str] = None,
-    thumbnail_style: Optional[str] = None
+    thumbnail_style: Optional[str] = None,
+    use_legacy: bool = False
 ) -> int:
     """
     指定されたフェーズを実行
@@ -110,6 +111,7 @@ def run_phase(
         audio_var: 音声バリエーションID
         text_layout: テキストレイアウトID
         thumbnail_style: サムネイルスタイルID
+        use_legacy: Phase 7でlegacy (moviepy) 版を使用
 
     Returns:
         終了コード (0: 成功, 1: 失敗)
@@ -172,6 +174,14 @@ def run_phase(
                 config=config,
                 logger=logger,
                 genre=genre
+            )
+        elif phase_number == 7:
+            # Phase 7: 動画統合（--legacy オプション対応）
+            phase = phase_class(
+                subject=subject,
+                config=config,
+                logger=logger,
+                use_legacy=use_legacy
             )
         elif phase_number == 8:
             phase = phase_class(
@@ -595,6 +605,11 @@ Examples:
         action="store_true",
         help="Enable verbose (DEBUG) logging"
     )
+    run_parser.add_argument(
+        "--legacy",
+        action="store_true",
+        help="Use legacy (moviepy) implementation for Phase 7"
+    )
 
     # 引数をパース
     args = parser.parse_args()
@@ -633,7 +648,8 @@ Examples:
             genre=getattr(args, 'genre', None),
             audio_var=getattr(args, 'audio_var', None),
             text_layout=getattr(args, 'text_layout', None),
-            thumbnail_style=getattr(args, 'thumbnail_style', None)
+            thumbnail_style=getattr(args, 'thumbnail_style', None),
+            use_legacy=args.legacy
         )
 
     return 0
