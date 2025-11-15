@@ -904,9 +904,10 @@ class Phase07CompositionLegacy02(PhaseBase):
         """
         self.logger.info("Creating split layout video (overlay mode)...")
 
-        # レイアウト設定（80% 動画 + 20% 字幕）
-        top_height = int(1080 * 0.8)  # 864px (80%)
-        bottom_height = 1080 - top_height  # 216px (20%)
+        # レイアウト設定（設定ファイルから比率を読み取る）
+        ratio = self.split_config.get('ratio', 0.8)  # デフォルトを0.8に変更
+        top_height = int(1080 * ratio)
+        bottom_height = 1080 - top_height
 
         self.logger.info(f"Layout: Full video 1920x1080 + Bottom overlay {bottom_height}px (subtitle)")
 
