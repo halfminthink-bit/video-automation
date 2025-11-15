@@ -11,7 +11,7 @@ youtube:
 
 # プロンプトファイル参照
 prompts:
-  script: "config/prompts/script/ijin.j2"
+  script: "config/prompts/script/ijin_1min.j2"
   image: "config/prompts/image/ijin.j2"
   thumbnail: "config/prompts/thumbnail/ijin.j2"
 

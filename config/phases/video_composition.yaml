@@ -53,7 +53,7 @@ transitions:
 
 # BGM設定
 bgm:
-  volume: 0.10              # BGM音量（0.0-1.0） - ナレーションの10%
+  volume: 0.13              # BGM音量（0.0-1.0） - ナレーションの13%（Azure TTS用に30%アップ）
   fade_in: 2.0              # フェードイン時間（秒）
   fade_out: 2.0             # フェードアウト時間（秒）
   crossfade: 3.0            # BGM切り替え時のクロスフェード（秒）
