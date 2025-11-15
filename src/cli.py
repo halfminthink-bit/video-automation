@@ -290,7 +290,9 @@ def generate_video(
     genre: Optional[str] = None,
     audio_var: Optional[str] = None,
     text_layout: Optional[str] = None,
-    thumbnail_style: Optional[str] = None
+    thumbnail_style: Optional[str] = None,
+    skip_phase04: bool = False,
+    skip_bgm: bool = False
 ) -> int:
     """
     動画を生成（全フェーズ一括実行）
@@ -307,6 +309,8 @@ def generate_video(
         audio_var: 音声バリエーションID
         text_layout: テキストレイアウトID
         thumbnail_style: サムネイルスタイルID
+        skip_phase04: Phase 04をスキップ
+        skip_bgm: Phase 05をスキップ
 
     Returns:
         終了コード (0: 成功, 1: 失敗)
@@ -378,6 +382,15 @@ def generate_video(
             logger.error(f"Auto script generation failed: {e}")
             return 1
 
+    # スキップするフェーズのリストを作成
+    skip_phases = []
+    if skip_phase04:
+        skip_phases.append(4)
+        logger.info("⏭️  Phase 04 (image animation) will be skipped")
+    if skip_bgm:
+        skip_phases.append(5)
+        logger.info("⏭️  Phase 05 (BGM selection) will be skipped")
+
     # Orchestratorを作成
     orchestrator = PhaseOrchestrator(
         config=config,
@@ -394,7 +407,8 @@ def generate_video(
             subject=subject,
             skip_if_exists=not force,
             from_phase=from_phase,
-            until_phase=until_phase
+            until_phase=until_phase,
+            skip_phases=skip_phases
         )
 
         # 終了コード
@@ -538,6 +552,16 @@ Examples:
         default=None,
         help="Thumbnail style ID (e.g., 'dramatic_side')"
     )
+    generate_parser.add_argument(
+        "--skip-phase04",
+        action="store_true",
+        help="Skip Phase 04 (image animation)"
+    )
+    generate_parser.add_argument(
+        "--skip-bgm",
+        action="store_true",
+        help="Skip Phase 05 (BGM selection)"
+    )
 
     # run-phase コマンド
     run_parser = subparsers.add_parser(
@@ -593,7 +617,9 @@ Examples:
             genre=args.genre,
             audio_var=args.audio_var,
             text_layout=args.text_layout,
-            thumbnail_style=args.thumbnail_style
+            thumbnail_style=args.thumbnail_style,
+            skip_phase04=args.skip_phase04,
+            skip_bgm=args.skip_bgm
         )
 
     # run-phase コマンド

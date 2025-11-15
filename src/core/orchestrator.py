@@ -54,7 +54,8 @@ class PhaseOrchestrator:
         subject: str,
         skip_if_exists: bool = True,
         from_phase: int = 1,
-        until_phase: int = 9
+        until_phase: int = 9,
+        skip_phases: Optional[List[int]] = None
     ) -> ProjectStatus:
         """
         全フェーズを順次実行
@@ -64,12 +65,17 @@ class PhaseOrchestrator:
             skip_if_exists: 既存出力があればスキップ
             from_phase: 開始フェーズ（1-9）
             until_phase: 終了フェーズ（1-9）
+            skip_phases: スキップするフェーズ番号のリスト（例: [4, 5]）
 
         Returns:
             ProjectStatus: プロジェクト全体の実行結果
         """
+        skip_phases = skip_phases or []
+
         self.logger.info(f"Starting video generation for: {subject}")
         self.logger.info(f"Phase range: {from_phase}-{until_phase}")
+        if skip_phases:
+            self.logger.info(f"Skipping phases: {skip_phases}")
 
         # プロジェクトステータスを初期化
         project_status = ProjectStatus(
@@ -81,8 +87,12 @@ class PhaseOrchestrator:
         # 各Phaseのインスタンスを作成
         phases = self._initialize_phases(subject)
 
-        # 指定範囲のフェーズのみ実行
-        phases_to_run = [p for p in phases if from_phase <= p.get_phase_number() <= until_phase]
+        # 指定範囲のフェーズのみ実行（スキップ対象を除外）
+        phases_to_run = [
+            p for p in phases
+            if from_phase <= p.get_phase_number() <= until_phase
+            and p.get_phase_number() not in skip_phases
+        ]
 
         # 進捗バーを表示
         with Progress(
