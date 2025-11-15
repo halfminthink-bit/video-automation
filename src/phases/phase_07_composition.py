@@ -396,16 +396,22 @@ class Phase07Composition(PhaseBase):
             return None
     
     def _get_section_duration(self, section_id: int, audio_timing: Optional[dict]) -> float:
-        """セクションの実際の音声長を取得"""
+        """
+        セクションの実際の音声長を取得
+        
+        Args:
+            section_id: セクションID
+            audio_timing: audio_timing.jsonの内容（リスト形式または辞書形式）
+        """
         if not audio_timing:
             # フォールバック: 音声ファイルから直接取得
-            audio_file = self.working_dir / "02_audio" / f"section_{section_id:02d}.mp3"
+            audio_file = self.working_dir / "02_audio" / "sections" / f"section_{section_id:02d}.mp3"
             if audio_file.exists():
                 try:
                     audio_clip = AudioFileClip(str(audio_file))
                     duration = audio_clip.duration
                     audio_clip.close()
-                    self.logger.debug(f"Got duration from audio file: {duration:.2f}s")
+                    self.logger.debug(f"Section {section_id} duration from audio file: {duration:.2f}s")
                     return duration
                 except Exception as e:
                     self.logger.warning(f"Failed to get duration from {audio_file}: {e}")
@@ -414,14 +420,49 @@ class Phase07Composition(PhaseBase):
             self.logger.warning(f"Using default duration for section {section_id}")
             return 120.0
         
-        # audio_timing.jsonから取得
-        for section in audio_timing.get('sections', []):
+        # audio_timing.jsonの構造チェック
+        if isinstance(audio_timing, dict):
+            # 辞書形式（古い形式）
+            sections = audio_timing.get('sections', [])
+        elif isinstance(audio_timing, list):
+            # リスト形式（新しい形式）
+            sections = audio_timing
+        else:
+            self.logger.warning(f"Unexpected audio_timing type: {type(audio_timing)}")
+            return 120.0
+        
+        # セクションを探す
+        for section in sections:
             if section.get('section_id') == section_id:
+                # 文字レベルタイミングから長さを計算
+                char_end_times = section.get('character_end_times_seconds', [])
+                if char_end_times:
+                    duration = char_end_times[-1]  # 最後の文字の終了時刻
+                    self.logger.debug(f"Section {section_id} actual duration from timings: {duration:.2f}s")
+                    return duration
+                
+                # フォールバック: durationフィールド
                 duration = section.get('duration', 120.0)
-                self.logger.debug(f"Section {section_id} actual duration: {duration:.2f}s")
+                self.logger.debug(f"Section {section_id} duration from field: {duration:.2f}s")
                 return duration
         
-        self.logger.warning(f"Section {section_id} not found in audio_timing.json")
+        # セクションが見つからない場合
+        self.logger.warning(f"Section {section_id} not found in audio_timing")
+        
+        # 最後のフォールバック: 音声ファイルから直接取得
+        audio_file = self.working_dir / "02_audio" / "sections" / f"section_{section_id:02d}.mp3"
+        if audio_file.exists():
+            try:
+                audio_clip = AudioFileClip(str(audio_file))
+                duration = audio_clip.duration
+                audio_clip.close()
+                self.logger.debug(f"Section {section_id} duration from audio file: {duration:.2f}s")
+                return duration
+            except Exception as e:
+                self.logger.warning(f"Failed to get duration from {audio_file}: {e}")
+        
+        # 最後のフォールバック: デフォルト値
+        self.logger.warning(f"Using default duration for section {section_id}")
         return 120.0
     
     def _load_bgm(self) -> Optional[dict]:
@@ -1207,7 +1248,13 @@ class Phase07Composition(PhaseBase):
 
             # 2. 画像リストとタイミング情報を取得
             images_dir = self.working_dir / "03_images"
-            sections = audio_timing.get("sections", [])
+            # audio_timing.jsonの構造チェック（リスト形式または辞書形式）
+            if isinstance(audio_timing, dict):
+                sections = audio_timing.get("sections", [])
+            elif isinstance(audio_timing, list):
+                sections = audio_timing
+            else:
+                raise ValueError(f"Unexpected audio_timing type: {type(audio_timing)}")
 
             # 3. concat用のタイミングファイル作成
             self.logger.info("Creating ffmpeg concat file...")
@@ -1372,7 +1419,16 @@ class Phase07Composition(PhaseBase):
                     continue
 
                 # セクションの長さを計算
-                duration = section.get("end_time", 0) - section.get("start_time", 0)
+                # 文字レベルタイミングから長さを計算（最も正確）
+                char_end_times = section.get('character_end_times_seconds', [])
+                if char_end_times:
+                    duration = char_end_times[-1]  # 最後の文字の終了時刻
+                elif "end_time" in section and "start_time" in section:
+                    # フォールバック: start_time/end_time
+                    duration = section.get("end_time", 0) - section.get("start_time", 0)
+                else:
+                    # 最後のフォールバック: durationフィールド
+                    duration = section.get("duration", 20.0)
 
                 # パスをエスケープ（絶対パスに変換）
                 abs_path = image_path.absolute()
