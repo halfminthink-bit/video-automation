@@ -279,6 +279,90 @@ class Phase07CompositionLegacy02(PhaseBase):
         """音声ファイルパスを取得"""
         return self.working_dir / "02_audio" / "narration_full.mp3"
     
+    def _load_images_from_phase03(self) -> Dict[int, List[Path]]:
+        """
+        Phase03の静止画を読み込み（全画像版）
+
+        各セクションの全画像を読み込み、セクションIDをキーとした辞書で返す
+
+        Returns:
+            Dict[int, List[Path]]: セクションID -> 画像パスのリスト
+        """
+        # classified.jsonを読み込み
+        classified_path = self.working_dir / "03_images" / "classified.json"
+
+        if not classified_path.exists():
+            raise FileNotFoundError(f"classified.json not found: {classified_path}")
+
+        with open(classified_path, 'r', encoding='utf-8') as f:
+            classified_data = json.load(f)
+
+        section_images: Dict[int, List[Path]] = {}
+
+        # 1. sections形式を試す（古い形式）
+        if 'sections' in classified_data and classified_data['sections']:
+            for section_data in classified_data.get('sections', []):
+                section_id = section_data.get('section_id')
+                images = section_data.get('images', [])
+
+                if images:
+                    section_images[section_id] = []
+                    # 全ての画像を追加
+                    for img_data in images:
+                        image_path = Path(img_data.get('file_path'))
+
+                        # PNG形式に変換されているはず
+                        if image_path.suffix.lower() == '.jpg':
+                            image_path = image_path.with_suffix('.png')
+
+                        if image_path.exists():
+                            section_images[section_id].append(image_path)
+                            self.logger.debug(f"Section {section_id}: {image_path.name}")
+                        else:
+                            self.logger.warning(f"Image not found: {image_path}")
+                else:
+                    self.logger.warning(f"No images for section {section_id}")
+
+        # 2. images形式（新しい形式）- sectionsがない場合
+        elif 'images' in classified_data and classified_data['images']:
+            # セクションごとにグループ化（ファイル名から抽出）
+            import re
+
+            for img_data in classified_data['images']:
+                file_path = img_data.get('file_path')
+                if not file_path:
+                    continue
+
+                # ファイル名からセクション番号を抽出 (section_01, section_02, etc.)
+                match = re.search(r'section_(\d+)', file_path)
+                if match:
+                    section_id = int(match.group(1))
+                    if section_id not in section_images:
+                        section_images[section_id] = []
+
+                    image_path = Path(file_path)
+
+                    # PNG形式に変換されているはず
+                    if image_path.suffix.lower() == '.jpg':
+                        image_path = image_path.with_suffix('.png')
+
+                    if image_path.exists():
+                        section_images[section_id].append(image_path)
+                    else:
+                        self.logger.warning(f"Image not found: {image_path}")
+
+        # 3. どちらもない場合
+        else:
+            self.logger.error("classified.json has neither 'sections' nor 'images' array")
+            raise ValueError("Invalid classified.json format: missing 'sections' or 'images'")
+
+        total_images = sum(len(images) for images in section_images.values())
+        self.logger.info(f"Loaded {total_images} images from Phase03 across {len(section_images)} sections")
+        for section_id in sorted(section_images.keys()):
+            self.logger.debug(f"  Section {section_id}: {len(section_images[section_id])} images")
+
+        return section_images
+
     def _load_animated_clips(self) -> List[Path]:
         """
         Phase03の静止画を読み込み（Legacy02版）
@@ -296,7 +380,7 @@ class Phase07CompositionLegacy02(PhaseBase):
 
         # 画像を取得（sections形式とimages形式の両方に対応）
         image_paths = []
-        
+
         # 1. sections形式を試す（古い形式）
         if 'sections' in classified_data and classified_data['sections']:
             for section_data in classified_data.get('sections', []):
@@ -318,18 +402,18 @@ class Phase07CompositionLegacy02(PhaseBase):
                         self.logger.warning(f"Image not found: {first_image}")
                 else:
                     self.logger.warning(f"No images for section {section_id}")
-        
+
         # 2. images形式（新しい形式）- sectionsがない場合
         elif 'images' in classified_data and classified_data['images']:
             # セクションごとにグループ化（ファイル名から抽出）
             import re
             section_images = {}
-            
+
             for img_data in classified_data['images']:
                 file_path = img_data.get('file_path')
                 if not file_path:
                     continue
-                
+
                 # ファイル名からセクション番号を抽出 (section_01, section_02, etc.)
                 match = re.search(r'section_(\d+)', file_path)
                 if match:
@@ -337,22 +421,22 @@ class Phase07CompositionLegacy02(PhaseBase):
                     if section_id not in section_images:
                         section_images[section_id] = []
                     section_images[section_id].append(file_path)
-            
+
             # セクション番号順にソートして、各セクションの最初の画像を使用
             for section_id in sorted(section_images.keys()):
                 first_image_path = section_images[section_id][0]
                 first_image = Path(first_image_path)
-                
+
                 # PNG形式に変換されているはず
                 if first_image.suffix.lower() == '.jpg':
                     first_image = first_image.with_suffix('.png')
-                
+
                 if first_image.exists():
                     image_paths.append(first_image)
                     self.logger.debug(f"Section {section_id}: {first_image.name}")
                 else:
                     self.logger.warning(f"Image not found: {first_image}")
-        
+
         # 3. どちらもない場合
         else:
             self.logger.error("classified.json has neither 'sections' nor 'images' array")
@@ -361,7 +445,68 @@ class Phase07CompositionLegacy02(PhaseBase):
         self.logger.info(f"Loaded {len(image_paths)} images from Phase03")
 
         return image_paths
-    
+
+    def _create_image_slideshow(
+        self,
+        section_images: Dict[int, List[Path]],
+        target_width: int = 1920,
+        target_height: int = 1080
+    ) -> 'VideoFileClip':
+        """
+        全セクションの画像スライドショーを作成
+        各セクション内の画像は均等に分割して表示
+
+        Args:
+            section_images: セクションID -> 画像パスのリストの辞書
+            target_width: 目標の幅（デフォルト: 1920）
+            target_height: 目標の高さ（デフォルト: 1080）
+
+        Returns:
+            連結された動画クリップ
+        """
+        all_clips = []
+
+        # スクリプトを読み込んでセクションの長さを取得
+        script = self._load_script()
+
+        for section_id in sorted(section_images.keys()):
+            images = section_images[section_id]
+
+            if len(images) == 0:
+                self.logger.warning(f"Section {section_id}: No images found")
+                continue
+
+            # セクションの総時間
+            section_duration = self._get_section_duration(section_id, script)
+
+            # 各画像の表示時間（均等分割）
+            duration_per_image = section_duration / len(images)
+
+            self.logger.info(
+                f"Section {section_id}: {len(images)} images × "
+                f"{duration_per_image:.2f}s = {section_duration:.2f}s"
+            )
+
+            # セクション内の全画像をクリップ化
+            for i, image_path in enumerate(images):
+                clip = ImageClip(str(image_path))
+                clip = clip.resized((target_width, target_height))
+                clip = clip.with_duration(duration_per_image)
+                all_clips.append(clip)
+
+                self.logger.debug(
+                    f"  Image {i+1}: {image_path.name} ({duration_per_image:.2f}s)"
+                )
+
+        # 全クリップを連結
+        final_clip = concatenate_videoclips(all_clips, method="compose")
+
+        self.logger.info(
+            f"✓ Image slideshow: {final_clip.duration:.2f}s, {len(all_clips)} clips"
+        )
+
+        return final_clip
+
     def _load_subtitles(self) -> List[SubtitleEntry]:
         """字幕データを読み込み"""
         subtitle_path = self.working_dir / "06_subtitles" / "subtitle_timing.json"
@@ -554,46 +699,27 @@ class Phase07CompositionLegacy02(PhaseBase):
         """
         Phase03の静止画から動画クリップを作成（Legacy02版）
 
-        各画像を対応するセクションの長さで表示
+        各セクション内で複数画像を均等分割して表示
+
+        Note: このメソッドは互換性のために残していますが、
+        内部的には_create_image_slideshow()を使用しています。
         """
-        clips = []
+        self.logger.info(f"Creating image clips from Phase03 (with multi-image per section)...")
 
-        # スクリプトを読み込んでセクションの長さを取得
-        script = self._load_script()
+        # 全画像を読み込み（セクションごとに複数画像）
+        section_images = self._load_images_from_phase03()
 
-        self.logger.info(f"Creating {len(clip_paths)} image clips from Phase03...")
+        # 画像スライドショーを作成
+        slideshow = self._create_image_slideshow(
+            section_images,
+            self.resolution[0],
+            self.resolution[1]
+        )
 
-        for i, image_path in enumerate(clip_paths):
-            try:
-                # セクション番号（1-indexed）
-                section_id = i + 1
-
-                # セクションの長さを取得
-                section_duration = self._get_section_duration(section_id, script)
-
-                self.logger.debug(f"Creating clip from {image_path.name} (duration: {section_duration:.1f}s)")
-
-                # 画像クリップを作成
-                clip = ImageClip(str(image_path))
-
-                # 解像度を統一
-                if clip.size != self.resolution:
-                    clip = clip.resized(self.resolution)
-
-                # 長さを設定
-                clip = clip.with_duration(section_duration)
-
-                clips.append(clip)
-
-                self.logger.debug(f"✓ Clip {i+1}: {section_duration:.1f}s")
-
-            except Exception as e:
-                self.logger.error(f"Failed to create clip from {image_path.name}: {e}")
-                continue
-
-        self.logger.info(f"Created {len(clips)} image clips from Phase03")
-
-        return clips
+        # List[ImageClip]形式で返す必要があるため、
+        # スライドショー全体を1つのクリップとしてリストに入れる
+        # ※ _concatenate_clips()で再度連結されますが、既に連結済みなのでそのまま返す
+        return [slideshow]
     
     def _concatenate_clips(
         self,
@@ -1083,11 +1209,11 @@ class Phase07CompositionLegacy02(PhaseBase):
         上部の動画エリアを生成（画像スライドショー）
 
         - Phase03の画像を 1920 x area_height にリサイズ
-        - 各画像を対応するセクションの長さで表示
+        - 各セクション内で複数画像を均等分割して表示
         - 連結してスライドショー化
 
         Args:
-            clip_paths: Phase03の画像パスリスト
+            clip_paths: Phase03の画像パスリスト（互換性のため残す、未使用）
             duration: 総時間（音声の長さ）
             area_height: エリアの高さ（864px）
 
@@ -1097,53 +1223,20 @@ class Phase07CompositionLegacy02(PhaseBase):
         width = 1920
         height = area_height  # 864px（全体1080の80%）
 
-        self.logger.info("Creating image slideshow from Phase03...")
+        self.logger.info("Creating image slideshow from Phase03 (with multi-image per section)...")
 
-        # スクリプトを読み込む（セクション長を取得するため）
-        script = self._load_script()
+        # 全画像を読み込み（セクションごとに複数画像）
+        section_images = self._load_images_from_phase03()
 
-        # 各画像クリップを作成
-        video_clips = []
+        # 画像スライドショーを作成（1920x1080）
+        slideshow = self._create_image_slideshow(section_images, width, 1080)
 
-        for i, image_path in enumerate(clip_paths):
-            try:
-                section_id = i + 1
+        # area_heightが1080と異なる場合はリサイズ
+        if height != 1080:
+            slideshow = self._resize_clip_for_split_layout(slideshow, width, height)
+            self.logger.info(f"Resized slideshow to {width}x{height}")
 
-                # 🔥 重要: audio_timing.jsonから正確な長さを取得
-                section_duration = self._get_section_duration(section_id, script)
-
-                self.logger.debug(f"Creating clip from {image_path.name} (duration: {section_duration:.1f}s)")
-
-                # 画像クリップを作成
-                clip = ImageClip(str(image_path))
-
-                # 1920 x area_height にリサイズ（クロップまたはフィット）
-                clip_resized = self._resize_clip_for_split_layout(clip, width, height)
-
-                # 🔥 重要: セクションの実際の長さを設定
-                clip_resized = clip_resized.with_duration(section_duration)
-
-                video_clips.append(clip_resized)
-
-                self.logger.debug(f"✓ Section {section_id}: {section_duration:.2f}s")
-
-            except Exception as e:
-                self.logger.error(f"Failed to load clip {image_path.name}: {e}")
-                continue
-
-        # 🔥 重要: クリップを連結してスライドショー化
-        if video_clips:
-            self.logger.info(f"Concatenating {len(video_clips)} image clips...")
-            final_clip = concatenate_videoclips(video_clips, method="compose")
-
-            total_duration = final_clip.duration
-            self.logger.info(f"✓ Image slideshow created: {total_duration:.2f}s")
-
-            return final_clip
-        else:
-            # フォールバック: 黒画面
-            self.logger.warning("No video clips created, using black screen")
-            return ColorClip(size=(width, height), color=(0, 0, 0)).with_duration(duration)
+        return slideshow
 
     def _resize_clip_for_split_layout(
         self,
