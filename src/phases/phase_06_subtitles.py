@@ -172,6 +172,10 @@ class Phase06Subtitles(PhaseBase):
             self.logger.info("Removing punctuation from subtitles...")
             subtitles = self._remove_punctuation_from_subtitles(subtitles)
 
+            # 4.5. 字幕間のギャップを最適化
+            self.logger.info("Optimizing subtitle gaps...")
+            subtitles = self._optimize_subtitle_gaps(subtitles)
+
             # 5. SRTファイルを保存
             srt_path = self._save_srt_file(subtitles)
 
@@ -1875,6 +1879,61 @@ class Phase06Subtitles(PhaseBase):
             f"(0.2s margin before next)"
         )
         return adjusted_subtitles
+
+    def _optimize_subtitle_gaps(self, subtitles: List[SubtitleEntry]) -> List[SubtitleEntry]:
+        """
+        字幕間の空白時間を最適化
+
+        0.5~1.5秒のギャップがある場合、0.3秒になるように字幕を延長する。
+        これにより、音声が流れている間は字幕を表示し続けることができる。
+
+        Args:
+            subtitles: 字幕エントリのリスト
+
+        Returns:
+            最適化済み字幕エントリのリスト
+        """
+        optimized_subtitles = []
+        adjusted_count = 0
+
+        for i in range(len(subtitles)):
+            current = subtitles[i]
+
+            # 最後の字幕以外
+            if i < len(subtitles) - 1:
+                next_subtitle = subtitles[i + 1]
+
+                # ギャップを計算
+                gap = next_subtitle.start_time - current.end_time
+
+                # ギャップが0.5~1.5秒の範囲内なら調整
+                if 0.5 <= gap <= 1.5:
+                    old_end = current.end_time
+                    new_end = next_subtitle.start_time - 0.3
+
+                    # 新しい字幕エントリを作成
+                    current = SubtitleEntry(
+                        index=current.index,
+                        start_time=current.start_time,
+                        end_time=new_end,
+                        text_line1=current.text_line1,
+                        text_line2=current.text_line2
+                    )
+
+                    adjusted_count += 1
+                    self.logger.debug(
+                        f"字幕 {current.index}: ギャップ調整 "
+                        f"{old_end:.3f}秒 → {new_end:.3f}秒 "
+                        f"(gap: {gap:.3f}秒 → 0.3秒, +{new_end - old_end:.3f}秒延長)"
+                    )
+
+            optimized_subtitles.append(current)
+
+        self.logger.info(
+            f"Subtitle gap optimization complete: {adjusted_count}/{len(subtitles)} subtitles adjusted "
+            f"(gaps 0.5-1.5s reduced to 0.3s)"
+        )
+        return optimized_subtitles
 
     def _fix_three_line_quotations(
         self,
