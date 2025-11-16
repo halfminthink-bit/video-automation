@@ -1738,12 +1738,23 @@ class Phase07Composition(PhaseBase):
             start_time = self._format_ass_time(subtitle.start_time)
             end_time = self._format_ass_time(subtitle.end_time)
 
-            # 複数行のテキストを結合
-            text_parts = [subtitle.text_line1]
+            # 複数行のテキストを結合（改行文字を削除）
+            text_parts = []
+
+            # text_line1の先頭の改行を削除
+            line1 = subtitle.text_line1.lstrip('\n').strip()
+            if line1:
+                text_parts.append(line1)
+
             if subtitle.text_line2:
-                text_parts.append(subtitle.text_line2)
+                line2 = subtitle.text_line2.strip()
+                if line2:
+                    text_parts.append(line2)
+
             if subtitle.text_line3:
-                text_parts.append(subtitle.text_line3)
+                line3 = subtitle.text_line3.strip()
+                if line3:
+                    text_parts.append(line3)
 
             subtitle_text = '\\N'.join(text_parts)  # ASS形式の改行
 
@@ -1759,7 +1770,8 @@ class Phase07Composition(PhaseBase):
 
     def _get_ass_header(self) -> str:
         """ASS字幕のヘッダーを生成（Legacy02完全準拠）"""
-        font_size = self.subtitle_size  # 60
+        # フォントサイズを調整（Pillowの60px ≈ ASSの45）
+        font_size = 45  # 60から45に変更
         margin_v = 120  # Legacy02と同じ
 
         return f"""[Script Info]
@@ -1768,7 +1780,7 @@ ScriptType: v4.00+
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Noto Sans CJK JP,{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,2,0,2,10,10,{margin_v},1
+Style: Default,MS Mincho,{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,3,2,2,10,10,{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -1804,7 +1816,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         ass_path = srt_path.with_suffix('.ass')
 
-        # ASSヘッダー（フォント・スタイル定義）
+        # ASSヘッダー（フォント・スタイル定義）- Legacy02完全準拠
         ass_header = f"""[Script Info]
 ScriptType: v4.00+
 Collisions: Normal
@@ -1812,7 +1824,7 @@ PlayDepth: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,{self.subtitle_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,3,3,0,2,10,10,80,1
+Style: Default,MS Mincho,45,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,3,2,2,10,10,120,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -2145,17 +2157,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         srt_filename = srt_path.name
         srt_dir = srt_path.parent
         
-        # force_styleの定義（MoviePy版コミット 5beb5add と同じ設定値）
-        # MoviePy版の設定: subtitle_size=60, subtitle_margin=150
+        # force_styleの定義（Legacy02完全準拠）
         force_style = (
-            "FontName=Arial,"           # MoviePy版と同じフォント
-            "FontSize=60,"              # MoviePy版: subtitle_size=60
-            "PrimaryColour=&HFFFFFF,"   # MoviePy版: color=white
-            "OutlineColour=&H00000000," # MoviePy版: stroke_width=3の黒縁取り
-            "Outline=3,"                # MoviePy版: stroke_width=3
-            "Shadow=0,"                 # MoviePy版: 影なし（4方向の縁取りで代用）
-            "Alignment=2,"              # MoviePy版: position=bottom（下部中央）
-            "MarginV=70"                # MoviePy版: margin_bottom=150から調整（黒バー216px内に配置）
+            "FontName=MS Mincho,"       # Legacy02と同じMS明朝
+            "FontSize=45,"              # Legacy02準拠: サイズ45
+            "PrimaryColour=&HFFFFFF,"   # 白色
+            "OutlineColour=&H00000000," # 黒縁取り
+            "Outline=3,"                # 縁取りの太さ3
+            "Shadow=2,"                 # 影を追加
+            "Alignment=2,"              # 下部中央
+            "MarginV=120"               # Legacy02と同じマージン
         )
         
         # コマンド構築（字幕ファイル名のみ使用）
