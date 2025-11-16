@@ -18,46 +18,52 @@ from ..core.models import (
 from ..utils.whisper_timing import create_whisper_extractor
 
 
-class SubtitleGenerator:
-    """字幕生成器"""
-    
+# ==========================================
+# 1. TextSplitter クラス（変更頻度: 高）
+# ==========================================
+
+class TextSplitter:
+    """
+    テキスト分割ロジック（言語依存部分）
+
+    責任:
+    - 句点での文分割（鍵かっこ考慮）
+    - 長文の適切な分割（36文字制限）
+    - 2行への分割（18文字×2行）
+    - 分割位置のスコアリング
+    - 句読点削除
+
+    変更頻度: 高（改行ロジックの調整が頻繁）
+    """
+
     def __init__(
         self,
         config: Dict[str, Any],
+        language: str = "ja",
         logger: Optional[logging.Logger] = None
     ):
         """
         初期化
-        
+
         Args:
-            config: 字幕生成設定
+            config: subtitle_generation.yamlの設定
+            language: 言語コード（将来の英語対応用）
             logger: ロガー
         """
         self.config = config
+        self.language = language
         self.logger = logger or logging.getLogger(__name__)
-        
-        # 設定値の取得
-        self.max_lines = max(1, config.get("max_lines", 2))
-        self.max_chars_per_line = config.get("max_chars_per_line", 20)
-        
-        timing = config.get("timing", {})
-        self.min_display_duration = timing.get("min_display_duration", 4.0)
-        self.max_display_duration = timing.get("max_display_duration", 6.0)
-        self.lead_time = timing.get("lead_time", 0.2)
-        self.subtitle_gap = timing.get("subtitle_gap", 0.1)
-        self.prevent_overlap = timing.get("prevent_overlap", True)
-        self.overlap_priority = timing.get("overlap_priority", "next_subtitle")
-        
-        morphological = config.get("morphological_analysis", {})
-        self.use_mecab = morphological.get("use_mecab", False)
-        self.break_on = morphological.get("break_on", ["。", "、", "！", "？"])
 
-        # 分割戦略の設定
+        # 設定値を取得
+        self.max_lines = config.get("max_lines", 2)
+        self.max_chars_per_line = config.get("max_chars_per_line", 18)
+
+        # 分割設定
         splitting = config.get("splitting", {})
         self.window_size = splitting.get("window_size", 3)
         self.priority_scores = splitting.get("priority_scores", {
             "punctuation": 120,
-            "morpheme_boundary": 150,  # 形態素境界（最優先）
+            "morpheme_boundary": 150,
             "particle": 100,
             "hiragana_to_kanji": 80,
             "kanji_to_hiragana": 60,
@@ -68,7 +74,665 @@ class SubtitleGenerator:
             "ends_with_n_tsu": 20,
             "splits_number": 50,
             "splits_alphabet": 50,
-            "splits_verb_adjective": 500  # 動詞・形容詞の途中で分割するペナルティ
+            "splits_verb_adjective": 500,
+            "min_chunk_length": 200,
+            "balance": 100
+        })
+        self.particles = splitting.get("particles", [
+            "は", "が", "を", "に", "で", "と", "も", "や", "から", "まで", "より"
+        ])
+        self.balance_lines = splitting.get("balance_lines", True)
+        self.min_line_length = splitting.get("min_line_length", 3)
+
+        # 句読点設定
+        morphological = config.get("morphological_analysis", {})
+        self.break_on = morphological.get("break_on", ["。", "！", "？"])
+
+        # 句読点表示設定
+        # 注意: メソッド名 remove_punctuation と衝突しないようにフィールド名を変更
+        self.remove_punctuation_in_display = config.get("remove_punctuation_in_display", False)
+
+        # MeCab設定（未使用だが互換性のため保持）
+        self.use_mecab = morphological.get("use_mecab", False)
+        self.mecab = None
+
+    def _get_char_type(self, char: str) -> str:
+        """
+        文字の種類を判定
+
+        Returns:
+            'hiragana', 'katakana', 'kanji', 'other'
+        """
+        code = ord(char)
+
+        # ひらがな: U+3040 - U+309F
+        if 0x3040 <= code <= 0x309F:
+            return 'hiragana'
+
+        # カタカナ: U+30A0 - U+30FF
+        if 0x30A0 <= code <= 0x30FF:
+            return 'katakana'
+
+        # 漢字: U+4E00 - U+9FFF
+        if 0x4E00 <= code <= 0x9FFF:
+            return 'kanji'
+
+        return 'other'
+
+    def _is_hiragana(self, char: str) -> bool:
+        """ひらがなかどうか判定"""
+        return '\u3040' <= char <= '\u309F'
+
+    def _is_katakana(self, char: str) -> bool:
+        """カタカナかどうか判定"""
+        return '\u30A0' <= char <= '\u30FF'
+
+    def _is_kanji(self, char: str) -> bool:
+        """漢字かどうか判定"""
+        return '\u4E00' <= char <= '\u9FFF'
+
+    def _is_number(self, char: str) -> bool:
+        """数字かどうか判定"""
+        return char.isdigit() or '\uFF10' <= char <= '\uFF19'
+
+    def _is_alphabet(self, char: str) -> bool:
+        """英字かどうか判定"""
+        return char.isalpha() and ord(char) < 128
+
+    def _detect_character_boundaries(
+        self,
+        characters: List[str]
+    ) -> Dict[str, List[int]]:
+        """
+        文字種の境界を検出
+
+        Returns:
+            {
+                'punctuation': [3, 7, ...],         # 句読点位置
+                'particles': [5, 10, ...],          # 助詞の後
+                'hiragana_to_kanji': [2, 8, ...],   # ひらがな→漢字
+                'kanji_to_hiragana': [4, 12, ...],  # 漢字→ひらがな
+                'katakana_boundary': [6, 14, ...]   # カタカナ境界
+            }
+        """
+        boundaries = {
+            'punctuation': [],
+            'particles': [],
+            'hiragana_to_kanji': [],
+            'kanji_to_hiragana': [],
+            'katakana_boundary': []
+        }
+
+        # 句読点位置
+        for i, char in enumerate(characters):
+            if char in ["。", "、", "！", "？", "…"]:
+                boundaries['punctuation'].append(i)
+
+        # 助詞の位置
+        for i, char in enumerate(characters):
+            if char in self.particles:
+                # 助詞の直後の位置
+                if i + 1 < len(characters):
+                    boundaries['particles'].append(i + 1)
+
+        # 文字種境界
+        for i in range(len(characters) - 1):
+            curr_char = characters[i]
+            next_char = characters[i + 1]
+
+            # ひらがな→漢字
+            if self._is_hiragana(curr_char) and self._is_kanji(next_char):
+                boundaries['hiragana_to_kanji'].append(i + 1)
+
+            # 漢字→ひらがな
+            if self._is_kanji(curr_char) and self._is_hiragana(next_char):
+                boundaries['kanji_to_hiragana'].append(i + 1)
+
+            # カタカナ境界
+            if self._is_katakana(curr_char) and not self._is_katakana(next_char):
+                boundaries['katakana_boundary'].append(i + 1)
+            elif not self._is_katakana(curr_char) and self._is_katakana(next_char):
+                boundaries['katakana_boundary'].append(i + 1)
+
+        return boundaries
+
+    def remove_punctuation(
+        self,
+        subtitles: List[SubtitleEntry]
+    ) -> List[SubtitleEntry]:
+        """
+        字幕から句読点を削除（鍵かっこ内は保持）
+
+        Args:
+            subtitles: 句読点を含む字幕リスト
+
+        Returns:
+            句読点を削除した字幕リスト
+        """
+        # 削除対象の句読点
+        punctuation_to_remove = ['。', '！', '？', '，', '．']
+
+        cleaned_subtitles = []
+
+        for subtitle in subtitles:
+            # 2行にまたがる鍵かっこに対応するため、結合してから処理
+            combined_text = subtitle.text_line1
+            if subtitle.text_line2:
+                combined_text += subtitle.text_line2
+
+            # 結合テキストから句読点を削除（鍵かっこ内は残す）
+            cleaned_combined, char_mapping = self._remove_punctuation_except_in_quotation_with_mapping(
+                combined_text,
+                punctuation_to_remove
+            )
+
+            # 元の行1の最後の文字が処理後のどの位置に対応するかを取得
+            original_line1_len = len(subtitle.text_line1)
+            split_pos = len(cleaned_combined)
+            if original_line1_len > 0 and original_line1_len - 1 < len(char_mapping):
+                # 行1の最後の文字の位置を取得（削除された文字の場合は前の有効な文字を探す）
+                for i in range(original_line1_len - 1, -1, -1):
+                    if i < len(char_mapping) and char_mapping[i] != -1:
+                        split_pos = char_mapping[i] + 1
+                        break
+
+            # 分割
+            line1 = cleaned_combined[:split_pos] if split_pos > 0 else ""
+            line2 = cleaned_combined[split_pos:] if subtitle.text_line2 else ""
+
+            # 空の字幕をスキップ（句読点のみの行が削除されて空になった場合）
+            if not line1.strip() and not line2.strip():
+                self.logger.debug(f"Skipping empty subtitle at index {subtitle.index}")
+                continue
+
+            # 新しいSubtitleEntryを作成
+            cleaned_subtitle = SubtitleEntry(
+                index=subtitle.index,
+                start_time=subtitle.start_time,
+                end_time=subtitle.end_time,
+                text_line1=line1,
+                text_line2=line2
+            )
+
+            cleaned_subtitles.append(cleaned_subtitle)
+
+        # インデックスを再割り当て（空の字幕をスキップした場合に連番にする）
+        for i, subtitle in enumerate(cleaned_subtitles, start=1):
+            subtitle.index = i
+
+        self.logger.info(f"Removed punctuation from {len(cleaned_subtitles)} subtitles")
+        return cleaned_subtitles
+
+    def _remove_punctuation_except_in_quotation_with_mapping(
+        self,
+        text: str,
+        punctuation_to_remove: List[str]
+    ) -> tuple:
+        """
+        鍵かっこ内の句読点は残して削除（文字位置のマッピングも返す）
+
+        Args:
+            text: 処理対象テキスト
+            punctuation_to_remove: 削除対象の句読点リスト
+
+        Returns:
+            (処理後のテキスト, 元の位置→処理後位置のマッピング)
+        """
+        result = []
+        char_mapping = []  # 元の位置 -> 処理後の位置
+        in_quotation = False
+        result_pos = 0
+
+        for i, char in enumerate(text):
+            if char == '「' or char == '『':
+                in_quotation = True
+                result.append(char)
+                char_mapping.append(result_pos)
+                result_pos += 1
+            elif char == '」' or char == '』':
+                in_quotation = False
+                result.append(char)
+                char_mapping.append(result_pos)
+                result_pos += 1
+            elif char in punctuation_to_remove and not in_quotation:
+                # 鍵かっこ外の句読点のみ削除（マッピングには含めない）
+                char_mapping.append(-1)  # 削除された文字
+            else:
+                result.append(char)
+                char_mapping.append(result_pos)
+                result_pos += 1
+
+        return ''.join(result), char_mapping
+
+
+# ==========================================
+# 2. TimingProcessor クラス（変更頻度: 低）
+# ==========================================
+
+class TimingProcessor:
+    """
+    タイミング調整（言語非依存）
+
+    責任:
+    - セクションタイミングの正規化（無音除去）
+    - 最小/最大表示時間の適用
+    - 重なり防止
+    - 句点での延長
+    - ギャップ最適化
+
+    変更頻度: 低
+    """
+
+    def __init__(
+        self,
+        config: Dict[str, Any],
+        logger: Optional[logging.Logger] = None
+    ):
+        """
+        初期化
+
+        Args:
+            config: subtitle_generation.yamlの設定
+            logger: ロガー
+        """
+        self.config = config
+        self.logger = logger or logging.getLogger(__name__)
+
+        # タイミング設定
+        timing = config.get("timing", {})
+        self.min_display_duration = timing.get("min_display_duration", 1.0)
+        self.max_display_duration = timing.get("max_display_duration", 6.0)
+        self.prevent_overlap = timing.get("prevent_overlap", True)
+        self.overlap_priority = timing.get("overlap_priority", "next_subtitle")
+
+        # 句点延長設定
+        sentence_end = config.get("sentence_end_extension", {})
+        self.sentence_end_enabled = sentence_end.get("enabled", True)
+        self.next_start_margin = sentence_end.get("next_start_margin", 0.3)
+
+        # FPS設定（ギャップ計算用）
+        self.fps = config.get("video", {}).get("fps") or config.get("fps", 30)
+        self.frame_duration = 1.0 / self.fps
+
+    def normalize_section_timing(
+        self,
+        section_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        セクションのタイミングを正規化（無音除去）
+
+        最初の文字の開始時刻が0秒より大きい場合、
+        全てのタイミングをシフトして0秒から始まるようにする。
+
+        Args:
+            section_data: セクションのタイミング情報
+
+        Returns:
+            正規化されたセクションデータ
+        """
+        char_start_times = section_data.get('char_start_times', [])
+        char_end_times = section_data.get('char_end_times', [])
+
+        if not char_start_times:
+            return section_data
+
+        # 最初の文字の開始時間（無音部分）
+        first_char_start = min(char_start_times)
+
+        if first_char_start > 0.1:  # 0.1秒以上の無音がある場合
+            self.logger.info(
+                f"Section {section_data.get('section_id')}: "
+                f"Removing {first_char_start:.2f}s leading silence"
+            )
+
+            # タイミングを正規化
+            normalized_data = section_data.copy()
+            normalized_data['char_start_times'] = [
+                t - first_char_start for t in char_start_times
+            ]
+            normalized_data['char_end_times'] = [
+                t - first_char_start for t in char_end_times
+            ]
+            normalized_data['duration'] = (
+                section_data.get('duration', 0) - first_char_start
+            )
+
+            return normalized_data
+
+        return section_data
+
+    def extend_sentence_endings(
+        self,
+        subtitles: List[SubtitleEntry]
+    ) -> List[SubtitleEntry]:
+        """
+        句点で終わる字幕を延長
+
+        ルール:
+        - 句点（。！？）で終わる: 次の字幕開始の next_start_margin 秒前まで延長
+        - 句点以外: 次の字幕開始の minimal_gap 秒前まで延長
+
+        Args:
+            subtitles: 字幕リスト
+
+        Returns:
+            調整済み字幕リスト
+        """
+        if not self.sentence_end_enabled:
+            self.logger.info("Sentence end extension is disabled")
+            return subtitles
+
+        minimal_gap = self.frame_duration  # 句点以外は「次字幕の1フレーム前」まで表示
+
+        self.logger.info(
+            f"Adjusting subtitle timing (punctuation margin={self.next_start_margin}s, "
+            f"minimal gap=1frame={minimal_gap:.3f}s @ {self.fps}fps)"
+        )
+
+        adjusted = []
+        extended_count = 0
+
+        for i, sub in enumerate(subtitles):
+            # 全行のテキストを結合して句点判定
+            full_text = sub.text_line1
+            if sub.text_line2:
+                full_text += sub.text_line2
+
+            # デフォルトは元の終了時刻
+            new_end = sub.end_time
+
+            # テキスト末尾と句点判定
+            trimmed = full_text.rstrip()
+            end_snippet = trimmed[-5:] if len(trimmed) >= 5 else trimmed
+            ends_with_punct = trimmed.endswith(('。', '！', '？'))
+            self.logger.debug(
+                f"字幕 {sub.index}: 末尾='{end_snippet}' (句点判定: {ends_with_punct})"
+            )
+
+            # 次の字幕が存在する場合は延長/縮小を検討
+            if i < len(subtitles) - 1:
+                next_start = subtitles[i + 1].start_time
+                margin = self.next_start_margin if ends_with_punct else minimal_gap
+                candidate_end = next_start - margin
+
+                # 安全下限: 開始より僅かに後ろ（半フレーム）
+                safe_min = max(1e-3, self.frame_duration * 0.5)
+                min_end = sub.start_time + safe_min
+                # 上限: 次字幕の直前（1フレーム or 指定マージン）
+                max_end = candidate_end
+
+                # new_end を [min_end, max_end] に収める
+                proposed = max(min_end, min(max_end, sub.end_time if sub.end_time > min_end else min_end))
+
+                # もし元の end が範囲外なら調整・カウント
+                if abs(proposed - sub.end_time) > 1e-6:
+                    old_end = sub.end_time
+                    new_end = proposed
+                    # 延長 or 縮小のラベル
+                    action = "延長" if new_end > old_end else "縮小"
+                    extended_count += 1 if new_end > old_end else 0
+                    self.logger.debug(
+                        f"字幕 {sub.index}: {'句点' if ends_with_punct else '通常'}{action} "
+                        f"{old_end:.3f}秒 → {new_end:.3f}秒 "
+                        f"({('+' if new_end-old_end>=0 else '')}{new_end - old_end:.3f}秒, margin={margin:.3f}s)"
+                    )
+            else:
+                # 最後の字幕：句点で終わる場合は少し延長（任意）
+                if ends_with_punct:
+                    extension = 0.5
+                    new_end = sub.end_time + extension
+                    extended_count += 1
+                    self.logger.debug(f"字幕 {sub.index} (最終): 句点延長 +{extension:.2f}秒")
+
+            # 新しい字幕エントリを作成
+            adjusted_sub = SubtitleEntry(
+                index=sub.index,
+                start_time=sub.start_time,  # 開始は絶対に変更しない
+                end_time=new_end,           # ルールに応じて延長/調整
+                text_line1=sub.text_line1,
+                text_line2=sub.text_line2
+            )
+            adjusted.append(adjusted_sub)
+
+        self.logger.info(
+            f"Subtitle timing adjustment complete: {extended_count}/{len(subtitles)} subtitles extended"
+        )
+        return adjusted
+
+    def optimize_gaps(
+        self,
+        subtitles: List[SubtitleEntry]
+    ) -> List[SubtitleEntry]:
+        """
+        字幕間のギャップを最適化
+
+        0.5~1.5秒のギャップがある場合、0.3秒になるように
+        前の字幕を延長する。
+
+        Args:
+            subtitles: 字幕リスト
+
+        Returns:
+            調整済み字幕リスト
+        """
+        optimized_subtitles = []
+        adjusted_count = 0
+
+        for i in range(len(subtitles)):
+            current = subtitles[i]
+
+            # 最後の字幕以外
+            if i < len(subtitles) - 1:
+                next_subtitle = subtitles[i + 1]
+
+                # ギャップを計算
+                gap = next_subtitle.start_time - current.end_time
+
+                # ギャップが0.5~1.5秒の範囲内なら調整
+                if 0.5 <= gap <= 1.5:
+                    old_end = current.end_time
+                    new_end = next_subtitle.start_time - 0.3
+
+                    # 新しい字幕エントリを作成
+                    current = SubtitleEntry(
+                        index=current.index,
+                        start_time=current.start_time,
+                        end_time=new_end,
+                        text_line1=current.text_line1,
+                        text_line2=current.text_line2
+                    )
+
+                    adjusted_count += 1
+                    self.logger.debug(
+                        f"字幕 {current.index}: ギャップ調整 "
+                        f"{old_end:.3f}秒 → {new_end:.3f}秒 "
+                        f"(gap: {gap:.3f}秒 → 0.3秒, +{new_end - old_end:.3f}秒延長)"
+                    )
+
+            optimized_subtitles.append(current)
+
+        self.logger.info(
+            f"Subtitle gap optimization complete: {adjusted_count}/{len(subtitles)} subtitles adjusted "
+            f"(gaps 0.5-1.5s reduced to 0.3s)"
+        )
+        return optimized_subtitles
+
+
+# ==========================================
+# 3. SubtitleFormatter クラス（変更頻度: 中）
+# ==========================================
+
+class SubtitleFormatter:
+    """
+    字幕フォーマット出力
+
+    責任:
+    - SRT形式への変換
+    - ASS形式への変換（将来）
+    - タイミングJSONの生成
+
+    変更頻度: 中（新しいフォーマット追加時）
+    """
+
+    def __init__(
+        self,
+        config: Dict[str, Any],
+        logger: Optional[logging.Logger] = None
+    ):
+        """
+        初期化
+
+        Args:
+            config: subtitle_generation.yamlの設定
+            logger: ロガー
+        """
+        self.config = config
+        self.logger = logger or logging.getLogger(__name__)
+
+    def to_srt(self, subtitles: List[SubtitleEntry]) -> str:
+        """
+        SRT形式の文字列を生成
+
+        Args:
+            subtitles: 字幕リスト
+
+        Returns:
+            SRT形式の文字列
+        """
+        srt_lines = []
+
+        for subtitle in subtitles:
+            # インデックス
+            srt_lines.append(f"{subtitle.index}\n")
+
+            # タイムコード（HH:MM:SS,mmm形式）
+            start_str = self._format_srt_time(subtitle.start_time)
+            end_str = self._format_srt_time(subtitle.end_time)
+            srt_lines.append(f"{start_str} --> {end_str}\n")
+
+            # テキスト（2行まで）
+            srt_lines.append(f"{subtitle.text_line1}\n")
+            if subtitle.text_line2:
+                srt_lines.append(f"{subtitle.text_line2}\n")
+
+            # 空行
+            srt_lines.append("\n")
+
+        return ''.join(srt_lines)
+
+    def _format_srt_time(self, seconds: float) -> str:
+        """秒数をSRT形式（HH:MM:SS,mmm）に変換"""
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        millis = int((seconds % 1) * 1000)
+
+        return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+    def to_timing_json(
+        self,
+        subtitles: List[SubtitleEntry],
+        subject: str
+    ) -> Dict[str, Any]:
+        """
+        タイミングJSON形式のデータを生成
+
+        Args:
+            subtitles: 字幕リスト
+            subject: 対象人物名
+
+        Returns:
+            タイミングJSONデータ
+        """
+        timing_data = {
+            "subject": subject,
+            "subtitle_count": len(subtitles),
+            "total_duration": max([s.end_time for s in subtitles]) if subtitles else 0,
+            "subtitles": [
+                {
+                    "index": s.index,
+                    "start_time": s.start_time,
+                    "end_time": s.end_time,
+                    "duration": s.end_time - s.start_time,
+                    "text_line1": s.text_line1,
+                    "text_line2": s.text_line2
+                }
+                for s in subtitles
+            ]
+        }
+
+        return timing_data
+
+
+# ==========================================
+# 4. SubtitleGenerator クラス（オーケストレーター）
+# ==========================================
+
+class SubtitleGenerator:
+    """
+    字幕生成のメインクラス（オーケストレーター）
+
+    責任:
+    - 全体フローの制御
+    - TextSplitter, TimingProcessor, SubtitleFormatter の組み合わせ
+    - audio_timing.json からの字幕生成
+
+    変更頻度: 低（フローの変更時のみ）
+    """
+
+    def __init__(
+        self,
+        config: Dict[str, Any],
+        logger: Optional[logging.Logger] = None
+    ):
+        """
+        初期化
+
+        Args:
+            config: 字幕生成設定
+            logger: ロガー
+        """
+        self.config = config
+        self.logger = logger or logging.getLogger(__name__)
+
+        # 各コンポーネントを初期化
+        self.splitter = TextSplitter(config, logger=logger)
+        self.timing = TimingProcessor(config, logger=logger)
+        self.formatter = SubtitleFormatter(config, logger=logger)
+
+        # 設定値の取得（互換性のため保持）
+        self.max_lines = max(1, config.get("max_lines", 2))
+        self.max_chars_per_line = config.get("max_chars_per_line", 20)
+
+        timing_config = config.get("timing", {})
+        self.min_display_duration = timing_config.get("min_display_duration", 4.0)
+        self.max_display_duration = timing_config.get("max_display_duration", 6.0)
+        self.lead_time = timing_config.get("lead_time", 0.2)
+        self.subtitle_gap = timing_config.get("subtitle_gap", 0.1)
+        self.prevent_overlap = timing_config.get("prevent_overlap", True)
+        self.overlap_priority = timing_config.get("overlap_priority", "next_subtitle")
+
+        morphological = config.get("morphological_analysis", {})
+        self.use_mecab = morphological.get("use_mecab", False)
+        self.break_on = morphological.get("break_on", ["。", "、", "！", "？"])
+
+        # 分割戦略の設定（互換性のため保持）
+        splitting = config.get("splitting", {})
+        self.window_size = splitting.get("window_size", 3)
+        self.priority_scores = splitting.get("priority_scores", {
+            "punctuation": 120,
+            "morpheme_boundary": 150,
+            "particle": 100,
+            "hiragana_to_kanji": 80,
+            "kanji_to_hiragana": 60,
+            "katakana_boundary": 40
+        })
+        self.penalties = splitting.get("penalties", {
+            "distance_from_ideal": 5,
+            "ends_with_n_tsu": 20,
+            "splits_number": 50,
+            "splits_alphabet": 50,
+            "splits_verb_adjective": 500
         })
         self.particles = splitting.get("particles", [
             "は", "が", "を", "に", "で", "と", "も", "や", "から", "まで", "より"
@@ -83,7 +747,7 @@ class SubtitleGenerator:
         self.mecab = None
         if self.use_mecab:
             self._init_mecab()
-        
+
         # Whisperの設定（タイミング情報取得用）
         whisper_config = config.get("whisper", {})
         self.use_whisper = whisper_config.get("enabled", True)
@@ -982,7 +1646,7 @@ class SubtitleGenerator:
                 line1 = "".join(line1_chars)
                 line2 = "".join(line2_chars)
 
-                if self.remove_punctuation:
+                if self.splitter.remove_punctuation_in_display:
                     # 句読点を除去（「、」は残す）
                     line1 = "".join([c for c in line1 if c not in ["。", "！", "？", "…"]])
                     line2 = "".join([c for c in line2 if c not in ["。", "！", "？", "…"]])
@@ -1019,7 +1683,7 @@ class SubtitleGenerator:
                         f"Consider using longer max_chars or multiple subtitles."
                     )
 
-                if self.remove_punctuation:
+                if self.splitter.remove_punctuation_in_display:
                     # 句読点を除去（「、」と「」は残す）
                     line_text = "".join([c for c in line_text if c not in ["。", "！", "？", "…"]])
                 lines.append(line_text)
@@ -1046,7 +1710,7 @@ class SubtitleGenerator:
             line_chars = remaining_chars[:split_pos]
             line_text = "".join(line_chars)
 
-            if self.remove_punctuation:
+            if self.splitter.remove_punctuation_in_display:
                 # 句読点を除去（「、」と「」は残す）
                 line_text = "".join([c for c in line_text if c not in ["。", "！", "？", "…"]])
 
