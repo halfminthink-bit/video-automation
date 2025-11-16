@@ -1635,14 +1635,14 @@ class Phase07Composition(PhaseBase):
 
                 total_images += 1
 
-        # 最後の画像を追加（ffmpeg concat仕様）
+        # 最後の画像を再度追加（ffmpeg concat仕様）
+        # durationを指定しないことで、音声の最後まで表示される
         last_section_id = sorted_section_ids[-1]
         if section_images[last_section_id]:
             last_image = section_images[last_section_id][-1]
             normalized_last = normalize_concat_path(last_image)
-            # 既に追加されている場合は何もしない
-            if concat_lines and concat_lines[-1] != f"file {normalized_last}":
-                concat_lines.append(f"file {normalized_last}")
+            concat_lines.append(f"file {normalized_last}")
+            self.logger.debug(f"Added final image without duration: {last_image.name}")
         
         # ファイルに書き込み
         with open(concat_file, 'w', encoding='utf-8') as f:
@@ -1758,14 +1758,17 @@ class Phase07Composition(PhaseBase):
         return ass_path
 
     def _get_ass_header(self) -> str:
-        """ASS字幕のヘッダーを生成"""
+        """ASS字幕のヘッダーを生成（Legacy02完全準拠）"""
+        font_size = self.subtitle_size  # 60
+        margin_v = 120  # Legacy02と同じ
+
         return f"""[Script Info]
 Title: Subtitles
 ScriptType: v4.00+
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Noto-Sans-JP-Bold,60,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,2,0,2,10,10,50,1
+Style: Default,Noto Sans CJK JP,{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,2,0,2,10,10,{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -1945,6 +1948,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         # 音声の長さを取得
         audio_duration = self._get_audio_duration(audio_path)
+        self.logger.debug(f"Audio duration: {audio_duration:.2f}s (video will match this)")
 
         # エンコード設定
         cmd.extend([
@@ -1956,7 +1960,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             '-b:a', '192k',
             '-threads', str(threads),
             '-t', str(audio_duration),
-            '-shortest',
             '-y',
             normalize_path(output_path)
         ])
@@ -2045,7 +2048,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         # 音声の長さを取得
         audio_duration = self._get_audio_duration(audio_path)
-        
+        self.logger.debug(f"Audio duration: {audio_duration:.2f}s (video will match this)")
+
         # エンコード設定
         cmd.extend([
             '-c:v', 'libx264',
@@ -2056,7 +2060,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             '-b:a', '192k',
             '-threads', str(threads),
             '-t', str(audio_duration),  # 音声の長さを明示的に指定
-            '-shortest',
             '-y',
             normalize_path(output_path)
         ])
