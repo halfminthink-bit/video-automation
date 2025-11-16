@@ -3014,11 +3014,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         """
         filters = []
 
-        # BGM音量を1.8倍に（最大30%まで）
-        bgm_volume_amplified = min(self.bgm_volume * 1.8, 0.3)
+        # BGM音量をさらに増幅（暫定強化: 3.0x, 上限50%）
+        bgm_volume_amplified = min(self.bgm_volume * 3.0, 0.5)
 
-        # ナレーション（入力1） - わずかに減衰してBGMを聞かせやすくする
-        filters.append("[1:a]volume=0.90[narration]")
+        # ナレーション（入力1） - さらにわずかに減衰（0.85）してBGMを聞かせやすくする
+        filters.append("[1:a]volume=0.85[narration]")
 
         # 各BGMセグメント（入力2以降）
         bgm_outputs = []
