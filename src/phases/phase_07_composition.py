@@ -1331,11 +1331,12 @@ class Phase07Composition(PhaseBase):
 
     def _execute_ffmpeg_direct(self) -> VideoComposition:
         """
-        ffmpegで直接統合（高速版・1パス方式・Legacy02仕様完全準拠）
+        ffmpegで直接統合（高速版・セグメントベース方式・Legacy02仕様完全準拠）
 
         改善点:
-        - ASS字幕を直接生成（subtitles.json + audio_timing.json）
-        - 1パス処理で高速化
+        - セグメントベースのアプローチで字幕同期を保証
+        - 各画像を独立した動画として生成してから結合
+        - ASS字幕を正確なタイミングで適用
         - BGM音量を10%に固定（Legacy02と同じ）
         - 黒バー（下部216px）+ ASS字幕を1回の処理で実行
         """
@@ -1360,59 +1361,15 @@ class Phase07Composition(PhaseBase):
                     segment['volume'] = 0.1
                 self.logger.info("✓ BGM volume set to 10% (Legacy02 spec)")
 
-            # 3. concat.txt生成
-            self.logger.info("Creating ffmpeg concat file...")
-            concat_file = self._create_ffmpeg_concat_file(script)
+            # 3. セグメントベースの動画生成（字幕同期の問題を解決）
+            self.logger.info("Creating video using segment-based approach...")
+            final_output = self._create_segment_videos_then_concat(audio_path, bgm_data)
 
-            # 4. ASS字幕を生成
-            self.logger.info("Creating ASS subtitles from audio_timing.json...")
-            ass_path = self._create_ass_subtitles()
-
-            # 5. 出力パス準備
-            output_dir = Path(self.config.get("paths", {}).get("output_dir", "data/output"))
-            output_dir = output_dir / "videos"
-            output_dir.mkdir(parents=True, exist_ok=True)
-
-            final_output = output_dir / f"{self.subject}.mp4"
-
-            # 6. FFmpegコマンドを構築（1パス処理）
-            self.logger.info("Building ffmpeg command (1-pass with ASS subtitles)...")
-            cmd = self._build_ffmpeg_command_with_ass(
-                concat_file=concat_file,
-                audio_path=audio_path,
-                ass_path=ass_path,
-                output_path=final_output,
-                bgm_data=bgm_data
-            )
-
-            # 7. FFmpegを実行
-            self.logger.info(f"Running ffmpeg (preset: {self.encode_preset})...")
-            self.logger.info("Processing: images + audio + BGM + black bar + ASS subtitles...")
-
-            try:
-                result = subprocess.run(
-                    cmd,
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                    encoding='utf-8'
-                )
-                self.logger.info(f"✅ Video generation completed: {final_output}")
-
-            except subprocess.CalledProcessError as e:
-                self.logger.error(f"❌ ffmpeg failed with code {e.returncode}")
-                self.logger.error(f"STDOUT:\n{e.stdout}")
-                self.logger.error(f"STDERR:\n{e.stderr}")
-
-                cmd_str = ' '.join(f'"{c}"' if ' ' in str(c) else str(c) for c in cmd)
-                self.logger.error(f"Command:\n{cmd_str}")
-                raise
-
-            # 8. サムネイル生成
+            # 4. サムネイル生成
             self.logger.info("Generating thumbnail...")
             thumbnail_path = self._generate_thumbnail_with_ffmpeg(final_output)
 
-            # 9. メタデータ生成
+            # 5. メタデータ生成
             render_time = time.time() - render_start
             file_size_mb = final_output.stat().st_size / (1024 * 1024)
 
@@ -1441,7 +1398,7 @@ class Phase07Composition(PhaseBase):
 
             self._save_metadata(composition)
 
-            self.logger.info(f"✅ Composition completed in {render_time:.1f}s (1-pass FFmpeg)")
+            self.logger.info(f"✅ Composition completed in {render_time:.1f}s (Segment-based FFmpeg)")
             self.logger.info(f"Final video: {final_output}")
             self.logger.info(f"File size: {file_size_mb:.1f} MB")
             self.logger.info(f"Video duration: {audio_duration:.2f}s")
@@ -1453,6 +1410,233 @@ class Phase07Composition(PhaseBase):
         except Exception as e:
             self.logger.error(f"Video composition failed: {e}", exc_info=True)
             raise
+
+    def _create_segment_videos_then_concat(self, audio_path: Path, bgm_data: Optional[dict]) -> Path:
+        """
+        セグメントごとに動画を作成してから連結（方法2: タイミング同期の問題を解決）
+
+        利点：
+        - 各セグメントのタイミングが正確
+        - concat demuxerで高速結合
+        - 字幕の同期問題なし
+
+        手順：
+        1. 各画像を個別の動画に変換（字幕なし）
+        2. concat demuxerで連結
+        3. ASS字幕を適用
+
+        Args:
+            audio_path: 音声ファイルのパス
+            bgm_data: BGMデータ
+
+        Returns:
+            最終動画のパス
+        """
+        import subprocess
+        import tempfile
+
+        self.logger.info("🎬 Using segment-based approach for better subtitle sync...")
+
+        # 一時ディレクトリ作成
+        temp_dir = Path(tempfile.mkdtemp(prefix="video_segments_"))
+        segment_files = []
+        concat_list = None
+
+        try:
+            # 1. 画像とタイミング情報を取得
+            self.logger.info("Loading image files and timing information...")
+            script = self._load_script()
+            audio_timing = self._load_audio_timing()
+
+            # classified.jsonから全画像を取得
+            classified_path = self.working_dir / "03_images" / "classified.json"
+            if not classified_path.exists():
+                raise FileNotFoundError(f"classified.json not found: {classified_path}")
+
+            with open(classified_path, 'r', encoding='utf-8') as f:
+                classified_data = json.load(f)
+
+            all_images = classified_data.get('images', [])
+
+            # セクションIDと時間のマッピングを作成
+            section_durations = {}
+            if isinstance(audio_timing, list):
+                for timing_section in audio_timing:
+                    section_id = timing_section.get('section_id')
+                    char_end_times = timing_section.get('char_end_times', [])
+                    if section_id and char_end_times:
+                        section_durations[section_id] = char_end_times[-1]
+            elif isinstance(audio_timing, dict):
+                sections = audio_timing.get('sections', [audio_timing])
+                for timing_section in sections:
+                    section_id = timing_section.get('section_id')
+                    char_end_times = timing_section.get('char_end_times', [])
+                    if section_id and char_end_times:
+                        section_durations[section_id] = char_end_times[-1]
+
+            # セクションごとに画像をグループ化
+            section_images = {sid: [] for sid in section_durations.keys()}
+            for img in all_images:
+                file_path = Path(img.get('file_path', ''))
+                if not file_path.exists():
+                    continue
+
+                # ファイル名からセクション番号を抽出
+                match = re.search(r'section_(\d+)', file_path.name)
+                if match:
+                    section_num = int(match.group(1))
+                    if section_num in section_images:
+                        section_images[section_num].append(file_path)
+
+            # 各セクション内でソート
+            for section_num in section_images.keys():
+                section_images[section_num].sort(key=lambda p: p.name)
+
+            # 2. 画像ごとの表示時間を計算
+            image_timings = []
+            sorted_section_ids = sorted(section_images.keys())
+
+            for section_id in sorted_section_ids:
+                images = section_images[section_id]
+                section_duration = section_durations.get(section_id, 0)
+                images_count = len(images)
+
+                if images_count == 0 or section_duration == 0:
+                    continue
+
+                # このセクションの各画像の表示時間（均等分割）
+                duration_per_image = section_duration / images_count
+
+                self.logger.info(
+                    f"Section {section_id}: {images_count} images × {duration_per_image:.3f}s = {section_duration:.3f}s"
+                )
+
+                for image_path in images:
+                    image_timings.append({
+                        'path': image_path,
+                        'duration': duration_per_image
+                    })
+
+            self.logger.info(f"Total images to process: {len(image_timings)}")
+
+            # 3. 各画像を動画セグメントに変換
+            self.logger.info("Creating video segments from images...")
+            for i, timing in enumerate(image_timings):
+                img_path = timing['path']
+                duration = timing['duration']
+                output_segment = temp_dir / f"segment_{i:03d}.mp4"
+
+                cmd = [
+                    'ffmpeg', '-y',
+                    '-loop', '1',
+                    '-i', str(img_path),
+                    '-t', f"{duration:.6f}",
+                    '-vf', 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2',
+                    '-c:v', 'libx264',
+                    '-preset', 'ultrafast',  # 速度重視
+                    '-crf', '0',  # ロスレス
+                    '-pix_fmt', 'yuv420p',
+                    '-r', '30',  # FPS統一
+                    str(output_segment)
+                ]
+
+                try:
+                    subprocess.run(cmd, check=True, capture_output=True, text=True)
+                    segment_files.append(output_segment)
+                    if (i + 1) % 3 == 0 or i == len(image_timings) - 1:
+                        self.logger.info(f"  Created {i + 1}/{len(image_timings)} segments")
+                except subprocess.CalledProcessError as e:
+                    self.logger.error(f"Failed to create segment {i}: {e.stderr}")
+                    raise
+
+            # 4. concat用のファイルリスト作成
+            concat_list = temp_dir / "concat.txt"
+            with open(concat_list, 'w', encoding='utf-8') as f:
+                for segment in segment_files:
+                    # パスを正規化（Windowsの場合は/区切りに）
+                    path_str = str(segment.resolve())
+                    if platform.system() == 'Windows':
+                        path_str = path_str.replace('\\', '/')
+                    f.write(f"file '{path_str}'\n")
+
+            self.logger.info(f"Created concat file with {len(segment_files)} segments")
+
+            # 5. ASS字幕を生成
+            self.logger.info("Creating ASS subtitles...")
+            ass_path = self._create_ass_subtitles_fixed()
+
+            # 6. 最終動画を生成（concat + 字幕 + 音声）
+            output_dir = Path(self.config.get("paths", {}).get("output_dir", "data/output"))
+            output_dir = output_dir / "videos"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            final_output = output_dir / f"{self.subject}.mp4"
+
+            self.logger.info("Combining segments with audio and subtitles...")
+
+            cmd = [
+                'ffmpeg', '-y',
+                '-f', 'concat',
+                '-safe', '0',
+                '-i', str(concat_list),
+                '-i', str(audio_path)
+            ]
+
+            # BGM入力
+            bgm_input_indices = []
+            if bgm_data and bgm_data.get("segments"):
+                for segment in bgm_data["segments"]:
+                    bgm_path = segment.get("file_path")
+                    if bgm_path and Path(bgm_path).exists():
+                        cmd.extend(['-i', str(bgm_path)])
+                        bgm_input_indices.append(len(cmd) // 2 - 1)
+
+            # フィルタ構築
+            ass_path_str = str(ass_path).replace('\\', '/').replace(':', '\\:')
+            video_filter = f"drawbox=y=ih-216:color=black@1.0:width=iw:height=216:t=fill,ass='{ass_path_str}'"
+            cmd.extend(['-vf', video_filter])
+
+            # オーディオ処理
+            if bgm_input_indices:
+                audio_filter = self._build_audio_filter(bgm_data["segments"])
+                cmd.extend(['-filter_complex', audio_filter])
+                cmd.extend(['-map', '0:v', '-map', '[audio]'])
+            else:
+                cmd.extend(['-map', '0:v', '-map', '1:a'])
+
+            # エンコード設定
+            cmd.extend([
+                '-c:v', 'libx264',
+                '-preset', self.encode_preset,
+                '-crf', '23',
+                '-c:a', 'aac',
+                '-b:a', '192k',
+                '-shortest',
+                str(final_output)
+            ])
+
+            # FFmpegを実行
+            self.logger.info("Running final ffmpeg command...")
+            try:
+                result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+                self.logger.info(f"✅ Video generation completed: {final_output}")
+            except subprocess.CalledProcessError as e:
+                self.logger.error(f"❌ ffmpeg failed with code {e.returncode}")
+                self.logger.error(f"STDERR:\n{e.stderr}")
+                raise
+
+            return final_output
+
+        finally:
+            # 7. 一時ファイルをクリーンアップ
+            self.logger.info("Cleaning up temporary files...")
+            for segment in segment_files:
+                if segment.exists():
+                    segment.unlink()
+            if concat_list and concat_list.exists():
+                concat_list.unlink()
+            if temp_dir.exists():
+                temp_dir.rmdir()
+            self.logger.info("✅ Cleanup completed")
 
     def _load_audio_timing(self) -> dict:
         """audio_timing.jsonを読み込み"""
