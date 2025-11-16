@@ -1726,13 +1726,12 @@ class Phase06Subtitles(PhaseBase):
         subtitles: List[SubtitleEntry]
     ) -> List[SubtitleEntry]:
         """
-        句点（。！？）で終わる字幕のみ、次の字幕開始0.3秒前まで延長を許可
+        全ての字幕を次の字幕直前まで延長して黒画面時間を最小化する
 
         ルール:
         1. 字幕の開始時刻は絶対に変更しない（ElevenLabs FA通り）
-        2. 字幕が句点（。！？）で終わる場合のみ、終了時刻を延長可能
-        3. 延長は次の字幕開始の0.3秒前まで
-        4. 句点で終わらない字幕（、など）は延長しない
+        2. 句点（。！？）で終わる場合は次の字幕開始の next_start_margin 秒前まで延長
+        3. 句点で終わらない場合は次の字幕開始の minimal_gap 秒前まで延長
 
         Args:
             subtitles: 調整前の字幕リスト
@@ -1744,14 +1743,14 @@ class Phase06Subtitles(PhaseBase):
         extension_config = self.phase_config.get("sentence_end_extension", {})
         enabled = extension_config.get("enabled", True)
         next_start_margin = extension_config.get("next_start_margin", 0.3)
+        minimal_gap = 0.05  # 句点以外の最小ギャップ（50ms）
 
         if not enabled:
             self.logger.info("Sentence end extension is disabled")
             return subtitles
 
         self.logger.info(
-            f"Adjusting subtitle timing for sentence endings "
-            f"(margin: {next_start_margin}s)"
+            f"Adjusting subtitle timing (punctuation margin={next_start_margin}s, minimal gap={minimal_gap}s)"
         )
 
         adjusted = []
@@ -1774,48 +1773,42 @@ class Phase06Subtitles(PhaseBase):
                 f"字幕 {sub.index}: 末尾='{end_snippet}' (句点判定: {ends_with_punct})"
             )
 
-            # 句点（。！？）で終わる場合のみ延長を検討
-            if ends_with_punct:
-                # 次の字幕が存在するか確認
-                if i < len(subtitles) - 1:
-                    next_start = subtitles[i + 1].start_time
+            # 次の字幕が存在する場合は延長/縮小を検討
+            if i < len(subtitles) - 1:
+                next_start = subtitles[i + 1].start_time
+                margin = next_start_margin if ends_with_punct else minimal_gap
+                max_end = next_start - margin
 
-                    # 次の字幕開始の0.3秒前まで延長可能
-                    max_end = next_start - next_start_margin
-
-                    # 現在の終了時刻より後なら延長
-                    if max_end > sub.end_time:
-                        old_end = sub.end_time
-                        new_end = max_end
-                        extended_count += 1
-                        self.logger.info(
-                            f"字幕 {sub.index}: 句点終わりのため延長 "
-                            f"{old_end:.3f}秒 → {new_end:.3f}秒 "
-                            f"(+{new_end - old_end:.3f}秒)"
-                        )
-                    else:
-                        # 🔍 延長できない理由
-                        self.logger.debug(
-                            f"字幕 {sub.index}: 句点あるが延長不要 "
-                            f"(max_end={max_end:.3f}秒 <= current_end={sub.end_time:.3f}秒)"
-                        )
-                else:
-                    # 🔍 最後の字幕
-                    self.logger.debug(f"字幕 {sub.index}: 句点あるが最後の字幕のため延長なし")
-            else:
-                # 🔍 句点で終わらない理由を記録（ギャップ情報）
-                if i < len(subtitles) - 1:
-                    next_start = subtitles[i + 1].start_time
-                    gap = next_start - sub.end_time
+                if max_end > sub.end_time:
+                    old_end = sub.end_time
+                    new_end = max_end
+                    extended_count += 1
                     self.logger.debug(
-                        f"字幕 {sub.index}: 句点なし（延長スキップ） gap={gap:.3f}秒"
+                        f"字幕 {sub.index}: {'句点' if ends_with_punct else '通常'}延長 "
+                        f"{old_end:.3f}秒 → {new_end:.3f}秒 "
+                        f"(+{new_end - old_end:.3f}秒, margin={margin:.2f}s)"
                     )
+                elif max_end < sub.end_time:
+                    # 重なりがある場合は縮める
+                    old_end = sub.end_time
+                    new_end = max_end
+                    self.logger.debug(
+                        f"字幕 {sub.index}: 重なり調整 {old_end:.3f}秒 → {new_end:.3f}秒 "
+                        f"(margin={margin:.2f}s)"
+                    )
+            else:
+                # 最後の字幕：句点で終わる場合は少し延長（任意）
+                if ends_with_punct:
+                    extension = 0.5
+                    new_end = sub.end_time + extension
+                    extended_count += 1
+                    self.logger.debug(f"字幕 {sub.index} (最終): 句点延長 +{extension:.2f}秒")
 
             # 新しい字幕エントリを作成
             adjusted_sub = SubtitleEntry(
                 index=sub.index,
                 start_time=sub.start_time,  # 開始は絶対に変更しない
-                end_time=new_end,           # 句点で終わる場合のみ延長
+                end_time=new_end,           # ルールに応じて延長/調整
                 text_line1=sub.text_line1,
                 text_line2=sub.text_line2
             )
