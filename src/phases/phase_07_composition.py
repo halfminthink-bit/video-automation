@@ -863,8 +863,9 @@ class Phase07Composition(PhaseBase):
                 bgm_clip = bgm_clip.subclipped(0, min(duration, bgm_clip.duration))
 
                 # 音量調整 (MoviePy 2.x)
-                bgm_clip = bgm_clip.with_volume_scaled(self.bgm_volume)
-                self.logger.debug(f"  Volume set to: {self.bgm_volume:.0%}")
+                # Legacy版: 基本音量のみ使用（タイプ別音量は未対応）
+                bgm_clip = bgm_clip.with_volume_scaled(self.bgm_base_volume)
+                self.logger.debug(f"  Volume set to: {self.bgm_base_volume:.0%}")
 
                 # フェード処理を適用（MoviePy 2.0）
                 if is_first:
@@ -1715,8 +1716,8 @@ class Phase07Composition(PhaseBase):
                 # BGM情報のデバッグ出力
                 self.logger.info("=" * 60)
                 self.logger.info("BGM Configuration:")
-                self.logger.info(f"  Base volume: {self.bgm_volume:.1%}")
-                self.logger.info(f"  Amplified volume: {min(self.bgm_volume * 1.8, 0.3):.1%}")
+                self.logger.info(f"  Base volume: {self.bgm_base_volume:.1%}")
+                self.logger.info(f"  Amplification: {self.bgm_volume_amplification:.1f}x")
                 self.logger.info(f"  Total segments: {len(bgm_data.get('segments', []))}")
 
                 for i, seg in enumerate(bgm_data.get('segments', [])):
@@ -2453,8 +2454,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             # BGM情報のデバッグ出力
             self.logger.info("=" * 60)
             self.logger.info("BGM Configuration:")
-            self.logger.info(f"  Base volume: {self.bgm_volume:.1%}")
-            self.logger.info(f"  Amplified volume: {min(self.bgm_volume * 1.8, 0.3):.1%}")
+            self.logger.info(f"  Base volume: {self.bgm_base_volume:.1%}")
+            self.logger.info(f"  Amplification: {self.bgm_volume_amplification:.1f}x")
             self.logger.info(f"  Total segments: {len(bgm_segments)}")
 
             for i, seg in enumerate(bgm_segments):
