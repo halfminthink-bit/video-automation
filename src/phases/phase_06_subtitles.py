@@ -1743,14 +1743,21 @@ class Phase06Subtitles(PhaseBase):
         extension_config = self.phase_config.get("sentence_end_extension", {})
         enabled = extension_config.get("enabled", True)
         next_start_margin = extension_config.get("next_start_margin", 0.3)
-        minimal_gap = 0.05  # 句点以外の最小ギャップ（50ms）
+        # 1フレーム分の時間を算出（デフォルト30fps）
+        fps = (
+            self.phase_config.get("output", {}).get("fps")
+            or self.phase_config.get("fps")
+            or 30
+        )
+        frame_duration = 1.0 / float(fps)
+        minimal_gap = frame_duration  # 句点以外は「次字幕の1フレーム前」まで表示
 
         if not enabled:
             self.logger.info("Sentence end extension is disabled")
             return subtitles
 
         self.logger.info(
-            f"Adjusting subtitle timing (punctuation margin={next_start_margin}s, minimal gap={minimal_gap}s)"
+            f"Adjusting subtitle timing (punctuation margin={next_start_margin}s, minimal gap=1frame={minimal_gap:.3f}s @ {fps}fps)"
         )
 
         adjusted = []
@@ -1777,24 +1784,28 @@ class Phase06Subtitles(PhaseBase):
             if i < len(subtitles) - 1:
                 next_start = subtitles[i + 1].start_time
                 margin = next_start_margin if ends_with_punct else minimal_gap
-                max_end = next_start - margin
+                candidate_end = next_start - margin
 
-                if max_end > sub.end_time:
+                # 安全下限: 開始より僅かに後ろ（半フレーム）
+                safe_min = max(1e-3, frame_duration * 0.5)
+                min_end = sub.start_time + safe_min
+                # 上限: 次字幕の直前（1フレーム or 指定マージン）
+                max_end = candidate_end
+
+                # new_end を [min_end, max_end] に収める
+                proposed = max(min_end, min(max_end, sub.end_time if sub.end_time > min_end else min_end))
+
+                # もし元の end が範囲外なら調整・カウント
+                if abs(proposed - sub.end_time) > 1e-6:
                     old_end = sub.end_time
-                    new_end = max_end
-                    extended_count += 1
+                    new_end = proposed
+                    # 延長 or 縮小のラベル
+                    action = "延長" if new_end > old_end else "縮小"
+                    extended_count += 1 if new_end > old_end else 0
                     self.logger.debug(
-                        f"字幕 {sub.index}: {'句点' if ends_with_punct else '通常'}延長 "
+                        f"字幕 {sub.index}: {'句点' if ends_with_punct else '通常'}{action} "
                         f"{old_end:.3f}秒 → {new_end:.3f}秒 "
-                        f"(+{new_end - old_end:.3f}秒, margin={margin:.2f}s)"
-                    )
-                elif max_end < sub.end_time:
-                    # 重なりがある場合は縮める
-                    old_end = sub.end_time
-                    new_end = max_end
-                    self.logger.debug(
-                        f"字幕 {sub.index}: 重なり調整 {old_end:.3f}秒 → {new_end:.3f}秒 "
-                        f"(margin={margin:.2f}s)"
+                        f"({('+' if new_end-old_end>=0 else '')}{new_end - old_end:.3f}秒, margin={margin:.3f}s)"
                     )
             else:
                 # 最後の字幕：句点で終わる場合は少し延長（任意）
