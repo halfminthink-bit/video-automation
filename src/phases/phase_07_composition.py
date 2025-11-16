@@ -1484,14 +1484,55 @@ class Phase07Composition(PhaseBase):
 
         # セクションIDと時間のマッピングを作成
         section_durations = {}
-        for timing_section in audio_timing:
-            section_id = timing_section.get('section_id')
-            # char_end_timesの最後の値を使用（Legacy02と同じ）
-            char_end_times = timing_section.get('character_end_times_seconds', [])
-            if char_end_times:
-                section_durations[section_id] = char_end_times[-1]
 
-        self.logger.info(f"Loaded section durations from audio_timing.json: {section_durations}")
+        # audio_timing.jsonの構造を確認してから処理
+        if isinstance(audio_timing, list):
+            # リスト形式の場合（各要素がセクション）
+            for timing_section in audio_timing:
+                section_id = timing_section.get('section_id')
+                # 正しいキー名: char_end_times
+                char_end_times = timing_section.get('char_end_times', [])
+                if section_id and char_end_times:
+                    section_durations[section_id] = char_end_times[-1]
+                    self.logger.debug(
+                        f"Section {section_id}: {char_end_times[-1]:.2f}s "
+                        f"({len(char_end_times)} chars)"
+                    )
+        elif isinstance(audio_timing, dict):
+            # 辞書形式の場合（sectionsキーを含む可能性）
+            sections = audio_timing.get('sections', [])
+            if not sections:
+                # sectionsキーがない場合は、dictのvaluesを直接使用
+                sections = [audio_timing]
+
+            for timing_section in sections:
+                section_id = timing_section.get('section_id')
+                char_end_times = timing_section.get('char_end_times', [])
+                if section_id and char_end_times:
+                    section_durations[section_id] = char_end_times[-1]
+                    self.logger.debug(
+                        f"Section {section_id}: {char_end_times[-1]:.2f}s "
+                        f"({len(char_end_times)} chars)"
+                    )
+        else:
+            self.logger.error(f"❌ Unexpected audio_timing format: {type(audio_timing)}")
+            raise ValueError(f"Unexpected audio_timing format: {type(audio_timing)}")
+
+        # セクション時間が取得できたか確認
+        if not section_durations:
+            # デバッグ用: audio_timing.jsonの内容を表示
+            self.logger.error("❌ Failed to load section durations from audio_timing.json")
+            self.logger.error(f"audio_timing.json type: {type(audio_timing)}")
+            if isinstance(audio_timing, list) and audio_timing:
+                first_section = audio_timing[0]
+                self.logger.error(f"First section keys: {list(first_section.keys())}")
+
+            raise ValueError(
+                "No section durations found in audio_timing.json. "
+                "Please check the file structure."
+            )
+
+        self.logger.info(f"✅ Loaded section durations from audio_timing.json: {section_durations}")
 
         # classified.jsonから全画像を取得
         classified_path = self.working_dir / "03_images" / "classified.json"
