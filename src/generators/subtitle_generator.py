@@ -1493,6 +1493,10 @@ class SubtitleGenerator:
         in_quotation = False  # 鍵かっこ内フラグ
 
         for i, char in enumerate(characters):
+            # 改行・空白はチャンクに含めない（タイミングのズレを防ぐ）
+            if char in ['\n', '\r', ' ', '\t']:
+                continue
+
             current_chars.append(char)
             current_starts.append(start_times[i] + offset)
             current_ends.append(end_times[i] + offset)
