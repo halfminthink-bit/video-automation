@@ -89,7 +89,8 @@ class TextSplitter:
         self.break_on = morphological.get("break_on", ["。", "！", "？"])
 
         # 句読点表示設定
-        self.remove_punctuation = config.get("remove_punctuation_in_display", False)
+        # 注意: メソッド名 remove_punctuation と衝突しないようにフィールド名を変更
+        self.remove_punctuation_in_display = config.get("remove_punctuation_in_display", False)
 
         # MeCab設定（未使用だが互換性のため保持）
         self.use_mecab = morphological.get("use_mecab", False)
@@ -1645,7 +1646,7 @@ class SubtitleGenerator:
                 line1 = "".join(line1_chars)
                 line2 = "".join(line2_chars)
 
-                if self.remove_punctuation:
+                if self.remove_punctuation_in_display:
                     # 句読点を除去（「、」は残す）
                     line1 = "".join([c for c in line1 if c not in ["。", "！", "？", "…"]])
                     line2 = "".join([c for c in line2 if c not in ["。", "！", "？", "…"]])
@@ -1682,7 +1683,7 @@ class SubtitleGenerator:
                         f"Consider using longer max_chars or multiple subtitles."
                     )
 
-                if self.remove_punctuation:
+                if self.remove_punctuation_in_display:
                     # 句読点を除去（「、」と「」は残す）
                     line_text = "".join([c for c in line_text if c not in ["。", "！", "？", "…"]])
                 lines.append(line_text)
@@ -1709,7 +1710,7 @@ class SubtitleGenerator:
             line_chars = remaining_chars[:split_pos]
             line_text = "".join(line_chars)
 
-            if self.remove_punctuation:
+            if self.remove_punctuation_in_display:
                 # 句読点を除去（「、」と「」は残す）
                 line_text = "".join([c for c in line_text if c not in ["。", "！", "？", "…"]])
 
