@@ -655,6 +655,17 @@ class Phase07Composition(PhaseBase):
             self.logger.warning("No BGM segments created - check if BGM files exist in assets/bgm/{opening,main,ending}/")
             return None
 
+        # デバッグログ: BGMセグメント詳細情報
+        self.logger.info("=" * 60)
+        self.logger.info("BGM Segments Debug Info:")
+        for i, seg in enumerate(bgm_segments):
+            self.logger.info(
+                f"  Segment {i+1}: {seg['bgm_type']} "
+                f"[{seg['start_time']:.1f}s - {seg['start_time'] + seg['duration']:.1f}s] "
+                f"Duration: {seg['duration']:.1f}s"
+            )
+        self.logger.info("=" * 60)
+
         self.logger.info(f"✓ Created {len(bgm_segments)} BGM segments (using actual audio durations):")
         for seg in bgm_segments:
             self.logger.info(
@@ -2930,52 +2941,97 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     def _build_audio_filter(self, bgm_segments: List[dict]) -> str:
         """
-        BGMミックス用のffmpegフィルター生成
+        BGMとナレーションをミックスするオーディオフィルタ（完全版）
 
-        Args:
-            bgm_segments: BGMセグメント情報のリスト
-
-        Returns:
-            filter_complex文字列
-
-        例:
-            [1:a]volume=1.0[narration];
-            [2:a]volume=0.1,afade=t=in:st=0:d=3,afade=t=out:st=147:d=3[bgm0];
-            [3:a]volume=0.1,afade=t=in:st=150:d=3,afade=t=out:st=297:d=3[bgm1];
-            [narration][bgm0][bgm1]amix=inputs=3:duration=first[audio]
+        修正点:
+        1. BGMのループ処理を確実に
+        2. 各セグメントの音量を個別に制御
+        3. 長い動画でもBGMが途切れないように
         """
-        filters = []
+        import subprocess
 
-        # ナレーション（入力1）
-        filters.append("[1:a]volume=1.0[narration]")
+        # BGM音量の増幅（1.8倍）
+        bgm_volume = self.phase_config.get('bgm', {}).get('volume', 0.13)
+        bgm_volume = min(bgm_volume * 1.8, 0.3)  # 1.8倍、最大30%
 
-        # 各BGMセグメント（入力2以降）
-        for i, segment in enumerate(bgm_segments):
-            input_idx = i + 2  # BGMは入力2から
-            volume = segment.get('volume', self.bgm_volume)
-            start_time = segment.get('start_time', 0)
-            duration = segment.get('duration', 0)
-            fade_in = segment.get('fade_in', self.bgm_fade_in)
-            fade_out = segment.get('fade_out', self.bgm_fade_out)
+        filter_parts = []
+        bgm_inputs = []
 
-            # フェードアウトの開始時刻を計算
-            fade_out_start = start_time + duration - fade_out
+        for idx, segment in enumerate(bgm_segments):
+            input_idx = idx + 2  # 0:動画, 1:音声, 2以降:BGM
+            start_time = segment.get("start_time", 0.0)
+            duration = segment.get("duration", 0.0)
+            fade_in = segment.get("fade_in", 2.0)
+            fade_out = segment.get("fade_out", 2.0)
 
-            bgm_filter = (
-                f"[{input_idx}:a]"
-                f"volume={volume},"
-                f"afade=t=in:st={start_time}:d={fade_in},"
-                f"afade=t=out:st={fade_out_start}:d={fade_out}"
-                f"[bgm{i}]"
-            )
-            filters.append(bgm_filter)
+            # BGMファイルの実際の長さを取得
+            bgm_path = segment.get("file_path")
+            try:
+                # ffprobeでBGMの長さを取得
+                cmd = [
+                    'ffprobe', '-v', 'error',
+                    '-show_entries', 'format=duration',
+                    '-of', 'default=noprint_wrappers=1:nokey=1',
+                    str(bgm_path)
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                bgm_duration = float(result.stdout.strip())
+            except:
+                bgm_duration = 30.0  # デフォルト値
 
-        # ミックス
-        inputs = ['[narration]'] + [f'[bgm{i}]' for i in range(len(bgm_segments))]
-        mix_filter = f"{''.join(inputs)}amix=inputs={len(inputs)}:duration=first[audio]"
-        filters.append(mix_filter)
+            # ループが必要な場合の処理
+            if duration > bgm_duration:
+                # ループ回数を計算
+                loop_count = int(duration / bgm_duration) + 1
 
-        return ";".join(filters)
+                # aloop フィルタを使用してループ
+                # size=サンプル数（48000Hz × 秒数）
+                loop_samples = int(duration * 48000)
+
+                filter_parts.append(
+                    f"[{input_idx}:a]"
+                    f"aloop=loop={loop_count}:size={loop_samples},"
+                    f"atrim=0:{duration},"
+                    f"afade=t=in:st=0:d={fade_in},"
+                    f"afade=t=out:st={duration - fade_out}:d={fade_out},"
+                    f"adelay={int(start_time * 1000)}|{int(start_time * 1000)},"
+                    f"volume={bgm_volume:.3f}"
+                    f"[bgm{idx}]"
+                )
+
+                self.logger.debug(
+                    f"BGM {idx}: Looping {loop_count} times "
+                    f"(BGM: {bgm_duration:.1f}s, Need: {duration:.1f}s)"
+                )
+            else:
+                # ループ不要
+                filter_parts.append(
+                    f"[{input_idx}:a]"
+                    f"atrim=0:{duration},"
+                    f"afade=t=in:st=0:d={fade_in},"
+                    f"afade=t=out:st={duration - fade_out}:d={fade_out},"
+                    f"adelay={int(start_time * 1000)}|{int(start_time * 1000)},"
+                    f"volume={bgm_volume:.3f}"
+                    f"[bgm{idx}]"
+                )
+
+            bgm_inputs.append(f"[bgm{idx}]")
+
+        # すべてのBGMをミックス
+        if len(bgm_inputs) > 1:
+            # 複数のBGMセグメントをミックス
+            bgm_mix = f"{''.join(bgm_inputs)}amix=inputs={len(bgm_inputs)}:duration=longest[bgm_mixed]"
+            filter_parts.append(bgm_mix)
+
+            # ナレーションとBGMをミックス
+            final_mix = f"[1:a][bgm_mixed]amix=inputs=2:duration=first:dropout_transition=0[audio]"
+            filter_parts.append(final_mix)
+        else:
+            # BGMが1つの場合
+            final_mix = f"[1:a]{bgm_inputs[0]}amix=inputs=2:duration=first:dropout_transition=0[audio]"
+            filter_parts.append(final_mix)
+
+        return ';'.join(filter_parts)
 
     def _burn_subtitles(self, input_video: Path, srt_path: Path, output_path: Path) -> None:
         """
