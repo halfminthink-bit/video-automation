@@ -164,6 +164,10 @@ class Phase06Subtitles(PhaseBase):
             self.logger.info("Adjusting subtitle timing for sentence endings...")
             subtitles = self._adjust_subtitle_timing_with_sentence_end(subtitles)
 
+            # 3.5. 全字幕の表示時間を延長（次の字幕の0.2秒前まで）
+            self.logger.info("Extending subtitle display times (0.2s margin before next)...")
+            subtitles = self._extend_subtitle_display(subtitles)
+
             # 4. 句読点を削除（分割ロジックの後に実行）
             self.logger.info("Removing punctuation from subtitles...")
             subtitles = self._remove_punctuation_from_subtitles(subtitles)
@@ -1791,6 +1795,52 @@ class Phase06Subtitles(PhaseBase):
             f"Subtitle timing adjustment complete: {extended_count}/{len(subtitles)} subtitles extended"
         )
         return adjusted
+
+    def _extend_subtitle_display(self, subtitles: List[SubtitleEntry]) -> List[SubtitleEntry]:
+        """
+        字幕の表示時間を延長（次の字幕の0.2秒前まで）
+
+        Args:
+            subtitles: 字幕エントリのリスト
+
+        Returns:
+            調整済み字幕エントリのリスト
+        """
+        adjusted_subtitles = []
+        extended_count = 0
+
+        for i, subtitle in enumerate(subtitles):
+            # 最後の字幕以外
+            if i < len(subtitles) - 1:
+                next_subtitle = subtitles[i + 1]
+
+                # 次の字幕開始の0.2秒前まで延長可能
+                max_end_time = next_subtitle.start_time - 0.2
+
+                # 現在の終了時間と比較して長い方を採用
+                if subtitle.end_time < max_end_time:
+                    old_end = subtitle.end_time
+                    subtitle = SubtitleEntry(
+                        index=subtitle.index,
+                        start_time=subtitle.start_time,
+                        end_time=max_end_time,
+                        text_line1=subtitle.text_line1,
+                        text_line2=subtitle.text_line2
+                    )
+                    extended_count += 1
+                    self.logger.debug(
+                        f"Extended subtitle {i+1}: "
+                        f"{subtitle.start_time:.2f}s - {old_end:.2f}s -> {subtitle.end_time:.2f}s "
+                        f"(extended by {max_end_time - old_end:.2f}s)"
+                    )
+
+            adjusted_subtitles.append(subtitle)
+
+        self.logger.info(
+            f"Extended subtitle display times: {extended_count}/{len(subtitles)} subtitles extended "
+            f"(0.2s margin before next)"
+        )
+        return adjusted_subtitles
 
     def _fix_three_line_quotations(
         self,

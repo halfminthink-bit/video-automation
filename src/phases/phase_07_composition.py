@@ -103,7 +103,10 @@ class Phase07Composition(PhaseBase):
 
         # BGM設定
         bgm_config = self.phase_config.get("bgm", {})
-        self.bgm_volume = bgm_config.get("volume", 0.1)  # 10%に下げる
+        # BGM音量を1.8倍に増幅（最大30%に制限）
+        base_volume = bgm_config.get("volume", 0.1)
+        self.bgm_volume = min(base_volume * 1.8, 0.3)
+        self.logger.info(f"BGM volume: {base_volume:.0%} -> {self.bgm_volume:.0%} (1.8x amplified)")
         self.bgm_fade_in = bgm_config.get("fade_in", 3.0)  # フェードイン3秒
         self.bgm_fade_out = bgm_config.get("fade_out", 3.0)  # フェードアウト3秒
         self.bgm_crossfade = bgm_config.get("crossfade", 2.0)  # セグメント間クロスフェード2秒
@@ -1352,14 +1355,16 @@ class Phase07Composition(PhaseBase):
             subtitles = self._load_subtitles()
             script = self._load_script()
 
-            # 2. BGM読み込み（Legacy02仕様: 音量10%固定）
-            self.logger.info("Loading BGM data (volume: 10%)...")
+            # 2. BGM読み込み（音量を1.8倍に増幅）
+            base_volume = 0.1
+            amplified_volume = min(base_volume * 1.8, 0.3)
+            self.logger.info(f"Loading BGM data (volume: {base_volume:.0%} -> {amplified_volume:.0%}, 1.8x amplified)...")
             bgm_data = self._load_bgm()
-            # BGM音量を10%に上書き（Legacy02と同じ）
+            # BGM音量を1.8倍に増幅（最大30%に制限）
             if bgm_data and bgm_data.get('segments'):
                 for segment in bgm_data['segments']:
-                    segment['volume'] = 0.1
-                self.logger.info("✓ BGM volume set to 10% (Legacy02 spec)")
+                    segment['volume'] = amplified_volume
+                self.logger.info(f"✓ BGM volume set to {amplified_volume:.0%} (1.8x amplified)")
 
             # 3. セグメントベースの動画生成（字幕同期の問題を解決）
             self.logger.info("Creating video using segment-based approach...")
