@@ -93,7 +93,7 @@ class Phase06Subtitles(PhaseBase):
     
     def execute_phase(self) -> SubtitleGeneration:
         """
-        字幕生成の実行（audio_timing.json からタイミング情報を使用）
+        字幕生成の実行（シンプルなフロー制御のみ）
 
         Returns:
             SubtitleGeneration: 生成された字幕
@@ -104,82 +104,45 @@ class Phase06Subtitles(PhaseBase):
         self.logger.info(f"Generating subtitles for: {self.subject}")
 
         try:
-            # 1. 台本を読み込み
-            script = self._load_script()
-            self.logger.info(
-                f"Loaded script: {len(script.sections)} sections, "
-                f"estimated {script.total_estimated_duration:.0f}s"
-            )
-
-            # 2. audio_timing.json を読み込み（存在する場合）
+            # 1. audio_timing.json を読み込み
             audio_timing_path = self.config.get_phase_dir(self.subject, 2) / "audio_timing.json"
 
-            if audio_timing_path.exists():
-                # タイムスタンプ付き音声データを使用
-                self.logger.info("Using audio timing data with character-level timings")
-
-                # audio_timing.jsonを読み込み
-                with open(audio_timing_path, 'r', encoding='utf-8') as f:
-                    audio_timing_data = json.load(f)
-
-                # 字幕生成器を作成
-                generator = create_subtitle_generator(
-                    config=self.phase_config,
-                    logger=self.logger
+            if not audio_timing_path.exists():
+                raise PhaseInputMissingError(
+                    self.get_phase_number(),
+                    [str(audio_timing_path)]
                 )
 
-                # 新しいメソッドを使用：文字レベルタイミングから字幕を生成
-                subtitles = generator.generate_subtitles_from_char_timings(
-                    audio_timing_data=audio_timing_data
-                )
-                
-                # 3行字幕を修正（鍵かっこの場合のみ）
-                subtitles = self._fix_three_line_quotations(subtitles)
-                self.logger.info("Fixed 3-line quotations")
-            else:
-                # フォールバック：Whisperまたは文字数比率を使用
-                self.logger.warning("Audio timing data not found, using fallback method")
-                audio_segments = self._load_audio_segments()
-                self.logger.info(f"Loaded audio segments: {len(audio_segments)}")
+            with open(audio_timing_path, 'r', encoding='utf-8') as f:
+                audio_timing_data = json.load(f)
 
-                # 字幕生成器を作成
-                generator = create_subtitle_generator(
-                    config=self.phase_config,
-                    logger=self.logger
-                )
+            # 2. 字幕生成（generator に委譲）
+            generator = create_subtitle_generator(
+                config=self.phase_config,
+                logger=self.logger
+            )
 
-                # 音声ファイルのパスを取得（Whisper使用のため）
-                audio_path = self.config.get_phase_dir(self.subject, 2) / "narration_full.mp3"
+            subtitles = generator.generate_subtitles_from_char_timings(
+                audio_timing_data=audio_timing_data
+            )
 
-                # 字幕を生成
-                self.logger.info("Generating subtitles...")
-                subtitles = generator.generate_subtitles(
-                    script=script,
-                    audio_segments=audio_segments,
-                    config=self.phase_config,
-                    audio_path=audio_path if audio_path.exists() else None
-                )
+            # 3. 3行字幕修正（鍵かっこの場合のみ）
+            subtitles = self._fix_three_line_quotations(subtitles)
 
-            # 3. 句点での表示延長を適用（句読点削除の前に実行）
-            self.logger.info("Adjusting subtitle timing for sentence endings...")
-            subtitles = self._adjust_subtitle_timing_with_sentence_end(subtitles)
-
-            # 3.5. 全字幕の一律延長は不要（句点延長で制御するため無効化）
-            # self.logger.info("Extending subtitle display times (0.2s margin before next)...")
-            # subtitles = self._extend_subtitle_display(subtitles)
-
-            # 4. 句読点を削除（分割ロジックの後に実行）
+            # 4. 句読点削除（分割後に実行）
             self.logger.info("Removing punctuation from subtitles...")
-            subtitles = self._remove_punctuation_from_subtitles(subtitles)
+            subtitles = generator.splitter.remove_punctuation(subtitles)
 
-            # 4.5. 字幕間のギャップを最適化
+            # 5. 句点での延長
+            self.logger.info("Adjusting subtitle timing for sentence endings...")
+            subtitles = generator.timing.extend_sentence_endings(subtitles)
+
+            # 6. ギャップ最適化
             self.logger.info("Optimizing subtitle gaps...")
-            subtitles = self._optimize_subtitle_gaps(subtitles)
+            subtitles = generator.timing.optimize_gaps(subtitles)
 
-            # 5. SRTファイルを保存
+            # 7. SRT・JSONを保存
             srt_path = self._save_srt_file(subtitles)
-
-            # 7. タイミングJSONを保存
             timing_path = self._save_timing_json(subtitles)
 
             # 8. 結果をモデルに変換
@@ -193,8 +156,7 @@ class Phase06Subtitles(PhaseBase):
             self._save_generation_metadata(subtitle_gen)
 
             self.logger.info(
-                f"Subtitle generation complete: "
-                f"{len(subtitles)} entries, "
+                f"Subtitle generation complete: {len(subtitles)} entries, "
                 f"SRT: {srt_path}"
             )
 
