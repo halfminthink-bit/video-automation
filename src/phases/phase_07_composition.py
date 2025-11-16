@@ -1804,6 +1804,413 @@ class Phase07Composition(PhaseBase):
 
         return ass_path
 
+    def verify_subtitle_timing_detailed(self) -> None:
+        """
+        字幕タイミングを詳細に検証（Legacy02との比較）
+        """
+        subtitles = self._load_subtitles()
+
+        # audio_timing.jsonからセクション情報を取得
+        timing = self._load_audio_timing()
+        if not timing:
+            self.logger.warning("audio_timing.json not available; skipping detailed subtitle timing verification")
+            return
+
+        if isinstance(timing, dict):
+            sections = timing.get('sections', [])
+        else:
+            sections = timing
+
+        self.logger.info("=" * 60)
+        self.logger.info("字幕タイミング詳細検証")
+        self.logger.info("=" * 60)
+
+        # セクションの開始・終了を計算
+        prev_end = 0.0
+        for i, section in enumerate(sections, 1):
+            # 可能なキーに対応
+            char_end_times = section.get('char_end_times') or section.get('character_end_times_seconds') or []
+            section_end = float(char_end_times[-1]) if char_end_times else float(section.get('duration', prev_end))
+            section_start = prev_end
+
+            self.logger.info(f"\n【Section {i}】 {section_start:.2f}s - {section_end:.2f}s")
+            self.logger.info(f"  タイトル: {section.get('subtitle') or section.get('title', '')}")
+
+            # このセクション内の字幕を抽出（±0.5秒のバッファ）
+            section_subtitles = [
+                s for s in subtitles
+                if s.start_time >= section_start - 0.5 and s.start_time < section_end + 0.5
+            ]
+
+            for sub in section_subtitles:
+                text = sub.text_line1.lstrip('\n').strip()[:30]
+                self.logger.info(
+                    f"  字幕 {sub.index:2d}: {sub.start_time:6.3f}s - {sub.end_time:6.3f}s "
+                    f"({sub.end_time - sub.start_time:4.2f}s) '{text}...'"
+                )
+
+            if not section_subtitles:
+                self.logger.warning("  ⚠️ このセクションに字幕がありません！")
+
+            prev_end = section_end
+
+    def _create_ass_subtitles_fixed(self) -> Path:
+        """
+        ASS字幕ファイルを生成（完全修正版）
+
+        重要な修正:
+        1. タイミングの微調整を削除（オリジナルのタイミングを維持）
+        2. 各字幕のデバッグ情報を出力
+        3. セクション境界の字幕を特別に処理（ログ）
+        """
+        subtitles = self._load_subtitles()
+
+        if not subtitles:
+            self.logger.warning("No subtitles found, creating empty ASS file")
+            ass_path = self.phase_dir / "subtitles.ass"
+            with open(ass_path, 'w', encoding='utf-8') as f:
+                f.write(self._get_ass_header_fixed())
+            return ass_path
+
+        # ASSヘッダー
+        ass_content = self._get_ass_header_fixed()
+
+        # セクション境界のタイミング（必要に応じて動的化可能）
+        section_boundaries = []
+        try:
+            timing = self._load_audio_timing()
+            boundaries = []
+            if timing:
+                sections = timing.get('sections', timing) if isinstance(timing, dict) else timing
+                prev_end = 0.0
+                for section in sections:
+                    char_end_times = section.get('char_end_times') or section.get('character_end_times_seconds') or []
+                    end = float(char_end_times[-1]) if char_end_times else float(section.get('duration', prev_end))
+                    # セクション開始は前の終了
+                    boundaries.append(end)
+                    prev_end = end
+            section_boundaries = boundaries[:-1]  # 最後の終端は境界として不要
+        except Exception:
+            pass
+
+        self.logger.info(f"ASS字幕生成: {len(subtitles)}個のエントリ")
+
+        for subtitle in subtitles:
+            # オリジナルのタイミングをそのまま使用
+            start_time = subtitle.start_time
+            end_time = subtitle.end_time
+
+            # セクション境界付近の字幕を特別にログ
+            for boundary in section_boundaries:
+                if abs(start_time - boundary) < 1.0:
+                    self.logger.info(
+                        f"  境界付近の字幕: {start_time:.3f}s (境界: {boundary:.2f}s)"
+                    )
+
+            # ASS形式の時刻に変換（高精度版）
+            start_time_str = self._format_ass_time_precise(start_time)
+            end_time_str = self._format_ass_time_precise(end_time)
+
+            # テキスト処理（改行・空行を整理）
+            text_parts = []
+            line1 = subtitle.text_line1.lstrip('\n').strip()
+            if line1:
+                text_parts.append(line1)
+            if subtitle.text_line2:
+                line2 = subtitle.text_line2.strip()
+                if line2:
+                    text_parts.append(line2)
+            if subtitle.text_line3:
+                line3 = subtitle.text_line3.strip()
+                if line3:
+                    text_parts.append(line3)
+            if not text_parts:
+                continue
+
+            subtitle_text = '\\N'.join(text_parts)
+
+            # ASSイベント行を追加
+            ass_content += f"Dialogue: 0,{start_time_str},{end_time_str},Default,,0,0,0,,{subtitle_text}\n"
+
+        # ファイルに保存
+        ass_path = self.phase_dir / "subtitles.ass"
+        with open(ass_path, 'w', encoding='utf-8') as f:
+            f.write(ass_content)
+
+        self.logger.info(f"✅ ASS字幕ファイル作成完了: {ass_path.name}")
+
+        # 検証
+        self._verify_ass_file(ass_path)
+
+        return ass_path
+
+    def _get_ass_header_fixed(self) -> str:
+        """
+        ASS字幕のヘッダー（最終調整版）
+
+        変更点:
+        1. フォントサイズ: 48（Legacy02の60pxに近い見た目）
+        2. MarginV: 100（黒バー内の適切な位置）
+        3. Encoding: 128（日本語）
+        """
+        video_width = 1920
+        video_height = 1080
+
+        # フォントサイズ（48がLegacy02の60pxに近い）
+        font_size = 48
+
+        # 黒バー内での位置（下から100px）
+        margin_v = 100
+
+        return f"""[Script Info]
+Title: Generated Subtitles
+ScriptType: v4.00+
+PlayResX: {video_width}
+PlayResY: {video_height}
+WrapStyle: 0
+Timer: 100.0000
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,MS Mincho,{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,3,2,2,10,10,{margin_v},128
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+
+    def _format_ass_time_precise(self, seconds: float) -> str:
+        """
+        秒数をASS形式の時刻に高精度変換（センチ秒を四捨五入）
+        """
+        total_centisecs = int(seconds * 100 + 0.5)  # 四捨五入
+        hours = total_centisecs // 360000
+        minutes = (total_centisecs % 360000) // 6000
+        secs = (total_centisecs % 6000) // 100
+        centisecs = total_centisecs % 100
+        return f"{hours}:{minutes:02d}:{secs:02d}.{centisecs:02d}"
+
+    def _verify_ass_file(self, ass_path: Path) -> None:
+        """
+        生成されたASSファイルを検証
+        """
+        try:
+            with open(ass_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+        except Exception as e:
+            self.logger.warning(f"Failed to open ASS file for verification: {e}")
+            return
+
+        dialogue_lines = [l for l in lines if l.startswith('Dialogue:')]
+        self.logger.info(f"ASS検証: {len(dialogue_lines)}個のDialogue行")
+
+        # 最初の3つと最後の3つを表示
+        preview_lines = dialogue_lines[:3] + dialogue_lines[-3:] if dialogue_lines else []
+        for line in preview_lines:
+            parts = line.split(',', 9)
+            if len(parts) >= 10:
+                start = parts[1]
+                end = parts[2]
+                text = parts[9].strip()[:30]
+                self.logger.debug(f"  {start} → {end}: {text}...")
+
+    def _build_ffmpeg_command_optimized(
+        self,
+        concat_file: Path,
+        audio_path: Path,
+        ass_path: Path,
+        output_path: Path,
+        bgm_data: Optional[dict]
+    ) -> list:
+        """
+        最適化されたFFmpegコマンド
+
+        変更点:
+        1. setpts=PTS-STARTPTSフィルタを追加（タイミング同期改善）
+        2. -shortest を削除（音声の長さに正確に合わせる）
+        3. フォントディレクトリを明示的に指定
+        """
+        import multiprocessing
+
+        is_windows = platform.system() == 'Windows'
+
+        def normalize_path(p: Path) -> str:
+            path_str = str(p.resolve())
+            if is_windows:
+                path_str = path_str.replace('\\', '/')
+            return path_str
+
+        threads = self.threads if self.threads > 0 else multiprocessing.cpu_count()
+
+        # 基本コマンド
+        cmd = [
+            'ffmpeg',
+            '-y',
+            '-f', 'concat',
+            '-safe', '0',
+            '-i', normalize_path(concat_file),
+            '-i', normalize_path(audio_path),
+        ]
+
+        # BGM入力
+        bgm_segments = []
+        if bgm_data and bgm_data.get("segments"):
+            bgm_segments = bgm_data.get("segments", [])
+            for segment in bgm_segments:
+                bgm_path = segment.get("file_path")
+                if bgm_path and Path(bgm_path).exists():
+                    cmd.extend(['-i', normalize_path(Path(bgm_path))])
+
+        # ビデオフィルタ構築
+        video_filters = []
+
+        # 1. タイミング同期
+        video_filters.append("setpts=PTS-STARTPTS")
+
+        # 2. スケーリング
+        video_filters.append("scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2")
+
+        # 3. 黒バー
+        video_filters.append("drawbox=y=ih-216:color=black@1.0:width=iw:height=216:t=fill")
+
+        # 4. ASS字幕
+        if ass_path and ass_path.exists():
+            ass_path_str = str(ass_path.resolve())
+            if is_windows:
+                ass_path_str = ass_path_str.replace('\\', '/')
+                ass_path_str = ass_path_str.replace(':', '\\:')
+                # フォントディレクトリを指定
+                fonts_dir = "C\\:/Windows/Fonts"
+                ass_filter = f"ass='{ass_path_str}':fontsdir='{fonts_dir}'"
+            else:
+                ass_filter = f"ass='{ass_path_str}'"
+
+            video_filters.append(ass_filter)
+
+        # フィルタチェーン適用
+        cmd.extend(['-vf', ','.join(video_filters)])
+
+        # オーディオ処理
+        if bgm_segments:
+            audio_filter = self._build_audio_filter(bgm_segments)
+            cmd.extend(['-filter_complex', audio_filter])
+            cmd.extend(['-map', '0:v', '-map', '[audio]'])
+        else:
+            cmd.extend(['-map', '0:v', '-map', '1:a'])
+
+        # 音声の長さを取得して正確に設定
+        audio_duration = self._get_audio_duration(audio_path)
+
+        # エンコード設定
+        cmd.extend([
+            '-c:v', 'libx264',
+            '-preset', self.encode_preset,
+            '-crf', '23',
+            '-c:a', 'aac',
+            '-b:a', '192k',
+            '-ar', '48000',
+            '-t', f"{audio_duration:.3f}",  # 小数点3桁まで指定
+            '-threads', str(threads),
+            normalize_path(output_path)
+        ])
+
+        return cmd
+
+    def run_ffmpeg_with_timing_fix(self) -> None:
+        """
+        タイミング修正版のFFmpeg実行
+        """
+        # 1. 字幕タイミングの詳細検証
+        self.logger.info("=" * 60)
+        self.logger.info("Phase 1: 字幕タイミング検証")
+        self.logger.info("=" * 60)
+        self.verify_subtitle_timing_detailed()
+
+        # 2. データ読み込み
+        self.logger.info("\n" + "=" * 60)
+        self.logger.info("Phase 2: データ読み込み")
+        self.logger.info("=" * 60)
+
+        subtitles = self._load_subtitles()
+        self.logger.info(f"✓ {len(subtitles)}個の字幕を読み込み")
+
+        bgm_volume = self.phase_config.get('bgm', {}).get('volume', 0.1)
+        bgm_data = self._load_bgm()
+        self.logger.info(f"✓ BGM音量: {int(bgm_volume * 100)}%")
+
+        # 3. concat.txt作成
+        self.logger.info("\n" + "=" * 60)
+        self.logger.info("Phase 3: 画像リスト作成")
+        self.logger.info("=" * 60)
+
+        concat_file = self._create_ffmpeg_concat_file(self._load_script())
+        self.logger.info(f"✓ concat.txt作成: {concat_file}")
+
+        # 4. ASS字幕作成
+        self.logger.info("\n" + "=" * 60)
+        self.logger.info("Phase 4: ASS字幕生成")
+        self.logger.info("=" * 60)
+
+        ass_path = self._create_ass_subtitles_fixed()
+
+        # 5. FFmpeg実行
+        self.logger.info("\n" + "=" * 60)
+        self.logger.info("Phase 5: FFmpeg実行")
+        self.logger.info("=" * 60)
+
+        audio_path = self._get_audio_path()
+        output_dir = Path(self.config.get("paths", {}).get("output_dir", "data/output")) / "videos"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / f"{self.subject}.mp4"
+
+        cmd = self._build_ffmpeg_command_optimized(
+            concat_file=concat_file,
+            audio_path=audio_path,
+            ass_path=ass_path,
+            output_path=output_path,
+            bgm_data=bgm_data
+        )
+
+        # コマンドをログに出力（デバッグ用）
+        self.logger.debug("FFmpegコマンド:")
+        try:
+            self.logger.debug(" ".join(cmd))
+        except Exception:
+            pass
+
+        # 実行
+        try:
+            result = __import__('subprocess').run(cmd, capture_output=True, text=True, check=True)
+            self.logger.info(f"✅ 動画生成完了: {output_path}")
+        except __import__('subprocess').CalledProcessError as e:
+            self.logger.error(f"FFmpeg失敗: {e.stderr}")
+            raise
+
+        # 6. 検証
+        self.logger.info("\n" + "=" * 60)
+        self.logger.info("Phase 6: 出力検証")
+        self.logger.info("=" * 60)
+
+        if output_path.exists():
+            file_size = output_path.stat().st_size / (1024 * 1024)
+            self.logger.info(f"✓ ファイルサイズ: {file_size:.1f} MB")
+
+            # 動画の長さを確認
+            duration_cmd = [
+                'ffprobe',
+                '-v', 'error',
+                '-show_entries', 'format=duration',
+                '-of', 'default=noprint_wrappers=1:nokey=1',
+                str(output_path)
+            ]
+
+            try:
+                result = __import__('subprocess').run(duration_cmd, capture_output=True, text=True, check=True)
+                duration = float(result.stdout.strip())
+                self.logger.info(f"✓ 動画の長さ: {duration:.2f}秒")
+            except Exception:
+                pass
+
     def _get_ass_header(self) -> str:
         """ASS字幕のヘッダーを生成（サイズ調整版）"""
         # 解像度を明示
