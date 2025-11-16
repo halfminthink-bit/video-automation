@@ -1005,10 +1005,17 @@ class Phase06Subtitles(PhaseBase):
                     'char_data': sentence_char_data
                 })
                 current_sentence = ""
-                # 次の文の開始時刻を次の文字の実際の開始時刻に設定
-                # 句点後の間隔（約1秒）を考慮する
-                if i + 1 < len(char_start_times):
-                    sentence_start_time = char_start_times[i + 1] + offset
+                # 次の文の開始時刻を設定（改行文字などをスキップ）
+                if i + 1 < len(characters):
+                    # 改行や空白をスキップして次の実際の文字を探す
+                    next_char_idx = i + 1
+                    while next_char_idx < len(characters) and characters[next_char_idx] in ['\n', '\r', ' ']:
+                        next_char_idx += 1
+
+                    if next_char_idx < len(char_start_times):
+                        sentence_start_time = char_start_times[next_char_idx] + offset
+                    else:
+                        sentence_start_time = None
                 else:
                     sentence_start_time = None
                 sentence_char_data = []
