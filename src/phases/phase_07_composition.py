@@ -103,10 +103,18 @@ class Phase07Composition(PhaseBase):
 
         # BGM設定
         bgm_config = self.phase_config.get("bgm", {})
-        # BGM音量を5倍に増幅（最大50%に制限）- 確認用に大幅アップ
         base_volume = bgm_config.get("volume", 0.1)
-        self.bgm_volume = min(base_volume * 5.0, 0.5)  # 10% → 50%に大幅アップ（確認用）
-        self.logger.info(f"BGM volume: {base_volume:.0%} -> {self.bgm_volume:.0%} (5x amplified for testing)")
+
+        # 音量増幅率をYAMLから取得（デフォルト: 1.0 = 増幅なし）
+        volume_amplification = bgm_config.get("volume_amplification", 1.0)
+
+        # 最終的なBGM音量を計算
+        self.bgm_volume = min(base_volume * volume_amplification, 0.5)  # 最大50%に制限
+
+        self.logger.info(
+            f"BGM volume: {base_volume:.0%} × {volume_amplification:.1f} = {self.bgm_volume:.0%} "
+            f"(max 50%)"
+        )
         self.bgm_fade_in = bgm_config.get("fade_in", 3.0)  # フェードイン3秒
         self.bgm_fade_out = bgm_config.get("fade_out", 3.0)  # フェードアウト3秒
         self.bgm_crossfade = bgm_config.get("crossfade", 2.0)  # セグメント間クロスフェード2秒
@@ -625,12 +633,15 @@ class Phase07Composition(PhaseBase):
 
         # BGMタイプごとにセクションをグループ化
         bgm_groups = {}
+        section_order = {}  # 各BGMタイプの最小Section IDを記録
+
         for section in script.get("sections", []):
             section_id = section.get("section_id", 0)
             bgm_type = section.get("bgm_suggestion", "main")
 
             if bgm_type not in bgm_groups:
                 bgm_groups[bgm_type] = []
+                section_order[bgm_type] = section_id  # 最初に出現したSection IDを記録
 
             bgm_groups[bgm_type].append({
                 'section_id': section_id,
@@ -638,8 +649,12 @@ class Phase07Composition(PhaseBase):
                 'title': section.get('title', '')
             })
 
+        # Section IDの順序でソート（アルファベット順ではなく）
+        sorted_bgm_types = sorted(bgm_groups.keys(), key=lambda bgm_type: section_order[bgm_type])
+
         # 各BGMタイプごとにセグメントを作成
-        for bgm_type, sections in sorted(bgm_groups.items()):
+        for bgm_type in sorted_bgm_types:
+            sections = bgm_groups[bgm_type]
             # BGMフォルダからファイルを探す
             bgm_folder = bgm_base_path / bgm_type
             if not bgm_folder.exists():
@@ -1390,16 +1405,15 @@ class Phase07Composition(PhaseBase):
             subtitles = self._load_subtitles()
             script = self._load_script()
 
-            # 2. BGM読み込み（音量を1.8倍に増幅）
-            base_volume = 0.1
-            amplified_volume = min(base_volume * 1.8, 0.3)
-            self.logger.info(f"Loading BGM data (volume: {base_volume:.0%} -> {amplified_volume:.0%}, 1.8x amplified)...")
+            # 2. BGM読み込み（YAML設定から音量を取得）
+            bgm_config = self.phase_config.get("bgm", {})
+            base_volume = bgm_config.get("volume", 0.1)
+            amplification = bgm_config.get("volume_amplification", 1.0)
+            self.logger.info(
+                f"Loading BGM data (base volume: {base_volume:.0%}, "
+                f"amplification: {amplification:.1f}x)..."
+            )
             bgm_data = self._load_bgm()
-            # BGM音量を1.8倍に増幅（最大30%に制限）
-            if bgm_data and bgm_data.get('segments'):
-                for segment in bgm_data['segments']:
-                    segment['volume'] = amplified_volume
-                self.logger.info(f"✓ BGM volume set to {amplified_volume:.0%} (1.8x amplified)")
 
             # 3. セグメントベースの動画生成（字幕同期の問題を解決）
             self.logger.info("Creating video using segment-based approach...")
@@ -3030,8 +3044,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         """
         filters = []
 
-        # BGM音量（確認用に大きめ）
-        bgm_volume = min(self.bgm_volume * 2.0, 0.7)
+        # BGM音量（増幅なし、すでにinitで計算済み）
+        bgm_volume = self.bgm_volume
 
         self.logger.info("=" * 60)
         self.logger.info("Building audio filter:")
