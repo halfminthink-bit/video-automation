@@ -613,57 +613,68 @@ class Phase07Composition(PhaseBase):
         if not bgm_base_path.exists():
             self.logger.warning(f"BGM library not found: {bgm_base_path}")
             return None
-        
+
         # 台本を読み込んでBGM情報を取得
         script = self._load_script()
-        
+
         # 音声タイミングデータを読み込み（実際の音声長を取得するため）
         audio_timing = self._load_audio_timing()
-        
+
         bgm_segments = []
         current_time = 0.0
-        
-        # 辞書として扱う（script["sections"]）
+
+        # BGMタイプごとにセクションをグループ化
+        bgm_groups = {}
         for section in script.get("sections", []):
             section_id = section.get("section_id", 0)
-            bgm_type = section.get("bgm_suggestion", "main")  # "opening", "main", "ending"
+            bgm_type = section.get("bgm_suggestion", "main")
 
+            if bgm_type not in bgm_groups:
+                bgm_groups[bgm_type] = []
+
+            bgm_groups[bgm_type].append({
+                'section_id': section_id,
+                'duration': self._get_section_duration(section_id, audio_timing),
+                'title': section.get('title', '')
+            })
+
+        # 各BGMタイプごとにセグメントを作成
+        for bgm_type, sections in sorted(bgm_groups.items()):
             # BGMフォルダからファイルを探す
             bgm_folder = bgm_base_path / bgm_type
             if not bgm_folder.exists():
                 self.logger.warning(f"BGM folder not found: {bgm_folder}")
-                self.logger.warning(f"Looking for BGM type '{bgm_type}' in section '{section.get('title', 'unknown')}'")
                 continue
 
-            # フォルダ内の最初のMP3ファイルを使用
             bgm_files = list(bgm_folder.glob("*.mp3"))
             if not bgm_files:
                 self.logger.warning(f"No MP3 files found in: {bgm_folder}")
                 continue
 
-            bgm_file = bgm_files[0]  # 最初のファイルを使用
-            self.logger.debug(f"Found BGM file: {bgm_file.name} for type '{bgm_type}'")
-            
-            # 実際の音声長を取得（audio_timing.jsonまたは音声ファイルから）
-            actual_duration = self._get_section_duration(section_id, audio_timing)
-            
+            bgm_file = bgm_files[0]
+
+            # 連続するセクションの合計時間
+            total_duration = sum(s['duration'] for s in sections)
+
             segment = {
                 "bgm_type": bgm_type,
                 "file_path": str(bgm_file),
                 "start_time": current_time,
-                "duration": actual_duration,  # ← 実際の音声長を使用
-                "section_id": section_id,
-                "section_title": section.get("title", "")
+                "duration": total_duration,
+                "section_ids": [s['section_id'] for s in sections],
+                "section_titles": [s['title'] for s in sections]
             }
-            
+
             bgm_segments.append(segment)
-            current_time += actual_duration  # ← 実際の長さで累積
-            
-            self.logger.debug(
-                f"BGM segment {segment['section_id']}: {bgm_type} "
-                f"({current_time - segment['duration']:.1f}s - {current_time:.1f}s)"
+            current_time += total_duration
+
+            self.logger.info(
+                f"BGM segment: {bgm_type} "
+                f"[{segment['start_time']:.1f}s - {current_time:.1f}s] "
+                f"Duration: {total_duration:.1f}s "
+                f"(Sections: {segment['section_ids']})"
             )
-        
+
         if not bgm_segments:
             self.logger.warning("No BGM segments created - check if BGM files exist in assets/bgm/{opening,main,ending}/")
             return None
@@ -682,9 +693,9 @@ class Phase07Composition(PhaseBase):
         self.logger.info(f"✓ Created {len(bgm_segments)} BGM segments (using actual audio durations):")
         for seg in bgm_segments:
             self.logger.info(
-                f"  - Section {seg['section_id']}: {seg['bgm_type']} "
+                f"  - Sections {seg['section_ids']}: {seg['bgm_type']} "
                 f"({seg['start_time']:.1f}s - {seg['start_time'] + seg['duration']:.1f}s, "
-                f"duration: {seg['duration']:.1f}s) - {seg['section_title']}"
+                f"duration: {seg['duration']:.1f}s)"
             )
         return {"segments": bgm_segments}
     
@@ -1702,6 +1713,20 @@ class Phase07Composition(PhaseBase):
 
             # FFmpegを実行
             self.logger.info("Running final ffmpeg command...")
+            self.logger.info("=" * 60)
+            self.logger.info("FFmpeg command preview:")
+
+            # コマンドを見やすく表示
+            for j, arg in enumerate(cmd):
+                if j == 0:
+                    self.logger.info(f"  {arg}")
+                elif arg.startswith('-'):
+                    self.logger.info(f"  {arg} \\")
+                else:
+                    self.logger.info(f"    {arg} \\")
+
+            self.logger.info("=" * 60)
+
             try:
                 result = subprocess.run(
                     cmd,
@@ -2994,22 +3019,29 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     def _build_audio_filter(self, bgm_segments: List[dict]) -> str:
         """
-        BGMミックス用のffmpegフィルター生成（ループ対応版）
+        BGMミックス用のffmpegフィルター生成（修正版）
 
-        重要な修正:
-        1. BGMが短い場合は自動的にループ
-        2. 音量を1.8倍に増幅
-        3. 各セグメントが確実に指定時間鳴り続ける
+        戦略:
+        1. 各BGMをループ・トリミング
+        2. anullsrcで前に無音を追加
+        3. concatで結合
+        4. 全BGMをamixでミックス
+        5. ナレーションとミックス
         """
         filters = []
 
-        # BGM音量をさらに2倍に（最大70%まで）- 確認用に追加アップ
-        bgm_volume_amplified = min(self.bgm_volume * 2.0, 0.7)  # さらに2倍アップ（確認用）
+        # BGM音量（確認用に大きめ）
+        bgm_volume = min(self.bgm_volume * 2.0, 0.7)
+
+        self.logger.info("=" * 60)
+        self.logger.info("Building audio filter:")
+        self.logger.info(f"  BGM volume: {bgm_volume:.1%}")
+        self.logger.info(f"  BGM segments: {len(bgm_segments)}")
 
         # ナレーション（入力1）
         filters.append("[1:a]volume=1.0[narration]")
 
-        # 各BGMセグメント（入力2以降）
+        # 各BGMセグメントを処理
         bgm_outputs = []
         for i, segment in enumerate(bgm_segments):
             input_idx = i + 2  # BGMは入力2から
@@ -3023,62 +3055,78 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if bgm_path.exists():
                 bgm_actual_duration = self._get_audio_duration(bgm_path)
             else:
-                bgm_actual_duration = 30.0  # デフォルト値
+                bgm_actual_duration = 30.0
 
-            # ループが必要か判定
+            self.logger.info(
+                f"  BGM {i+1} ({segment.get('bgm_type')}): "
+                f"start={start_time:.1f}s, duration={duration:.1f}s, "
+                f"bgm_length={bgm_actual_duration:.1f}s"
+            )
+
+            # Step 1: BGMをループ・トリミング
             if duration > bgm_actual_duration:
-                # ループ回数を計算（少し余裕を持たせる）
                 loop_count = int(duration / bgm_actual_duration) + 2
-
-                # aloop でループ、atrim で必要な長さに切り取り
-                bgm_filter = (
+                bgm_part = (
                     f"[{input_idx}:a]"
                     f"aloop=loop={loop_count}:size={int(bgm_actual_duration * 48000)},"
                     f"atrim=0:{duration},"
-                    f"afade=t=in:st=0:d={fade_in},"
-                    f"afade=t=out:st={duration - fade_out}:d={fade_out},"
-                    f"volume={bgm_volume_amplified:.3f},"
-                    f"asetpts=PTS-STARTPTS,"  # タイムスタンプリセット
-                    f"apad=pad_dur={start_time}"  # 前に無音を追加
-                    f"[bgm{i}]"
+                    f"asetpts=PTS-STARTPTS"
+                    f"[bgm{i}_trimmed]"
                 )
-
-                self.logger.info(
-                    f"  BGM {i+1}: Looping enabled "
-                    f"(BGM: {bgm_actual_duration:.1f}s, Need: {duration:.1f}s, "
-                    f"Loops: {loop_count})"
-                )
+                self.logger.info(f"    Looping {loop_count} times")
             else:
-                # ループ不要
-                bgm_filter = (
+                bgm_part = (
                     f"[{input_idx}:a]"
                     f"atrim=0:{min(duration, bgm_actual_duration)},"
-                    f"afade=t=in:st=0:d={fade_in},"
-                    f"afade=t=out:st={duration - fade_out}:d={fade_out},"
-                    f"volume={bgm_volume_amplified:.3f},"
-                    f"asetpts=PTS-STARTPTS,"  # タイムスタンプリセット
-                    f"apad=pad_dur={start_time}"  # 前に無音を追加
-                    f"[bgm{i}]"
+                    f"asetpts=PTS-STARTPTS"
+                    f"[bgm{i}_trimmed]"
                 )
 
-            filters.append(bgm_filter)
+            filters.append(bgm_part)
+
+            # Step 2: フェード適用
+            fade_part = (
+                f"[bgm{i}_trimmed]"
+                f"afade=t=in:st=0:d={fade_in},"
+                f"afade=t=out:st={duration - fade_out}:d={fade_out},"
+                f"volume={bgm_volume:.3f}"
+                f"[bgm{i}_faded]"
+            )
+            filters.append(fade_part)
+
+            # Step 3: 前に無音を追加（anullsrc + concat）
+            if start_time > 0:
+                silence_part = (
+                    f"anullsrc=channel_layout=stereo:sample_rate=48000:duration={start_time}"
+                    f"[silence{i}];"
+                    f"[silence{i}][bgm{i}_faded]concat=n=2:v=0:a=1"
+                    f"[bgm{i}]"
+                )
+                self.logger.info(f"    Adding {start_time:.1f}s silence before BGM")
+            else:
+                silence_part = f"[bgm{i}_faded]acopy[bgm{i}]"
+
+            filters.append(silence_part)
             bgm_outputs.append(f'[bgm{i}]')
 
-        # すべてのBGMをまずミックス
+        # Step 4: 全BGMをミックス
         if len(bgm_outputs) > 1:
-            # 複数BGMを先にミックス
-            bgm_mix = f"{''.join(bgm_outputs)}amix=inputs={len(bgm_outputs)}:duration=longest[bgm_all]"
+            bgm_mix = f"{''.join(bgm_outputs)}amix=inputs={len(bgm_outputs)}:duration=longest:dropout_transition=0[bgm_all]"
             filters.append(bgm_mix)
+            self.logger.info(f"  Mixing {len(bgm_outputs)} BGM tracks")
 
-            # ナレーションと合成BGMをミックス
-            final_mix = "[narration][bgm_all]amix=inputs=2:duration=longest:dropout_transition=3[audio]"
+            # Step 5: ナレーションとミックス（ナレーションの長さに合わせる）
+            final_mix = "[narration][bgm_all]amix=inputs=2:duration=first:dropout_transition=3[audio]"
         else:
-            # BGMが1つの場合
-            final_mix = f"[narration]{bgm_outputs[0]}amix=inputs=2:duration=longest:dropout_transition=3[audio]"
+            final_mix = f"[narration]{bgm_outputs[0]}amix=inputs=2:duration=first:dropout_transition=3[audio]"
 
         filters.append(final_mix)
 
-        return ";".join(filters)
+        filter_str = ";".join(filters)
+        self.logger.info("=" * 60)
+        self.logger.debug(f"Filter string:\n{filter_str}")
+
+        return filter_str
 
     def _burn_subtitles(self, input_video: Path, srt_path: Path, output_path: Path) -> None:
         """
