@@ -103,18 +103,22 @@ class Phase07Composition(PhaseBase):
 
         # BGM設定
         bgm_config = self.phase_config.get("bgm", {})
-        base_volume = bgm_config.get("volume", 0.1)
+        self.bgm_base_volume = bgm_config.get("volume", 0.1)
+        self.bgm_volume_amplification = bgm_config.get("volume_amplification", 1.0)
 
-        # 音量増幅率をYAMLから取得（デフォルト: 1.0 = 増幅なし）
-        volume_amplification = bgm_config.get("volume_amplification", 1.0)
-
-        # 最終的なBGM音量を計算
-        self.bgm_volume = min(base_volume * volume_amplification, 0.5)  # 最大50%に制限
-
+        # BGMタイプごとの音量倍率を読み込み
+        self.bgm_volume_by_type = bgm_config.get("volume_by_type", {})
         self.logger.info(
-            f"BGM volume: {base_volume:.0%} × {volume_amplification:.1f} = {self.bgm_volume:.0%} "
-            f"(max 50%)"
+            f"BGM volume settings: base={self.bgm_base_volume:.0%}, "
+            f"amplification={self.bgm_volume_amplification:.1f}x"
         )
+        if self.bgm_volume_by_type:
+            self.logger.info("BGM volume by type:")
+            for bgm_type, multiplier in self.bgm_volume_by_type.items():
+                final_volume = min(self.bgm_base_volume * self.bgm_volume_amplification * multiplier, 1.0)
+                self.logger.info(f"  {bgm_type}: {multiplier:.1f}x → {final_volume:.1%}")
+
+        # BGM fade設定
         self.bgm_fade_in = bgm_config.get("fade_in", 3.0)  # フェードイン3秒
         self.bgm_fade_out = bgm_config.get("fade_out", 3.0)  # フェードアウト3秒
         self.bgm_crossfade = bgm_config.get("crossfade", 2.0)  # セグメント間クロスフェード2秒
@@ -677,7 +681,8 @@ class Phase07Composition(PhaseBase):
                 "start_time": current_time,
                 "duration": total_duration,
                 "section_ids": [s['section_id'] for s in sections],
-                "section_titles": [s['title'] for s in sections]
+                "section_titles": [s['title'] for s in sections],
+                "volume": self._get_bgm_volume_for_type(bgm_type)
             }
 
             bgm_segments.append(segment)
@@ -687,7 +692,8 @@ class Phase07Composition(PhaseBase):
                 f"BGM segment: {bgm_type} "
                 f"[{segment['start_time']:.1f}s - {current_time:.1f}s] "
                 f"Duration: {total_duration:.1f}s "
-                f"(Sections: {segment['section_ids']})"
+                f"(Sections: {segment['section_ids']}) "
+                f"Volume: {segment['volume']:.1%}"
             )
 
         if not bgm_segments:
@@ -713,7 +719,26 @@ class Phase07Composition(PhaseBase):
                 f"duration: {seg['duration']:.1f}s)"
             )
         return {"segments": bgm_segments}
-    
+
+    def _get_bgm_volume_for_type(self, bgm_type: str) -> float:
+        """
+        BGMタイプに応じた音量を計算
+
+        Args:
+            bgm_type: BGMタイプ（opening/main/ending）
+
+        Returns:
+            最終的なBGM音量（0.0-1.0）
+        """
+        # タイプごとの倍率を取得（デフォルト: 1.0）
+        type_multiplier = self.bgm_volume_by_type.get(bgm_type, 1.0)
+
+        # 最終音量 = 基本音量 × 全体増幅率 × タイプ別倍率
+        final_volume = self.bgm_base_volume * self.bgm_volume_amplification * type_multiplier
+
+        # 最大100%に制限
+        return min(final_volume, 1.0)
+
     def _create_video_clips(
         self,
         clip_paths: List[Path],
@@ -3033,23 +3058,20 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     def _build_audio_filter(self, bgm_segments: List[dict]) -> str:
         """
-        BGMミックス用のffmpegフィルター生成（修正版）
+        BGMミックス用のffmpegフィルター生成（セグメントごとの音量対応）
 
         戦略:
         1. 各BGMをループ・トリミング
         2. anullsrcで前に無音を追加
         3. concatで結合
-        4. 全BGMをamixでミックス
-        5. ナレーションとミックス
+        4. 各BGMに個別の音量を適用
+        5. 全BGMをamixでミックス
+        6. ナレーションとミックス
         """
         filters = []
 
-        # BGM音量（増幅なし、すでにinitで計算済み）
-        bgm_volume = self.bgm_volume
-
         self.logger.info("=" * 60)
         self.logger.info("Building audio filter:")
-        self.logger.info(f"  BGM volume: {bgm_volume:.1%}")
         self.logger.info(f"  BGM segments: {len(bgm_segments)}")
 
         # ナレーション（入力1）
@@ -3063,6 +3085,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             duration = segment.get('duration', 0)
             fade_in = segment.get('fade_in', self.bgm_fade_in)
             fade_out = segment.get('fade_out', self.bgm_fade_out)
+            bgm_volume = segment.get('volume', 0.13)  # セグメントごとの音量を取得
 
             # BGMファイルの実際の長さを取得
             bgm_path = Path(segment.get('file_path', ''))
@@ -3074,7 +3097,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             self.logger.info(
                 f"  BGM {i+1} ({segment.get('bgm_type')}): "
                 f"start={start_time:.1f}s, duration={duration:.1f}s, "
-                f"bgm_length={bgm_actual_duration:.1f}s"
+                f"bgm_length={bgm_actual_duration:.1f}s, "
+                f"volume={bgm_volume:.1%}"
             )
 
             # Step 1: BGMをループ・トリミング
