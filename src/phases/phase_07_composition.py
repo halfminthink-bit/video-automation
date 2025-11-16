@@ -1735,7 +1735,12 @@ class Phase07Composition(PhaseBase):
 
         # 字幕イベントを追加
         for subtitle in subtitles:
-            start_time = self._format_ass_time(subtitle.start_time)
+            # タイミングの微調整（極小値の切り上げ/丸め）
+            start_time_val = max(0.0, subtitle.start_time)
+            if start_time_val < 0.1:
+                start_time_val = 0.0
+
+            start_time = self._format_ass_time(start_time_val)
             end_time = self._format_ass_time(subtitle.end_time)
 
             # 複数行のテキストを結合（改行文字を削除）
@@ -1756,6 +1761,10 @@ class Phase07Composition(PhaseBase):
                 if line3:
                     text_parts.append(line3)
 
+            # 空の字幕はスキップ
+            if not text_parts:
+                continue
+
             subtitle_text = '\\N'.join(text_parts)  # ASS形式の改行
 
             ass_content += f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{subtitle_text}\n"
@@ -1770,17 +1779,25 @@ class Phase07Composition(PhaseBase):
 
     def _get_ass_header(self) -> str:
         """ASS字幕のヘッダーを生成（Legacy02完全準拠）"""
-        # フォントサイズを調整（Pillowの60px ≈ ASSの45）
-        font_size = 45  # 60から45に変更
-        margin_v = 120  # Legacy02と同じ
+        # 解像度を明示的に指定
+        video_width = 1920
+        video_height = 1080
+
+        # フォントサイズ（Pillowの60px ≈ FFmpeg ASSの35）
+        font_size = 35
+        # 黒バー内の縦位置（中央108pxからオフセット20を引く → 88）
+        margin_v = 88
 
         return f"""[Script Info]
 Title: Subtitles
 ScriptType: v4.00+
+PlayResX: {video_width}
+PlayResY: {video_height}
+WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,MS Mincho,{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,3,2,2,10,10,{margin_v},1
+Style: Default,MS Mincho,{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,1,2,10,10,{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
