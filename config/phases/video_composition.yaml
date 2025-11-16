@@ -53,12 +53,18 @@ transitions:
 
 # BGM設定
 bgm:
-  volume: 0.13              # BGM音量（0.0-1.0） - ナレーションの13%（Azure TTS用に30%アップ）
-  volume_amplification: 1.0 # BGM音量の増幅率（テスト用に一時的に変更可能）
+  volume: 0.13              # 基本BGM音量（0.0-1.0） - ナレーションの13%
+  volume_amplification: 1.0 # 全体の音量増幅率（デフォルト: 1.0 = 増幅なし）
   fade_in: 2.0              # フェードイン時間（秒）
   fade_out: 2.0             # フェードアウト時間（秒）
   crossfade: 3.0            # BGM切り替え時のクロスフェード（秒）
   loop_enabled: true        # BGMループを有効化
+
+  # BGMタイプごとの音量調整（基本音量に対する倍率）
+  volume_by_type:
+    opening: 1.5   # openingは1.5倍（13% × 1.5 = 19.5%）
+    main: 1.5      # mainは1.5倍（13% × 1.5 = 19.5%）
+    ending: 0.7    # endingは0.7倍（13% × 0.7 = 9.1%）
 
 # 字幕設定
 subtitle:
