@@ -2188,24 +2188,24 @@ class Phase07Composition(PhaseBase):
 
     def _get_ass_header_fixed(self) -> str:
         """
-        ASS字幕のヘッダー（最終調整版）
-
-        変更点:
-        1. フォントサイズ: 48（Legacy02の60pxに近い見た目）
-        2. MarginV: 108（黒バーの数学的中央）
-        3. Encoding: 128（日本語）
+        ASS字幕のヘッダー（2行字幕の位置調整版）
         """
         video_width = 1920
         video_height = 1080
 
-        # フォントサイズ（48がLegacy02の60pxに近い）
+        # フォントサイズ
         font_size = 48
 
         # 黒バーの高さ: 216px
         # 黒バーの開始位置: 1080 - 216 = 864px
         # 黒バーの中央: 864 + 216/2 = 972px
-        # MarginVは画面下部からの距離: 1080 - 972 = 108px
-        margin_v = 108
+
+        # MarginVは画面下部からの距離
+        # 2行字幕を考慮して、少し下げる
+        # 字幕の高さ（2行）: 約48*2 + 行間 = 約100px
+        # 黒バー中央（972px）に字幕中央を配置するには：
+        # MarginV = 1080 - 972 - 25 = 83
+        margin_v = 83  # 108から83に変更（25px下げる）
 
         return f"""[Script Info]
 Title: Generated Subtitles
