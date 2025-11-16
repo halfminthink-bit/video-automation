@@ -103,10 +103,10 @@ class Phase07Composition(PhaseBase):
 
         # BGM設定
         bgm_config = self.phase_config.get("bgm", {})
-        # BGM音量を1.8倍に増幅（最大30%に制限）
+        # BGM音量を5倍に増幅（最大50%に制限）- 確認用に大幅アップ
         base_volume = bgm_config.get("volume", 0.1)
-        self.bgm_volume = min(base_volume * 1.8, 0.3)
-        self.logger.info(f"BGM volume: {base_volume:.0%} -> {self.bgm_volume:.0%} (1.8x amplified)")
+        self.bgm_volume = min(base_volume * 5.0, 0.5)  # 10% → 50%に大幅アップ（確認用）
+        self.logger.info(f"BGM volume: {base_volume:.0%} -> {self.bgm_volume:.0%} (5x amplified for testing)")
         self.bgm_fade_in = bgm_config.get("fade_in", 3.0)  # フェードイン3秒
         self.bgm_fade_out = bgm_config.get("fade_out", 3.0)  # フェードアウト3秒
         self.bgm_crossfade = bgm_config.get("crossfade", 2.0)  # セグメント間クロスフェード2秒
@@ -3003,8 +3003,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         """
         filters = []
 
-        # BGM音量を1.8倍に（最大30%まで）
-        bgm_volume_amplified = min(self.bgm_volume * 1.8, 0.3)
+        # BGM音量をさらに2倍に（最大70%まで）- 確認用に追加アップ
+        bgm_volume_amplified = min(self.bgm_volume * 2.0, 0.7)  # さらに2倍アップ（確認用）
 
         # ナレーション（入力1）
         filters.append("[1:a]volume=1.0[narration]")
@@ -3035,10 +3035,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     f"[{input_idx}:a]"
                     f"aloop=loop={loop_count}:size={int(bgm_actual_duration * 48000)},"
                     f"atrim=0:{duration},"
-                    f"volume={bgm_volume_amplified:.3f},"
-                    f"adelay={int(start_time * 1000)}|{int(start_time * 1000)},"
                     f"afade=t=in:st=0:d={fade_in},"
-                    f"afade=t=out:st={duration - fade_out}:d={fade_out}"
+                    f"afade=t=out:st={duration - fade_out}:d={fade_out},"
+                    f"volume={bgm_volume_amplified:.3f},"
+                    f"asetpts=PTS-STARTPTS,"  # タイムスタンプリセット
+                    f"apad=pad_dur={start_time}"  # 前に無音を追加
                     f"[bgm{i}]"
                 )
 
@@ -3052,10 +3053,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 bgm_filter = (
                     f"[{input_idx}:a]"
                     f"atrim=0:{min(duration, bgm_actual_duration)},"
-                    f"volume={bgm_volume_amplified:.3f},"
-                    f"adelay={int(start_time * 1000)}|{int(start_time * 1000)},"
                     f"afade=t=in:st=0:d={fade_in},"
-                    f"afade=t=out:st={duration - fade_out}:d={fade_out}"
+                    f"afade=t=out:st={duration - fade_out}:d={fade_out},"
+                    f"volume={bgm_volume_amplified:.3f},"
+                    f"asetpts=PTS-STARTPTS,"  # タイムスタンプリセット
+                    f"apad=pad_dur={start_time}"  # 前に無音を追加
                     f"[bgm{i}]"
                 )
 
@@ -3069,10 +3071,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             filters.append(bgm_mix)
 
             # ナレーションと合成BGMをミックス
-            final_mix = "[narration][bgm_all]amix=inputs=2:duration=first:dropout_transition=3[audio]"
+            final_mix = "[narration][bgm_all]amix=inputs=2:duration=longest:dropout_transition=3[audio]"
         else:
             # BGMが1つの場合
-            final_mix = f"[narration]{bgm_outputs[0]}amix=inputs=2:duration=first:dropout_transition=3[audio]"
+            final_mix = f"[narration]{bgm_outputs[0]}amix=inputs=2:duration=longest:dropout_transition=3[audio]"
 
         filters.append(final_mix)
 
