@@ -1763,8 +1763,16 @@ class Phase06Subtitles(PhaseBase):
             # デフォルトは元の終了時刻
             new_end = sub.end_time
 
+            # 🔍 デバッグログ: テキスト末尾と句点判定
+            trimmed = full_text.rstrip()
+            end_snippet = trimmed[-5:] if len(trimmed) >= 5 else trimmed
+            ends_with_punct = trimmed.endswith(('。', '！', '？'))
+            self.logger.debug(
+                f"字幕 {sub.index}: 末尾='{end_snippet}' (句点判定: {ends_with_punct})"
+            )
+
             # 句点（。！？）で終わる場合のみ延長を検討
-            if full_text.rstrip().endswith(('。', '！', '？')):
+            if ends_with_punct:
                 # 次の字幕が存在するか確認
                 if i < len(subtitles) - 1:
                     next_start = subtitles[i + 1].start_time
@@ -1782,6 +1790,23 @@ class Phase06Subtitles(PhaseBase):
                             f"{old_end:.3f}秒 → {new_end:.3f}秒 "
                             f"(+{new_end - old_end:.3f}秒)"
                         )
+                    else:
+                        # 🔍 延長できない理由
+                        self.logger.debug(
+                            f"字幕 {sub.index}: 句点あるが延長不要 "
+                            f"(max_end={max_end:.3f}秒 <= current_end={sub.end_time:.3f}秒)"
+                        )
+                else:
+                    # 🔍 最後の字幕
+                    self.logger.debug(f"字幕 {sub.index}: 句点あるが最後の字幕のため延長なし")
+            else:
+                # 🔍 句点で終わらない理由を記録（ギャップ情報）
+                if i < len(subtitles) - 1:
+                    next_start = subtitles[i + 1].start_time
+                    gap = next_start - sub.end_time
+                    self.logger.debug(
+                        f"字幕 {sub.index}: 句点なし（延長スキップ） gap={gap:.3f}秒"
+                    )
 
             # 新しい字幕エントリを作成
             adjusted_sub = SubtitleEntry(
