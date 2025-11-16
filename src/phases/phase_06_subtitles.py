@@ -994,13 +994,9 @@ class Phase06Subtitles(PhaseBase):
                     self.logger.debug(f"  → Not splitting (inside quotation)")
             
             if char.endswith('。') and not in_quotation:
-                # ✅ 修正: 現在の文の終了時刻を次の文字の開始時刻に設定
-                # 句点後の間隔（約1秒）中も字幕を表示し続ける
-                if i + 1 < len(char_start_times):
-                    sentence_end_time = char_start_times[i + 1] + offset
-                else:
-                    # 最後の文の場合は句点の終了時刻を使用
-                    sentence_end_time = char_end
+                # 句点の終了時刻を使用（セクション間は延長しない）
+                # 延長は後段の _adjust_subtitle_timing_with_sentence_end で実施
+                sentence_end_time = char_end
 
                 sentences.append({
                     'text': current_sentence,
