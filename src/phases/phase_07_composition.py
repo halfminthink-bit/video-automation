@@ -541,17 +541,26 @@ class Phase07Composition(PhaseBase):
         # セクションを探す
         for section in sections:
             if section.get('section_id') == section_id:
-                # 文字レベルタイミングから長さを計算
+                # 🔥 重要: durationフィールドを直接使用（優先）
+                duration = section.get('duration')
+
+                if duration is not None:
+                    self.logger.info(f"Section {section_id} duration from audio_timing: {duration:.2f}s")
+                    return duration
+
+                # フォールバック1: char_end_timesの最後の値
+                char_end_times = section.get('char_end_times', [])
+                if char_end_times:
+                    duration = char_end_times[-1]
+                    self.logger.info(f"Section {section_id} duration from char_end_times: {duration:.2f}s")
+                    return duration
+
+                # フォールバック2: character_end_times_seconds（古い形式）
                 char_end_times = section.get('character_end_times_seconds', [])
                 if char_end_times:
-                    duration = char_end_times[-1]  # 最後の文字の終了時刻
-                    self.logger.debug(f"Section {section_id} actual duration from timings: {duration:.2f}s")
+                    duration = char_end_times[-1]
+                    self.logger.info(f"Section {section_id} duration from character_end_times_seconds: {duration:.2f}s")
                     return duration
-                
-                # フォールバック: durationフィールド
-                duration = section.get('duration', 120.0)
-                self.logger.debug(f"Section {section_id} duration from field: {duration:.2f}s")
-                return duration
         
         # セクションが見つからない場合
         self.logger.warning(f"Section {section_id} not found in audio_timing")
@@ -1704,30 +1713,53 @@ class Phase07Composition(PhaseBase):
     
     def _create_ass_subtitles(self) -> Path:
         """
-        ASS字幕ファイルを生成（Legacy02仕様）
-
-        subtitles.jsonとaudio_timing.jsonから直接ASS形式の字幕を生成
+        ASS字幕ファイルを生成（Legacy02準拠）
+        subtitle_timing.jsonから字幕データを読み込む
 
         Returns:
             ASS字幕ファイルのパス
         """
-        subtitles_path = self.working_dir / "06_subtitles" / "subtitles.json"
-        audio_timing_path = self.working_dir / "02_audio" / "audio_timing.json"
+        # Legacy02と同じメソッドを使用
+        subtitles = self._load_subtitles()
 
-        if not subtitles_path.exists():
-            raise FileNotFoundError(f"subtitles.json not found: {subtitles_path}")
+        if not subtitles:
+            self.logger.warning("No subtitles found, creating empty ASS file")
+            # 空のASSファイルを作成
+            ass_path = self.phase_dir / "subtitles.ass"
+            with open(ass_path, 'w', encoding='utf-8') as f:
+                f.write(self._get_ass_header())
+            return ass_path
 
-        if not audio_timing_path.exists():
-            raise FileNotFoundError(f"audio_timing.json not found: {audio_timing_path}")
+        # ASSヘッダー
+        ass_content = self._get_ass_header()
 
-        with open(subtitles_path, 'r', encoding='utf-8') as f:
-            subtitles_data = json.load(f)
+        # 字幕イベントを追加
+        for subtitle in subtitles:
+            start_time = self._format_ass_time(subtitle.start_time)
+            end_time = self._format_ass_time(subtitle.end_time)
 
-        with open(audio_timing_path, 'r', encoding='utf-8') as f:
-            audio_timing = json.load(f)
+            # 複数行のテキストを結合
+            text_parts = [subtitle.text_line1]
+            if subtitle.text_line2:
+                text_parts.append(subtitle.text_line2)
+            if subtitle.text_line3:
+                text_parts.append(subtitle.text_line3)
 
-        # ASSヘッダー（Legacy02の仕様に準拠）
-        ass_header = f"""[Script Info]
+            subtitle_text = '\\N'.join(text_parts)  # ASS形式の改行
+
+            ass_content += f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{subtitle_text}\n"
+
+        # ASSファイルに書き込み
+        ass_path = self.phase_dir / "subtitles.ass"
+        with open(ass_path, 'w', encoding='utf-8') as f:
+            f.write(ass_content)
+
+        self.logger.info(f"✅ Created ASS subtitle file with {len(subtitles)} entries")
+        return ass_path
+
+    def _get_ass_header(self) -> str:
+        """ASS字幕のヘッダーを生成"""
+        return f"""[Script Info]
 Title: Subtitles
 ScriptType: v4.00+
 
@@ -1738,36 +1770,6 @@ Style: Default,Noto-Sans-JP-Bold,60,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
-
-        # 字幕イベントを生成
-        ass_events = []
-
-        for timing_section in audio_timing:
-            section_id = timing_section.get('section_id')
-            char_start_times = timing_section.get('character_start_times_seconds', [])
-            char_end_times = timing_section.get('character_end_times_seconds', [])
-            text = timing_section.get('text', '')
-
-            if not char_start_times or not char_end_times:
-                continue
-
-            # 字幕の開始/終了時刻
-            start_time = self._format_ass_time(char_start_times[0])
-            end_time = self._format_ass_time(char_end_times[-1])
-
-            # テキスト中の改行を\\Nに変換
-            subtitle_text = text.replace('\n', '\\N')
-
-            ass_events.append(f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{subtitle_text}")
-
-        # ASSファイルを生成
-        ass_path = self.working_dir / "06_subtitles" / "subtitles.ass"
-        with open(ass_path, 'w', encoding='utf-8') as f:
-            f.write(ass_header)
-            f.write('\n'.join(ass_events))
-
-        self.logger.info(f"✅ Created ASS subtitles: {ass_path.name} ({len(ass_events)} entries)")
-        return ass_path
 
     def _format_ass_time(self, seconds: float) -> str:
         """
