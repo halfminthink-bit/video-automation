@@ -1646,7 +1646,7 @@ class SubtitleGenerator:
                 line1 = "".join(line1_chars)
                 line2 = "".join(line2_chars)
 
-                if self.remove_punctuation_in_display:
+                if self.splitter.remove_punctuation_in_display:
                     # 句読点を除去（「、」は残す）
                     line1 = "".join([c for c in line1 if c not in ["。", "！", "？", "…"]])
                     line2 = "".join([c for c in line2 if c not in ["。", "！", "？", "…"]])
@@ -1683,7 +1683,7 @@ class SubtitleGenerator:
                         f"Consider using longer max_chars or multiple subtitles."
                     )
 
-                if self.remove_punctuation_in_display:
+                if self.splitter.remove_punctuation_in_display:
                     # 句読点を除去（「、」と「」は残す）
                     line_text = "".join([c for c in line_text if c not in ["。", "！", "？", "…"]])
                 lines.append(line_text)
@@ -1710,7 +1710,7 @@ class SubtitleGenerator:
             line_chars = remaining_chars[:split_pos]
             line_text = "".join(line_chars)
 
-            if self.remove_punctuation_in_display:
+            if self.splitter.remove_punctuation_in_display:
                 # 句読点を除去（「、」と「」は残す）
                 line_text = "".join([c for c in line_text if c not in ["。", "！", "？", "…"]])
 
