@@ -1723,11 +1723,11 @@ class Phase06Subtitles(PhaseBase):
         subtitles: List[SubtitleEntry]
     ) -> List[SubtitleEntry]:
         """
-        句点（。）で終わる字幕のみ、次の字幕開始0.3秒前まで延長を許可
+        句点（。！？）で終わる字幕のみ、次の字幕開始0.3秒前まで延長を許可
 
         ルール:
         1. 字幕の開始時刻は絶対に変更しない（ElevenLabs FA通り）
-        2. 字幕が句点（。）で終わる場合のみ、終了時刻を延長可能
+        2. 字幕が句点（。！？）で終わる場合のみ、終了時刻を延長可能
         3. 延長は次の字幕開始の0.3秒前まで
         4. 句点で終わらない字幕（、など）は延長しない
 
@@ -1763,8 +1763,8 @@ class Phase06Subtitles(PhaseBase):
             # デフォルトは元の終了時刻
             new_end = sub.end_time
 
-            # 句点（。）で終わる場合のみ延長を検討
-            if full_text.rstrip().endswith('。'):
+            # 句点（。！？）で終わる場合のみ延長を検討
+            if full_text.rstrip().endswith(('。', '！', '？')):
                 # 次の字幕が存在するか確認
                 if i < len(subtitles) - 1:
                     next_start = subtitles[i + 1].start_time
@@ -1774,11 +1774,13 @@ class Phase06Subtitles(PhaseBase):
 
                     # 現在の終了時刻より後なら延長
                     if max_end > sub.end_time:
+                        old_end = sub.end_time
                         new_end = max_end
                         extended_count += 1
-                        self.logger.debug(
-                            f"Subtitle {sub.index}: Extended from {sub.end_time:.2f}s to {new_end:.2f}s "
-                            f"(next starts at {next_start:.2f}s)"
+                        self.logger.info(
+                            f"字幕 {sub.index}: 句点終わりのため延長 "
+                            f"{old_end:.3f}秒 → {new_end:.3f}秒 "
+                            f"(+{new_end - old_end:.3f}秒)"
                         )
 
             # 新しい字幕エントリを作成
