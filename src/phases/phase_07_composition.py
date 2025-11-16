@@ -2204,8 +2204,8 @@ class Phase07Composition(PhaseBase):
         # 2行字幕を考慮して、少し下げる
         # 字幕の高さ（2行）: 約48*2 + 行間 = 約100px
         # 黒バー中央（972px）に字幕中央を配置するには：
-        # MarginV = 1080 - 972 - 25 = 83
-        margin_v = 83  # 108から83に変更（25px下げる）
+        # MarginV = 1080 - 972 - 38 ≒ 70 （さらに約15px下げる）
+        margin_v = 70  # 83→70 に変更（さらに下方向へ）
 
         return f"""[Script Info]
 Title: Generated Subtitles
