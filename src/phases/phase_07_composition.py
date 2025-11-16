@@ -1496,12 +1496,37 @@ class Phase07Composition(PhaseBase):
             image_timings = []
             sorted_section_ids = sorted(section_images.keys())
 
+            # 音声の実際の長さを取得
+            actual_audio_duration = self._get_audio_duration(audio_path)
+            self.logger.info(f"Actual audio duration: {actual_audio_duration:.3f}s")
+
+            # Section 1とSection 2の合計時間を計算
+            section_1_2_duration = 0
+            for section_id in sorted_section_ids[:-1]:  # 最後以外
+                section_1_2_duration += section_durations.get(section_id, 0)
+
+            # Section 3に必要な時間（音声の実際の長さ - Section 1,2の合計）
+            if len(sorted_section_ids) >= 3:
+                remaining_duration = actual_audio_duration - section_1_2_duration
+                self.logger.info(
+                    f"Section 1+2 duration: {section_1_2_duration:.3f}s, "
+                    f"Section 3 needs: {remaining_duration:.3f}s"
+                )
+
             for section_id in sorted_section_ids:
                 images = section_images[section_id]
-                section_duration = section_durations.get(section_id, 0)
                 images_count = len(images)
 
-                if images_count == 0 or section_duration == 0:
+                if images_count == 0:
+                    continue
+
+                # 最後のセクション（Section 3）は音声の実際の長さに合わせる
+                if section_id == sorted_section_ids[-1] and len(sorted_section_ids) >= 3:
+                    section_duration = remaining_duration
+                else:
+                    section_duration = section_durations.get(section_id, 0)
+
+                if section_duration == 0:
                     continue
 
                 # このセクションの各画像の表示時間（均等分割）
@@ -1541,12 +1566,23 @@ class Phase07Composition(PhaseBase):
                 ]
 
                 try:
-                    subprocess.run(cmd, check=True, capture_output=True, text=True)
+                    result = subprocess.run(
+                        cmd,
+                        check=True,
+                        capture_output=True,
+                        text=False,  # バイナリモードで取得
+                        encoding=None  # エンコーディングを指定しない
+                    )
                     segment_files.append(output_segment)
                     if (i + 1) % 3 == 0 or i == len(image_timings) - 1:
                         self.logger.info(f"  Created {i + 1}/{len(image_timings)} segments")
                 except subprocess.CalledProcessError as e:
-                    self.logger.error(f"Failed to create segment {i}: {e.stderr}")
+                    # エラーメッセージをUTF-8でデコード（失敗時は無視）
+                    try:
+                        stderr_msg = e.stderr.decode('utf-8', errors='ignore') if e.stderr else ''
+                    except:
+                        stderr_msg = '<decode failed>'
+                    self.logger.error(f"Failed to create segment {i}: {stderr_msg}")
                     raise
 
             # 4. concat用のファイルリスト作成
@@ -1610,18 +1646,40 @@ class Phase07Composition(PhaseBase):
                 '-crf', '23',
                 '-c:a', 'aac',
                 '-b:a', '192k',
-                '-shortest',
+                '-t', f'{actual_audio_duration:.3f}',  # 音声の正確な長さを指定
+                '-avoid_negative_ts', 'make_zero',  # タイムスタンプの問題を回避
                 str(final_output)
             ])
 
             # FFmpegを実行
             self.logger.info("Running final ffmpeg command...")
             try:
-                result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+                result = subprocess.run(
+                    cmd,
+                    check=True,
+                    capture_output=True,
+                    text=False,  # バイナリモードで取得
+                    encoding=None  # エンコーディングを指定しない
+                )
                 self.logger.info(f"✅ Video generation completed: {final_output}")
+
+                # 必要に応じてログ出力（UTF-8でデコード）
+                if result.stdout:
+                    try:
+                        stdout = result.stdout.decode('utf-8', errors='ignore')
+                        if stdout.strip():
+                            self.logger.debug(f"FFmpeg output: {stdout}")
+                    except:
+                        pass  # デコードできない場合は無視
+
             except subprocess.CalledProcessError as e:
                 self.logger.error(f"❌ ffmpeg failed with code {e.returncode}")
-                self.logger.error(f"STDERR:\n{e.stderr}")
+                # エラーメッセージをUTF-8でデコード（失敗時は無視）
+                try:
+                    stderr_msg = e.stderr.decode('utf-8', errors='ignore') if e.stderr else ''
+                    self.logger.error(f"STDERR:\n{stderr_msg}")
+                except:
+                    self.logger.error("STDERR: <decode failed>")
                 raise
 
             return final_output
@@ -2134,7 +2192,7 @@ class Phase07Composition(PhaseBase):
 
         変更点:
         1. フォントサイズ: 48（Legacy02の60pxに近い見た目）
-        2. MarginV: 100（黒バー内の適切な位置）
+        2. MarginV: 108（黒バーの数学的中央）
         3. Encoding: 128（日本語）
         """
         video_width = 1920
@@ -2143,8 +2201,11 @@ class Phase07Composition(PhaseBase):
         # フォントサイズ（48がLegacy02の60pxに近い）
         font_size = 48
 
-        # 黒バー内での位置（下から100px）
-        margin_v = 100
+        # 黒バーの高さ: 216px
+        # 黒バーの開始位置: 1080 - 216 = 864px
+        # 黒バーの中央: 864 + 216/2 = 972px
+        # MarginVは画面下部からの距離: 1080 - 972 = 108px
+        margin_v = 108
 
         return f"""[Script Info]
 Title: Generated Subtitles
