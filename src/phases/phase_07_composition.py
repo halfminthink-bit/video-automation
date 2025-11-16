@@ -2186,10 +2186,21 @@ class Phase07Composition(PhaseBase):
 
         self.logger.info(f"ASS字幕生成: {len(subtitles)}個のエントリ")
 
-        for subtitle in subtitles:
-            # オリジナルのタイミングをそのまま使用
+        # 連続字幕の0.2s前まで前の字幕を維持（延長）
+        adjusted_subtitles = []
+        for i, subtitle in enumerate(subtitles):
             start_time = subtitle.start_time
             end_time = subtitle.end_time
+            if i < len(subtitles) - 1:
+                next_start = subtitles[i + 1].start_time
+                # 次字幕の0.2秒前まで延長（負にならないようクランプ）
+                desired_end = max(start_time, next_start - 0.2)
+                end_time = min(end_time, desired_end) if desired_end >= start_time else end_time
+            adjusted_subtitles.append((start_time, end_time, subtitle))
+
+        for start_time, end_time, subtitle in adjusted_subtitles:
+            # オリジナルのタイミングをそのまま使用
+            # （上で必要に応じてend_timeは延長/調整済み）
 
             # セクション境界付近の字幕を特別にログ
             for boundary in section_boundaries:
@@ -3006,8 +3017,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         # BGM音量を1.8倍に（最大30%まで）
         bgm_volume_amplified = min(self.bgm_volume * 1.8, 0.3)
 
-        # ナレーション（入力1）
-        filters.append("[1:a]volume=1.0[narration]")
+        # ナレーション（入力1） - わずかに減衰してBGMを聞かせやすくする
+        filters.append("[1:a]volume=0.90[narration]")
 
         # 各BGMセグメント（入力2以降）
         bgm_outputs = []
