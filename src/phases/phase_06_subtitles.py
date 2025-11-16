@@ -164,9 +164,9 @@ class Phase06Subtitles(PhaseBase):
             self.logger.info("Adjusting subtitle timing for sentence endings...")
             subtitles = self._adjust_subtitle_timing_with_sentence_end(subtitles)
 
-            # 3.5. 全字幕の表示時間を延長（次の字幕の0.2秒前まで）
-            self.logger.info("Extending subtitle display times (0.2s margin before next)...")
-            subtitles = self._extend_subtitle_display(subtitles)
+            # 3.5. 全字幕の一律延長は不要（句点延長で制御するため無効化）
+            # self.logger.info("Extending subtitle display times (0.2s margin before next)...")
+            # subtitles = self._extend_subtitle_display(subtitles)
 
             # 4. 句読点を削除（分割ロジックの後に実行）
             self.logger.info("Removing punctuation from subtitles...")
