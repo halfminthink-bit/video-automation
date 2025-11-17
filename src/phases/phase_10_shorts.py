@@ -418,7 +418,7 @@ class Phase10Shorts(PhaseBase):
             try:
                 self.logger.info(f"Uploading clip {i}/{total_clips}...")
 
-                # メタデータを生成
+                # メタデータを生成（configにmax_tokensとtemperatureを含める）
                 metadata = generator.generate_metadata(
                     subject=self.subject,
                     original_title=original_metadata.get("title", f"{self.subject}の物語"),
@@ -426,8 +426,11 @@ class Phase10Shorts(PhaseBase):
                     clip_number=i,
                     total_clips=total_clips,
                     main_video_url=main_video_url,
-                    max_tokens=metadata_config.get("max_tokens", 2000),
-                    temperature=metadata_config.get("temperature", 0.7)
+                    config={
+                        **metadata_config,
+                        "max_tokens": metadata_config.get("max_tokens", 2000),
+                        "temperature": metadata_config.get("temperature", 0.7)
+                    }
                 )
 
                 # アップロード

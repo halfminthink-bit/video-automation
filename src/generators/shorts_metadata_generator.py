@@ -124,7 +124,7 @@ JSON形式で以下のキーを含めてください:
 
         response = self.client.messages.create(
             model=self.model,
-            max_tokens=1000,
+            max_tokens=config.get("max_tokens", 1000),
             messages=[{"role": "user", "content": prompt}]
         )
 
