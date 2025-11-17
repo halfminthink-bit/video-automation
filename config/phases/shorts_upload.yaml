@@ -1,0 +1,89 @@
+# ========================================
+# Phase 10: YouTube Shorts Upload Configuration
+# ========================================
+
+# ========================================
+# 認証設定（Phase 9と共有）
+# ========================================
+authentication:
+  credentials_file: "config/.youtube_credentials.json"
+  token_file: "data/cache/youtube_token.json"
+  scopes:
+    - "https://www.googleapis.com/auth/youtube.upload"
+    - "https://www.googleapis.com/auth/youtube"  # サムネイルアップロードに必要
+
+# ========================================
+# 動画分割設定
+# ========================================
+video_split:
+  segment_duration: 60  # 分割秒数
+  max_clips: 5          # 投稿する最大クリップ数
+  output_prefix: "short"  # ファイル名プレフィックス
+
+# ========================================
+# アスペクト比変換設定
+# ========================================
+aspect_ratio:
+  target_width: 1080
+  target_height: 1920
+  crop_mode: "center"  # center / top / bottom
+
+# ========================================
+# アップロード設定
+# ========================================
+upload:
+  mode: "auto"  # auto / manual_approval
+  privacy_status: "public"
+  category_id: "22"  # People & Blogs
+
+  # Shorts特有の設定
+  add_shorts_hashtag: true
+  add_main_video_link: true
+
+# ========================================
+# メタデータ生成設定
+# ========================================
+metadata_generation:
+  enabled: true
+  model: "claude-haiku-4-5"
+  max_tokens: 2000
+  temperature: 0.7
+
+  # タイトル形式
+  title_format: "{original_title} #{clip_number}"
+
+  # 説明文テンプレート
+  description_template: |
+    {summary}
+
+    📺 続きはYouTube本編で！
+    👉 {main_video_url}
+
+    #Shorts #{subject} #歴史 #解説
+
+# ========================================
+# 出力設定
+# ========================================
+output:
+  clips_dir: "clips"  # 分割クリップの保存先
+  vertical_dir: "vertical"  # 縦型変換後の保存先
+  upload_log: "shorts_upload_log.json"
+
+# ========================================
+# リトライ設定
+# ========================================
+retry:
+  max_attempts: 3
+  delay_seconds: 5
+  exponential_backoff: true
+
+# ========================================
+# Quota管理
+# ========================================
+quota:
+  # YouTube Data API v3のQuota制限
+  # 動画アップロード: 1600 units
+  # 5クリップ = 8000 units
+  # 1日のQuota上限: 10,000 units（デフォルト）
+  daily_limit: 10000
+  alert_threshold: 8000  # 80%使用時に警告

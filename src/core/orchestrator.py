@@ -25,6 +25,7 @@ from src.phases.phase_06_subtitles import Phase06Subtitles
 from src.phases.phase_07_composition import Phase07Composition
 from src.phases.phase_08_thumbnail import Phase08Thumbnail
 from src.phases.phase_09_youtube import Phase09YouTube
+from src.phases.phase_10_shorts import Phase10Shorts
 
 
 class PhaseOrchestrator:
@@ -54,7 +55,7 @@ class PhaseOrchestrator:
         subject: str,
         skip_if_exists: bool = True,
         from_phase: int = 1,
-        until_phase: int = 9,
+        until_phase: int = 10,
         skip_phases: Optional[List[int]] = None
     ) -> ProjectStatus:
         """
@@ -63,8 +64,8 @@ class PhaseOrchestrator:
         Args:
             subject: 偉人名
             skip_if_exists: 既存出力があればスキップ
-            from_phase: 開始フェーズ（1-9）
-            until_phase: 終了フェーズ（1-9）
+            from_phase: 開始フェーズ（1-10）
+            until_phase: 終了フェーズ（1-10）
             skip_phases: スキップするフェーズ番号のリスト（例: [4, 5]）
 
         Returns:
@@ -184,6 +185,7 @@ class PhaseOrchestrator:
             Phase07Composition(subject=subject, config=self.config, logger=self.logger, genre=self.genre),
             Phase08Thumbnail(subject=subject, config=self.config, logger=self.logger, genre=self.genre, text_layout=self.text_layout, style=self.thumbnail_style),
             Phase09YouTube(subject=subject, config=self.config, logger=self.logger, genre=self.genre),
+            Phase10Shorts(subject=subject, config=self.config, logger=self.logger, genre=self.genre),
         ]
 
     def _print_success_summary(self, status: ProjectStatus):
