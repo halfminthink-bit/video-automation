@@ -39,6 +39,7 @@ from src.phases.phase_06_subtitles import Phase06Subtitles
 from src.phases.phase_07_composition import Phase07Composition
 from src.phases.phase_08_thumbnail import Phase08Thumbnail
 from src.phases.phase_09_youtube import Phase09YouTube
+from src.phases.phase_10_shorts import Phase10Shorts
 
 
 def write_error_log(config: ConfigManager, subject: str, phase_number: int, error: Exception) -> Path:
@@ -140,10 +141,11 @@ def run_phase(
         7: Phase07Composition,
         8: Phase08Thumbnail,
         9: Phase09YouTube,
+        10: Phase10Shorts,
     }
 
     if phase_number not in phase_classes:
-        logger.error(f"Invalid phase number: {phase_number}. Must be 1-9.")
+        logger.error(f"Invalid phase number: {phase_number}. Must be 1-10.")
         return 1
 
     # フェーズを実行
@@ -206,6 +208,13 @@ def run_phase(
                 style=thumbnail_style
             )
         elif phase_number == 9:
+            phase = phase_class(
+                subject=subject,
+                config=config,
+                logger=logger,
+                genre=genre
+            )
+        elif phase_number == 10:
             phase = phase_class(
                 subject=subject,
                 config=config,
@@ -330,8 +339,8 @@ def generate_video(
     Args:
         subject: 偉人名
         force: 既存出力を無視して強制再実行
-        from_phase: 指定フェーズから実行（1-9）
-        until_phase: 指定フェーズまで実行（1-9）
+        from_phase: 指定フェーズから実行（1-10）
+        until_phase: 指定フェーズまで実行（1-10）
         verbose: 詳細ログ出力
         auto: 自動台本生成を使用（--auto）
         manual: 手動台本を使用（--manual）
@@ -533,15 +542,15 @@ Examples:
         "--from-phase",
         type=int,
         default=1,
-        choices=[1, 2, 3, 4, 5, 6, 7, 8, 9],
-        help="Start from specified phase (1-9)"
+        choices=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+        help="Start from specified phase (1-10)"
     )
     generate_parser.add_argument(
         "--until-phase",
         type=int,
         default=9,
-        choices=[1, 2, 3, 4, 5, 6, 7, 8, 9],
-        help="Run until specified phase (1-9)"
+        choices=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+        help="Run until specified phase (1-10)"
     )
     generate_parser.add_argument(
         "--verbose",
@@ -607,8 +616,8 @@ Examples:
         "--phase",
         type=int,
         required=True,
-        choices=[1, 2, 3, 4, 5, 6, 7, 8, 9],
-        help="Phase number (1-9)"
+        choices=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+        help="Phase number (1-10)"
     )
     run_parser.add_argument(
         "--skip-if-exists",
