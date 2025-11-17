@@ -1,22 +1,43 @@
 #!/usr/bin/env python3
 """
-手動台本のテンプレートファイルを生成（15分版）
+手動台本のテンプレートファイルを生成（15-20分版、3ジャンル対応）
 
 使い方:
+    python scripts/create_script_template.py 織田信長 --type ijin
+    python scripts/create_script_template.py ディアトロフ峠事件 --type legend
+    python scripts/create_script_template.py "もしナポレオンが勝っていたら" --type history_if
+
+    # --type省略時はijin（偉人）
     python scripts/create_script_template.py 織田信長
-    python scripts/create_script_template.py "グリゴリー・ラスプーチン"
 """
 
 import sys
+import argparse
 from pathlib import Path
 
-TEMPLATE = """# ========================================
-# 手動台本テンプレート（15分版）
+# ========================================
+# 偉人（ijin）テンプレート
+# ========================================
+IJIN_TEMPLATE = """# ========================================
+# 手動台本テンプレート（偉人・15-20分版）
+# ========================================
+# 📋 Claudeへのディレクション
+# ========================================
+# genre: ijin
+# target_duration: 1200秒（20分）
+# target_words_per_section: 1200-1500文字
+#
+# writing_guide:
+#   - 各セクション1200-1500文字を目安に執筆
+#   - 文体はドキュメンタリー風、敬体（です・ます調）
+#   - 視聴者を物語の世界に引き込むストーリーテリング
+#   - 史実に基づき、エピソードは具体的に描写
+#   - セクション間の繋がりを意識した構成
 # ========================================
 
 subject: "{subject}"
 title: "{subject}の生涯"
-description: "{subject}について15分で解説する動画です"
+description: "{subject}について20分で解説する動画です"
 
 # ========================================
 # サムネイル用キャッチコピー
@@ -35,113 +56,165 @@ thumbnail:
 # lower_text: "戦国時代を変えた\\n男の真実"
 
 # ========================================
-# セクション（目安：6セクション × 150秒 = 900秒 = 15分）
+# セクション（8セクション × 150秒 = 1200秒 = 20分）
 # ========================================
 
 sections:
   - section_id: 1
-    title: "導入：生い立ちと時代背景"
+    title: "プロローグ：衝撃的な導入"
     bgm: "opening"  # opening / main / ending
-    atmosphere: "壮大"  # 壮大/静か/希望/劇的/悲劇的
+    atmosphere: "劇的"  # 壮大/静か/希望/劇的/悲劇的/緊張/ミステリアス
     duration: 150  # 秒（約2.5分）
 
+    # このセクションで書くべき内容（Claudeへのガイド）
+    # section_guide: |
+    #   - {subject}の最も印象的なエピソードから始める
+    #   - 視聴者の関心を一気に引きつける導入
+    #   - 「なぜこの人物が重要なのか」を示唆
+    #   - 時代背景を簡潔に提示
+
     narration: |
-      ここにナレーション原稿を書く（複数行OK）
-      【導入部分の書き方】
-      - 生い立ちや出生地
-      - 時代背景
-      - 視聴者を物語の世界に引き込む
-      - インパクトある出だし
+      ここにナレーション原稿を書く（1200-1500文字）
+
+    keywords:
+      - "{subject}"
+      - "導入"
+      - "時代背景"
+
+  - section_id: 2
+    title: "生い立ち：幼少期と家庭環境"
+    bgm: "main"
+    atmosphere: "静か"
+    duration: 150
+
+    # section_guide: |
+    #   - 生まれた場所、家族構成
+    #   - 幼少期の環境が人格形成に与えた影響
+    #   - 早期に見せた才能や個性
+    #   - 家庭での教育や経験
+
+    narration: |
+      ここにナレーション原稿を書く（1200-1500文字）
 
     keywords:
       - "{subject}"
       - "生い立ち"
-      - "時代背景"
+      - "幼少期"
 
-  - section_id: 2
-    title: "展開：若き日の試練"
+  - section_id: 3
+    title: "青年期：試練と決断"
     bgm: "main"
     atmosphere: "劇的"
     duration: 150
 
+    # section_guide: |
+    #   - 青年期に直面した最初の困難
+    #   - それをどう乗り越えたか
+    #   - 重要な決断の瞬間
+    #   - 挫折から学んだこと
+
     narration: |
-      ここにナレーション原稿を書く
-      【若き日の書き方】
-      - 青年期の困難や挑戦
-      - 初めての成功体験
-      - 人格形成に影響を与えた出来事
+      ここにナレーション原稿を書く（1200-1500文字）
 
     keywords:
       - "{subject}"
       - "青年期"
       - "試練"
 
-  - section_id: 3
-    title: "展開：転機となる出来事"
+  - section_id: 4
+    title: "転機：運命の出会い"
     bgm: "main"
-    atmosphere: "劇的"
+    atmosphere: "希望"
     duration: 150
 
+    # section_guide: |
+    #   - 人生を変えた出来事・人物との出会い
+    #   - なぜそれが転機となったのか
+    #   - その後の人生への影響
+    #   - 新たな道への第一歩
+
     narration: |
-      ここにナレーション原稿を書く
-      【転機の書き方】
-      - 人生の転機となる重要な出来事
-      - 運命の出会い
-      - 決断の瞬間
+      ここにナレーション原稿を書く（1200-1500文字）
 
     keywords:
       - "{subject}"
       - "転機"
       - "出会い"
 
-  - section_id: 4
-    title: "クライマックス：最盛期と功績"
+  - section_id: 5
+    title: "飛躍：初めての大成功"
     bgm: "main"
     atmosphere: "壮大"
     duration: 150
 
+    # section_guide: |
+    #   - 名声を得るきっかけとなった出来事
+    #   - 初めての大きな成功体験
+    #   - 周囲の反応や評価
+    #   - 成功への道のり
+
     narration: |
-      ここにナレーション原稿を書く
-      【最盛期の書き方】
-      - 最も輝かしい時期
-      - 最大の功績
-      - 歴史に残る瞬間
+      ここにナレーション原稿を書く（1200-1500文字）
 
     keywords:
       - "{subject}"
-      - "最盛期"
+      - "成功"
+      - "飛躍"
+
+  - section_id: 6
+    title: "絶頂期：最大の功績"
+    bgm: "main"
+    atmosphere: "壮大"
+    duration: 150
+
+    # section_guide: |
+    #   - 歴史に名を残した最大の業績
+    #   - 最も輝かしい時期の詳細
+    #   - その功績が後世に与えた影響
+    #   - 絶頂期のエピソード
+
+    narration: |
+      ここにナレーション原稿を書く（1200-1500文字）
+
+    keywords:
+      - "{subject}"
+      - "絶頂期"
       - "功績"
 
-  - section_id: 5
-    title: "転落：晩年の苦悩"
+  - section_id: 7
+    title: "転落と晩年：苦悩の日々"
     bgm: "main"
     atmosphere: "悲劇的"
     duration: 150
 
+    # section_guide: |
+    #   - 晩年の困難や衰退
+    #   - 直面した苦悩や葛藤
+    #   - 最期の瞬間
+    #   - 人生の終わりをどう迎えたか
+
     narration: |
-      ここにナレーション原稿を書く
-      【晩年の書き方】
-      - 困難や挫折
-      - 晩年の苦悩
-      - 最期の瞬間
+      ここにナレーション原稿を書く（1200-1500文字）
 
     keywords:
       - "{subject}"
       - "晩年"
       - "苦悩"
 
-  - section_id: 6
-    title: "締め：遺産と現代への影響"
+  - section_id: 8
+    title: "遺産：後世への影響"
     bgm: "ending"
     atmosphere: "希望"
     duration: 150
 
+    # section_guide: |
+    #   - 現代に残した教訓や影響
+    #   - 後世の人々への遺産
+    #   - {subject}から学べること
+    #   - 視聴者への問いかけと余韻
+
     narration: |
-      ここにナレーション原稿を書く
-      【締めの書き方】
-      - 後世への影響
-      - 現代に残した遺産
-      - 感動的な余韻を残す
+      ここにナレーション原稿を書く（1200-1500文字）
 
     keywords:
       - "{subject}"
@@ -149,15 +222,451 @@ sections:
       - "影響"
 """
 
-def main():
-    if len(sys.argv) < 2:
-        print("Usage: python scripts/create_script_template.py <偉人名>")
-        print("\n例:")
-        print("  python scripts/create_script_template.py 織田信長")
-        print('  python scripts/create_script_template.py "グリゴリー・ラスプーチン"')
-        sys.exit(1)
+# ========================================
+# 都市伝説（legend）テンプレート
+# ========================================
+LEGEND_TEMPLATE = """# ========================================
+# 手動台本テンプレート（都市伝説・15-20分版）
+# ========================================
+# 📋 Claudeへのディレクション
+# ========================================
+# genre: legend
+# target_duration: 1200秒（20分）
+# target_words_per_section: 1200-1500文字
+#
+# writing_guide:
+#   - 各セクション1200-1500文字を目安に執筆
+#   - 文体はミステリアス、視聴者の興味を引き続ける
+#   - 事実と推測を明確に区別
+#   - 複数の説を公平に紹介
+#   - 謎や疑問を効果的に提示
+#   - 視聴者に考えさせる余地を残す
+# ========================================
 
-    subject = sys.argv[1]
+subject: "{subject}"
+title: "{subject}の謎"
+description: "{subject}について20分で徹底解説する動画です"
+
+# ========================================
+# サムネイル用キャッチコピー
+# ========================================
+
+thumbnail:
+  upper_text: "ここに上部テキスト\\nを入力"
+  lower_text: "ここに下部テキスト\\nを入力"
+
+# 例:
+# upper_text: "未解決\\nミステリー"
+# lower_text: "真相は闇の中\\n驚愕の事実"
+
+# ========================================
+# セクション（8セクション × 150秒 = 1200秒 = 20分）
+# ========================================
+
+sections:
+  - section_id: 1
+    title: "プロローグ：不可解な現象"
+    bgm: "opening"
+    atmosphere: "ミステリアス"
+    duration: 150
+
+    # section_guide: |
+    #   - 最も謎めいた部分を最初に提示
+    #   - 視聴者の好奇心を刺激
+    #   - 「何が起きたのか」の概要
+    #   - 不可解な点を強調
+
+    narration: |
+      ここにナレーション原稿を書く（1200-1500文字）
+
+    keywords:
+      - "{subject}"
+      - "都市伝説"
+      - "謎"
+
+  - section_id: 2
+    title: "事件の概要"
+    bgm: "main"
+    atmosphere: "緊張"
+    duration: 150
+
+    # section_guide: |
+    #   - いつ、どこで、誰に、何が起きたか
+    #   - 事件の基本情報を整理
+    #   - 関係者の紹介
+    #   - タイムラインの提示
+
+    narration: |
+      ここにナレーション原稿を書く（1200-1500文字）
+
+    keywords:
+      - "{subject}"
+      - "事件"
+      - "概要"
+
+  - section_id: 3
+    title: "発見と初期調査"
+    bgm: "main"
+    atmosphere: "緊張"
+    duration: 150
+
+    # section_guide: |
+    #   - 事件が明るみに出た経緯
+    #   - 最初の発見者の証言
+    #   - 初期調査の様子
+    #   - 最初に浮上した疑問点
+
+    narration: |
+      ここにナレーション原稿を書く（1200-1500文字）
+
+    keywords:
+      - "{subject}"
+      - "発見"
+      - "調査"
+
+  - section_id: 4
+    title: "証拠と目撃証言"
+    bgm: "main"
+    atmosphere: "ミステリアス"
+    duration: 150
+
+    # section_guide: |
+    #   - 具体的な証拠の詳細
+    #   - 写真、物的証拠、記録
+    #   - 目撃者の証言
+    #   - 証言の信憑性
+
+    narration: |
+      ここにナレーション原稿を書く（1200-1500文字）
+
+    keywords:
+      - "{subject}"
+      - "証拠"
+      - "証言"
+
+  - section_id: 5
+    title: "謎の深まり"
+    bgm: "main"
+    atmosphere: "緊張"
+    duration: 150
+
+    # section_guide: |
+    #   - 矛盾点の発見
+    #   - 説明できない現象
+    #   - 調査の行き詰まり
+    #   - 新たな疑問の浮上
+
+    narration: |
+      ここにナレーション原稿を書く（1200-1500文字）
+
+    keywords:
+      - "{subject}"
+      - "矛盾"
+      - "謎"
+
+  - section_id: 6
+    title: "諸説①：科学的説明"
+    bgm: "main"
+    atmosphere: "静か"
+    duration: 150
+
+    # section_guide: |
+    #   - 合理的な仮説の紹介
+    #   - 専門家の見解
+    #   - 科学的根拠
+    #   - この説の妥当性と問題点
+
+    narration: |
+      ここにナレーション原稿を書く（1200-1500文字）
+
+    keywords:
+      - "{subject}"
+      - "科学的説明"
+      - "仮説"
+
+  - section_id: 7
+    title: "諸説②：超常現象説"
+    bgm: "main"
+    atmosphere: "ミステリアス"
+    duration: 150
+
+    # section_guide: |
+    #   - 陰謀論や超常現象説
+    #   - なぜこの説が支持されるのか
+    #   - 科学的説明で説明できない点
+    #   - 未解決の謎
+
+    narration: |
+      ここにナレーション原稿を書く（1200-1500文字）
+
+    keywords:
+      - "{subject}"
+      - "超常現象"
+      - "陰謀論"
+
+  - section_id: 8
+    title: "真相は？"
+    bgm: "ending"
+    atmosphere: "ミステリアス"
+    duration: 150
+
+    # section_guide: |
+    #   - 現在の見解のまとめ
+    #   - 真相に迫る最新情報
+    #   - 残された謎
+    #   - 視聴者への問いかけと余韻
+
+    narration: |
+      ここにナレーション原稿を書く（1200-1500文字）
+
+    keywords:
+      - "{subject}"
+      - "真相"
+      - "結論"
+"""
+
+# ========================================
+# 歴史if（history_if）テンプレート
+# ========================================
+HISTORY_IF_TEMPLATE = """# ========================================
+# 手動台本テンプレート（歴史if・15-20分版）
+# ========================================
+# 📋 Claudeへのディレクション
+# ========================================
+# genre: history_if
+# target_duration: 1200秒（20分）
+# target_words_per_section: 1200-1500文字
+#
+# writing_guide:
+#   - 各セクション1200-1500文字を目安に執筆
+#   - 史実と仮想シナリオを明確に区別
+#   - 歴史的事実に基づいた論理的な推論
+#   - 「もし〇〇だったら」を深く掘り下げる
+#   - 複数の可能性を考察
+#   - 現代への影響まで視野に入れる
+# ========================================
+
+subject: "{subject}"
+title: "{subject}"
+description: "もしも歴史が違っていたら？{subject}について20分で徹底考察"
+
+# ========================================
+# サムネイル用キャッチコピー
+# ========================================
+
+thumbnail:
+  upper_text: "ここに上部テキスト\\nを入力"
+  lower_text: "ここに下部テキスト\\nを入力"
+
+# 例:
+# upper_text: "もしも\\n歴史が"
+# lower_text: "違っていたら\\n世界はどうなる？"
+
+# ========================================
+# セクション（8セクション × 150秒 = 1200秒 = 20分）
+# ========================================
+
+sections:
+  - section_id: 1
+    title: "プロローグ：歴史の分岐点"
+    bgm: "opening"
+    atmosphere: "劇的"
+    duration: 150
+
+    # section_guide: |
+    #   - 「もし〇〇だったら」という問いを提示
+    #   - なぜこの分岐点が重要なのか
+    #   - 視聴者の想像力を刺激
+    #   - テーマの導入
+
+    narration: |
+      ここにナレーション原稿を書く（1200-1500文字）
+
+    keywords:
+      - "{subject}"
+      - "歴史if"
+      - "分岐点"
+
+  - section_id: 2
+    title: "史実の経緯"
+    bgm: "main"
+    atmosphere: "静か"
+    duration: 150
+
+    # section_guide: |
+    #   - 実際に何が起きたのか
+    #   - 歴史的背景の詳細
+    #   - 関係者の動き
+    #   - 当時の状況
+
+    narration: |
+      ここにナレーション原稿を書く（1200-1500文字）
+
+    keywords:
+      - "{subject}"
+      - "史実"
+      - "歴史"
+
+  - section_id: 3
+    title: "分岐点の詳細"
+    bgm: "main"
+    atmosphere: "緊張"
+    duration: 150
+
+    # section_guide: |
+    #   - なぜその選択がされたのか
+    #   - 当時の判断理由
+    #   - 他の選択肢はあったか
+    #   - 偶然と必然
+
+    narration: |
+      ここにナレーション原稿を書く（1200-1500文字）
+
+    keywords:
+      - "{subject}"
+      - "選択"
+      - "判断"
+
+  - section_id: 4
+    title: "if世界①：直後の変化"
+    bgm: "main"
+    atmosphere: "劇的"
+    duration: 150
+
+    # section_guide: |
+    #   - 異なる選択をした直後の影響
+    #   - 即座に変わること
+    #   - 関係者への影響
+    #   - 初期の波紋
+
+    narration: |
+      ここにナレーション原稿を書く（1200-1500文字）
+
+    keywords:
+      - "{subject}"
+      - "if世界"
+      - "直後の変化"
+
+  - section_id: 5
+    title: "if世界②：短期的影響（数年）"
+    bgm: "main"
+    atmosphere: "壮大"
+    duration: 150
+
+    # section_guide: |
+    #   - 数年スパンでの変化
+    #   - 政治・経済・社会への影響
+    #   - 連鎖的に起こる出来事
+    #   - 新たな歴史の流れ
+
+    narration: |
+      ここにナレーション原稿を書く（1200-1500文字）
+
+    keywords:
+      - "{subject}"
+      - "短期的影響"
+      - "変化"
+
+  - section_id: 6
+    title: "if世界③：中長期的影響（数十年）"
+    bgm: "main"
+    atmosphere: "壮大"
+    duration: 150
+
+    # section_guide: |
+    #   - 世代を超えた影響
+    #   - 文化・技術の発展への影響
+    #   - 世界史の流れの変化
+    #   - 大きな歴史的出来事への波及
+
+    narration: |
+      ここにナレーション原稿を書く（1200-1500文字）
+
+    keywords:
+      - "{subject}"
+      - "中長期的影響"
+      - "世代"
+
+  - section_id: 7
+    title: "現代への波及"
+    bgm: "main"
+    atmosphere: "劇的"
+    duration: 150
+
+    # section_guide: |
+    #   - もし今どうなっていたか
+    #   - 現代社会への影響
+    #   - 私たちの生活はどう変わっていたか
+    #   - 技術、文化、価値観の違い
+
+    narration: |
+      ここにナレーション原稿を書く（1200-1500文字）
+
+    keywords:
+      - "{subject}"
+      - "現代"
+      - "影響"
+
+  - section_id: 8
+    title: "考察：必然と偶然"
+    bgm: "ending"
+    atmosphere: "希望"
+    duration: 150
+
+    # section_guide: |
+    #   - 歴史の教訓
+    #   - 必然と偶然についての考察
+    #   - 現代に生きる私たちへのメッセージ
+    #   - 視聴者への問いかけと余韻
+
+    narration: |
+      ここにナレーション原稿を書く（1200-1500文字）
+
+    keywords:
+      - "{subject}"
+      - "考察"
+      - "教訓"
+"""
+
+# テンプレート辞書
+TEMPLATES = {
+    "ijin": IJIN_TEMPLATE,
+    "legend": LEGEND_TEMPLATE,
+    "history_if": HISTORY_IF_TEMPLATE
+}
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='手動台本のテンプレートファイルを生成（15-20分版、3ジャンル対応）',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+例:
+  python scripts/create_script_template.py 織田信長 --type ijin
+  python scripts/create_script_template.py ディアトロフ峠事件 --type legend
+  python scripts/create_script_template.py "もしナポレオンが勝っていたら" --type history_if
+
+  # --type省略時はijin（偉人）
+  python scripts/create_script_template.py 織田信長
+        """
+    )
+
+    parser.add_argument('subject', help='タイトル/テーマ名')
+    parser.add_argument(
+        '--type',
+        choices=['ijin', 'legend', 'history_if'],
+        default='ijin',
+        help='ジャンル（デフォルト: ijin）'
+    )
+
+    args = parser.parse_args()
+
+    subject = args.subject
+    genre_type = args.type
+
+    # テンプレート選択
+    template = TEMPLATES[genre_type]
+
+    # 出力先ディレクトリ
     output_dir = Path("data/input/manual_scripts")
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -171,13 +680,21 @@ def main():
             sys.exit(0)
 
     # テンプレート生成
-    content = TEMPLATE.format(subject=subject)
+    content = template.format(subject=subject)
 
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(content)
 
+    # ジャンル名の日本語表示
+    genre_names = {
+        'ijin': '偉人',
+        'legend': '都市伝説',
+        'history_if': '歴史if'
+    }
+    genre_name_ja = genre_names[genre_type]
+
     print(f"✅ Template created: {output_path}")
-    print(f"\n📝 15分版テンプレート（6セクション × 150秒 = 900秒）")
+    print(f"\n📝 {genre_name_ja}テンプレート（8セクション × 150秒 = 1200秒 = 20分）")
     print(f"\n次のステップ:")
     print(f"1. {output_path} を編集")
     print(f"2. python scripts/convert_manual_script.py \"{subject}\"")
