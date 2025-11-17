@@ -30,6 +30,11 @@ def main():
         help="Path to save cookies file (e.g., config/.tiktok_cookies_ijin.pkl)"
     )
     parser.add_argument(
+        "--profile-url",
+        default="https://www.tiktok.com/@labyrinthofevidence",
+        help="URL of the profile page to navigate to after login (default: %(default)s)"
+    )
+    parser.add_argument(
         "--wait-time",
         type=int,
         default=300,
@@ -52,6 +57,7 @@ def main():
     logger.info("=" * 60)
     logger.info(f"Cookies will be saved to: {cookies_file}")
     logger.info(f"Maximum wait time: {args.wait_time} seconds")
+    logger.info(f"Profile URL for detection: {args.profile_url}")
     logger.info("")
     
     try:
@@ -59,7 +65,8 @@ def main():
         with TikTokUploader(
             cookies_file=cookies_file,
             headless=False,
-            logger=logger
+            logger=logger,
+            profile_url=args.profile_url
         ) as uploader:
             
             logger.info("Opening TikTok login page...")

@@ -30,8 +30,23 @@ class TikTokUploader:
         self,
         cookies_file: Optional[Path] = None,
         headless: bool = False,
-        logger: Optional[logging.Logger] = None
+        logger: Optional[logging.Logger] = None,
+        profile_url: Optional[str] = None # ログイン後の遷移先URL
     ):
+        """
+        初期化
+        
+        Args:
+            cookies_file: Cookieファイルのパス（pickle形式）
+            headless: ヘッドレスモードで実行するか
+            logger: ロガー
+            profile_url: ログイン後の遷移先URL（ログイン検出の補助）
+        """
+        self.cookies_file = cookies_file
+        self.headless = headless
+        self.logger = logger or logging.getLogger(__name__)
+        self.driver: Optional[webdriver.Chrome] = None
+        self.profile_url = profile_url
         """
         初期化
         
@@ -44,6 +59,7 @@ class TikTokUploader:
         self.headless = headless
         self.logger = logger or logging.getLogger(__name__)
         self.driver: Optional[webdriver.Chrome] = None
+        self.profile_url: Optional[str] = None # ログイン後の遷移先URL
         
     def __enter__(self):
         """コンテキストマネージャーのエントリ"""
@@ -115,6 +131,18 @@ class TikTokUploader:
         self.logger.info("Opening TikTok login page...")
         self.driver.get(self.TIKTOK_LOGIN_URL)
         
+        # ユーザーが指定したプロフィールページに遷移
+        if self.profile_url:
+            self.logger.info(f"Navigating to profile page: {self.profile_url}")
+            self.driver.get(self.profile_url)
+            time.sleep(3) # ページロードを待つ
+        
+        # ユーザーが指定したプロフィールページに遷移
+        if self.profile_url:
+            self.logger.info(f"Navigating to profile page: {self.profile_url}")
+            self.driver.get(self.profile_url)
+            time.sleep(3) # ページロードを待つ
+        
         self.logger.info(f"Please login manually within {wait_time} seconds...")
         self.logger.info("Waiting for login completion...")
         
@@ -124,10 +152,26 @@ class TikTokUploader:
         
         while time.time() - start_time < wait_time:
             try:
-                # ログイン後はプロフィールアイコンが表示される
-                self.driver.find_element(By.CSS_SELECTOR, "[data-e2e='profile-icon']")
-                logged_in = True
-                break
+                # ログイン後に表示される要素（プロフィールアイコン、アップロードボタンなど）を検出
+                # 複数のセレクタを試す
+                login_indicators = [
+                    "[data-e2e='profile-icon']",  # プロフィールアイコン
+                    "[data-e2e='upload-icon']",   # アップロードアイコン
+                    "a[href*='/upload']",         # アップロードページへのリンク
+                ]
+                
+                found = False
+                for selector in login_indicators:
+                    try:
+                        self.driver.find_element(By.CSS_SELECTOR, selector)
+                        found = True
+                        break
+                    except NoSuchElementException:
+                        continue
+                
+                if found:
+                    logged_in = True
+                    break
             except NoSuchElementException:
                 time.sleep(2)
                 
