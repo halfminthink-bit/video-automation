@@ -2,7 +2,7 @@
 Phase 11: TikTok 自動投稿
 
 Phase 10で生成された縦型動画をTikTokに投稿する。
-tiktok-uploaderライブラリを使用したCookie認証方式。
+Selenium + Cookie認証方式でBot検知を回避。
 """
 
 import json
@@ -14,14 +14,7 @@ from datetime import datetime
 from src.core.phase_base import PhaseBase
 from src.core.config_manager import ConfigManager
 from src.core.exceptions import PhaseExecutionError
-
-# tiktok-uploader（pip install tiktok-uploader）
-try:
-    from tiktok_uploader.upload import upload_video
-    from tiktok_uploader.auth import AuthBackend
-    TIKTOK_UPLOADER_AVAILABLE = True
-except ImportError:
-    TIKTOK_UPLOADER_AVAILABLE = False
+from src.utils.tiktok_uploader import TikTokUploader
 
 
 class Phase11TikTok(PhaseBase):
@@ -36,11 +29,6 @@ class Phase11TikTok(PhaseBase):
     ):
         super().__init__(subject, config, logger)
         self.genre = genre
-
-        if not TIKTOK_UPLOADER_AVAILABLE:
-            raise ImportError(
-                "tiktok-uploader is required. Install with: pip install tiktok-uploader"
-            )
 
     def get_phase_number(self) -> int:
         return 11
@@ -112,55 +100,73 @@ class Phase11TikTok(PhaseBase):
 
             self.logger.info(f"Will upload {len(video_files)} clips to TikTok")
 
-            # 2. ジャンル別のCookie認証を取得
-            auth_backend = self._get_auth_backend()
+            # 2. ジャンル別のCookieファイルを取得
+            cookies_file = self._get_cookies_file()
 
             # 3. メタデータ設定を取得（ジャンル別）
             metadata_config = self._get_metadata_config()
 
-            # 4. 各クリップを投稿
+            # 4. ヘッドレスモード設定
+            headless = upload_config.get("headless", False)
+            self.logger.info(f"Headless mode: {headless}")
+
+            # 5. 各クリップを投稿
             upload_results = []
 
-            for i, video_file in enumerate(video_files, start=1):
-                self.logger.info(f"Uploading TikTok clip #{i}/{len(video_files)}...")
+            # TikTokUploaderを初期化
+            with TikTokUploader(
+                cookies_file=cookies_file,
+                headless=headless,
+                logger=self.logger
+            ) as uploader:
+                
+                for i, video_file in enumerate(video_files, start=1):
+                    self.logger.info(f"Uploading TikTok clip #{i}/{len(video_files)}...")
 
-                # メタデータ生成
-                metadata = self._generate_metadata(
-                    clip_number=i,
-                    total_clips=len(video_files),
-                    config=metadata_config
-                )
-
-                # TikTok投稿
-                try:
-                    result = self._upload_to_tiktok(
-                        video_path=video_file,
-                        metadata=metadata,
-                        auth_backend=auth_backend
+                    # メタデータ生成
+                    metadata = self._generate_metadata(
+                        clip_number=i,
+                        total_clips=len(video_files),
+                        config=metadata_config
                     )
 
-                    upload_result = {
-                        "clip_number": i,
-                        "video_file": video_file.name,
-                        "title": metadata["description"],
-                        "status": "success",
-                        "uploaded_at": datetime.now().isoformat()
-                    }
+                    # TikTok投稿
+                    try:
+                        result = uploader.upload_video(
+                            video_path=video_file,
+                            caption=metadata["caption"],
+                            wait_after_upload=upload_config.get("wait_after_upload", 10)
+                        )
 
-                    self.logger.info(f"✓ Clip #{i} uploaded successfully")
+                        upload_result = {
+                            "clip_number": i,
+                            "video_file": video_file.name,
+                            "caption": metadata["caption"],
+                            "status": "success",
+                            "uploaded_at": datetime.now().isoformat()
+                        }
 
-                except Exception as e:
-                    self.logger.error(f"✗ Failed to upload clip #{i}: {e}")
-                    upload_result = {
-                        "clip_number": i,
-                        "video_file": video_file.name,
-                        "status": "failed",
-                        "error": str(e)
-                    }
+                        self.logger.info(f"✓ Clip #{i} uploaded successfully")
 
-                upload_results.append(upload_result)
+                    except Exception as e:
+                        self.logger.error(f"✗ Failed to upload clip #{i}: {e}")
+                        upload_result = {
+                            "clip_number": i,
+                            "video_file": video_file.name,
+                            "status": "failed",
+                            "error": str(e)
+                        }
 
-            # 5. 結果をログに保存
+                    upload_results.append(upload_result)
+                    
+                    # クリップ間の待機時間
+                    if i < len(video_files):
+                        wait_between = upload_config.get("wait_between_uploads", 30)
+                        self.logger.info(f"Waiting {wait_between} seconds before next upload...")
+                        import time
+                        time.sleep(wait_between)
+
+            # 6. 結果をログに保存
             upload_log = {
                 "subject": self.subject,
                 "genre": self.genre,
@@ -182,12 +188,12 @@ class Phase11TikTok(PhaseBase):
             self.logger.error(f"TikTok upload failed: {e}", exc_info=True)
             raise PhaseExecutionError(11, f"TikTok upload failed: {e}") from e
 
-    def _get_auth_backend(self) -> AuthBackend:
+    def _get_cookies_file(self) -> Path:
         """
-        ジャンル別のCookie認証を取得
+        ジャンル別のCookieファイルを取得
 
         Returns:
-            AuthBackend: tiktok-uploaderの認証バックエンド
+            Cookieファイルのパス
         """
         auth_config = self.phase_config.get("authentication", {})
 
@@ -197,7 +203,7 @@ class Phase11TikTok(PhaseBase):
                 genre_config = self.config.get_genre_config(self.genre)
                 tiktok_config = genre_config.get("tiktok", {})
 
-                if tiktok_config:
+                if tiktok_config and "cookies_file" in tiktok_config:
                     self.logger.info(f"Using genre-specific TikTok cookies: {self.genre}")
                     cookies_file = self.config.project_root / tiktok_config.get("cookies_file")
                 else:
@@ -215,15 +221,13 @@ class Phase11TikTok(PhaseBase):
             raise PhaseExecutionError(
                 11,
                 f"TikTok cookies file not found: {cookies_file}\n"
-                f"Please export cookies using 'Get cookies.txt' browser extension"
+                f"Please run the login script first:\n"
+                f"python -m src.utils.tiktok_uploader --login --cookies {cookies_file}"
             )
 
         self.logger.info(f"Using cookies file: {cookies_file}")
 
-        # AuthBackendを作成
-        auth_backend = AuthBackend(cookies=str(cookies_file))
-
-        return auth_backend
+        return cookies_file
 
     def _get_metadata_config(self) -> Dict[str, Any]:
         """
@@ -266,7 +270,7 @@ class Phase11TikTok(PhaseBase):
 
         Returns:
             {
-                "description": "説明文 #hashtag1 #hashtag2"
+                "caption": "説明文 #hashtag1 #hashtag2"
             }
         """
         # タイトルテンプレート
@@ -280,42 +284,12 @@ class Phase11TikTok(PhaseBase):
         hashtags = config.get("hashtags", ["歴史", "解説"])
         hashtag_str = " ".join([f"#{tag}" for tag in hashtags])
 
-        # 説明文（TikTokではタイトルと説明文が統合）
-        description = f"{title} {hashtag_str}"
+        # キャプション（TikTokではタイトルと説明文が統合）
+        caption = f"{title} {hashtag_str}"
 
         return {
-            "description": description
+            "caption": caption
         }
-
-    def _upload_to_tiktok(
-        self,
-        video_path: Path,
-        metadata: Dict[str, Any],
-        auth_backend: AuthBackend
-    ) -> Dict[str, Any]:
-        """
-        TikTokに1つの動画を投稿
-
-        Args:
-            video_path: 動画ファイルパス
-            metadata: メタデータ
-            auth_backend: 認証バックエンド
-
-        Returns:
-            投稿結果
-        """
-        # tiktok-uploaderを使用して投稿
-        upload_config = self.phase_config.get("upload", {})
-
-        result = upload_video(
-            path=str(video_path),
-            description=metadata["description"],
-            cookies=str(auth_backend.cookies) if hasattr(auth_backend, 'cookies') else None,
-            browser=upload_config.get("browser", "chrome"),
-            headless=upload_config.get("headless", True)
-        )
-
-        return result
 
     def _save_upload_log(self, upload_log: Dict[str, Any]) -> None:
         """アップロードログを保存"""
