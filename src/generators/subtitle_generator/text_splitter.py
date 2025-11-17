@@ -8,7 +8,7 @@
 from typing import List, Dict, Any, Optional
 import logging
 
-from ..core.models import SubtitleEntry
+from src.core.models import SubtitleEntry
 
 
 class TextSplitter:

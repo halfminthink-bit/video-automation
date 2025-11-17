@@ -7,7 +7,7 @@ SRT形式、JSON形式などへの変換を行う。
 from typing import List, Dict, Any, Optional
 import logging
 
-from ..core.models import SubtitleEntry
+from src.core.models import SubtitleEntry
 
 
 class SubtitleFormatter:

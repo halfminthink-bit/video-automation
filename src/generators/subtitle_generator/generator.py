@@ -7,7 +7,8 @@
 from typing import List, Dict, Any, Optional, Tuple
 import logging
 
-from ..core.models import SubtitleEntry
+from src.core.models import SubtitleEntry
+from src.utils.whisper_timing import create_whisper_extractor
 from .text_splitter import TextSplitter
 from .timing_processor import TimingProcessor
 from .formatter import SubtitleFormatter
