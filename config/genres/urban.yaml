@@ -1,0 +1,22 @@
+# ========================================
+# ジャンル: 都市伝説系
+# ========================================
+genre_id: "urban"
+channel_name: "闇に潜む真実"
+
+# YouTube認証
+youtube:
+  credentials_file: "config/.youtube_credentials_urban.json"
+  token_file: "data/cache/youtube_token_urban.json"
+
+# プロンプトファイル参照
+prompts:
+  script: "config/prompts/script/urban_1min.j2"
+  image: "config/prompts/image/urban.j2"
+  thumbnail: "config/prompts/thumbnail/urban.j2"
+
+# メタデータ
+metadata:
+  target_audience: "オカルト・ミステリー好きな15-35代"
+  tone: "mysterious"
+  title_style: "suspense_driven"
