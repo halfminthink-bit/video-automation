@@ -345,8 +345,8 @@ class PhaseExecution(BaseModel):
     @field_validator('phase_number')
     @classmethod
     def validate_phase_number(cls, v):
-        if not 1 <= v <= 9:
-            raise ValueError('phase_number must be between 1 and 9')
+        if not 1 <= v <= 10:
+            raise ValueError('phase_number must be between 1 and 10')
         return v
 
 
