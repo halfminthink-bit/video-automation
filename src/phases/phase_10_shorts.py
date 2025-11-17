@@ -202,15 +202,29 @@ class Phase10Shorts(PhaseBase):
                     "No clips uploaded"
                 )
 
-            # 各クリップがvideo_idを持つことを確認
-            for clip in clips:
-                if not clip.get("video_id"):
-                    raise PhaseValidationError(
-                        self.get_phase_number(),
-                        f"Clip {clip.get('clip_number')} has no video_id"
-                    )
+            # 成功したクリップをカウント
+            successful_clips = [clip for clip in clips if clip.get("video_id")]
+            failed_clips = [clip for clip in clips if not clip.get("video_id")]
 
-            self.logger.info(f"Upload validation passed ✓ ({len(clips)} clips)")
+            # 少なくとも1つ以上のクリップが成功していればOK
+            if len(successful_clips) == 0:
+                raise PhaseValidationError(
+                    self.get_phase_number(),
+                    "No clips uploaded successfully"
+                )
+
+            # 失敗したクリップがある場合は警告
+            if failed_clips:
+                failed_numbers = [c.get("clip_number") for c in failed_clips]
+                self.logger.warning(
+                    f"Some clips failed to upload: {failed_numbers}. "
+                    f"Successful: {len(successful_clips)}/{len(clips)}"
+                )
+
+            self.logger.info(
+                f"Upload validation passed ✓ "
+                f"({len(successful_clips)}/{len(clips)} clips successful)"
+            )
             return True
 
         raise PhaseValidationError(
