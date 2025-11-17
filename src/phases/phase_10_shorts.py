@@ -394,8 +394,19 @@ class Phase10Shorts(PhaseBase):
         metadata_config = self.phase_config.get("metadata_generation", {})
         upload_config = self.phase_config.get("upload", {})
 
+        # Claude APIキーを取得
+        try:
+            api_key = self.config.get_api_key("CLAUDE_API_KEY")
+        except Exception as e:
+            self.logger.error(f"Failed to get Claude API key: {e}")
+            raise PhaseExecutionError(
+                self.get_phase_number(),
+                f"Claude API key is required for metadata generation"
+            ) from e
+
         # メタデータジェネレーターを作成
         generator = ShortsMetadataGenerator(
+            api_key=api_key,
             model=metadata_config.get("model", "claude-haiku-4-5"),
             logger=self.logger
         )
