@@ -23,3 +23,12 @@ metadata:
 
 # BGMライブラリのパス
 bgm_library: "assets/bgm/ijin"
+
+# TikTok認証とハッシュタグ
+tiktok:
+  cookies_file: "config/.tiktok_cookies_ijin.txt"
+  hashtags:
+    - "歴史"
+    - "偉人"
+    - "解説"
+    - "日本史"
