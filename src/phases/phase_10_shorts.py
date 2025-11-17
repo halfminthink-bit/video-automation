@@ -27,7 +27,7 @@ from src.core.exceptions import (
 )
 from src.utils.video_splitter import VideoSplitter
 from src.utils.aspect_ratio_converter import AspectRatioConverter
-from src.utils.shorts_metadata_generator import ShortsMetadataGenerator
+from src.generators.shorts_metadata_generator import ShortsMetadataGenerator
 
 # YouTube API関連（Phase 9から流用）
 from google.oauth2.credentials import Credentials

@@ -2,12 +2,13 @@
 動画分割ユーティリティ
 
 ffmpegを使用して動画を指定秒数ごとに分割し、
-指定した数のクリップのみを返す。
+Phase 07のエラーハンドリングパターンを踏襲。
 """
 
+import subprocess
+import platform
 from pathlib import Path
 from typing import List, Optional
-import subprocess
 import logging
 
 
@@ -15,12 +16,6 @@ class VideoSplitter:
     """動画分割クラス"""
 
     def __init__(self, logger: Optional[logging.Logger] = None):
-        """
-        初期化
-
-        Args:
-            logger: ロガー（Noneの場合は自動作成）
-        """
         self.logger = logger or logging.getLogger(__name__)
 
     def split_video(
@@ -32,7 +27,7 @@ class VideoSplitter:
         prefix: str = "clip"
     ) -> List[Path]:
         """
-        動画を分割
+        動画を分割（Phase 07のffmpegパターンを使用）
 
         Args:
             input_path: 入力動画パス
@@ -44,71 +39,59 @@ class VideoSplitter:
         Returns:
             分割された動画ファイルのパスリスト（最大max_segments個）
 
-        Raises:
-            FileNotFoundError: 入力ファイルが存在しない
-            RuntimeError: ffmpegコマンドが失敗した
+        使用するffmpegコマンド:
+            ffmpeg -i input.mp4 -f segment -segment_time 60 \
+                   -reset_timestamps 1 -c copy -map 0 \
+                   output_%03d.mp4
         """
-        # 入力ファイルのチェック
-        if not input_path.exists():
-            raise FileNotFoundError(f"Input video not found: {input_path}")
-
-        # 出力ディレクトリを作成
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # 出力ファイルパターン
+        # 出力パスパターン
         output_pattern = output_dir / f"{prefix}_%03d.mp4"
 
-        self.logger.info(f"Splitting video: {input_path}")
-        self.logger.info(f"Segment duration: {segment_duration}s, Max segments: {max_segments}")
+        # Windowsパス対応（Phase 07パターン）
+        input_str = str(input_path)
+        output_str = str(output_pattern)
+        if platform.system() == 'Windows':
+            input_str = input_str.replace('\\', '/')
+            output_str = output_str.replace('\\', '/')
 
-        # ffmpegコマンドを構築
-        # -f segment: セグメント分割モード
-        # -segment_time: 分割秒数
-        # -reset_timestamps 1: 各クリップのタイムスタンプをリセット
-        # -c copy: ストリームをコピー（再エンコードなし = 高速）
         cmd = [
-            "ffmpeg",
-            "-i", str(input_path),
-            "-f", "segment",
-            "-segment_time", str(segment_duration),
-            "-reset_timestamps", "1",
-            "-c", "copy",
-            "-avoid_negative_ts", "1",  # 負のタイムスタンプを回避
-            str(output_pattern)
+            'ffmpeg', '-y',
+            '-i', input_str,
+            '-f', 'segment',
+            '-segment_time', str(segment_duration),
+            '-reset_timestamps', '1',
+            '-c', 'copy',
+            '-map', '0',
+            output_str
         ]
 
+        self.logger.info(f"Splitting video into {segment_duration}s segments...")
+        self.logger.debug(f"Command: {' '.join(cmd)}")
+
         try:
-            # ffmpegを実行
+            # Phase 07のエラーハンドリングパターン
             result = subprocess.run(
                 cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                check=True
+                check=True,
+                capture_output=True,
+                text=False,  # バイナリモードで
+                encoding=None
             )
 
-            self.logger.debug(f"ffmpeg output: {result.stderr}")
+            # 生成されたファイルを取得（最大max_segments個）
+            clips = sorted(output_dir.glob(f"{prefix}_*.mp4"))[:max_segments]
+
+            self.logger.info(f"✓ Created {len(clips)} clips (max: {max_segments})")
+            return clips
 
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"ffmpeg failed: {e.stderr}")
-            raise RuntimeError(f"Video splitting failed: {e.stderr}") from e
-        except FileNotFoundError:
-            raise RuntimeError(
-                "ffmpeg not found. Please install ffmpeg: "
-                "https://ffmpeg.org/download.html"
-            )
+            # Phase 07のエラーメッセージパターン
+            try:
+                stderr_msg = e.stderr.decode('utf-8', errors='ignore') if e.stderr else ''
+            except:
+                stderr_msg = '<decode failed>'
 
-        # 生成されたファイルを取得（番号順にソート）
-        all_clips = sorted(output_dir.glob(f"{prefix}_*.mp4"))
-
-        if not all_clips:
-            raise RuntimeError(f"No clips generated in {output_dir}")
-
-        # 最初のmax_segments個のみ返す
-        selected_clips = all_clips[:max_segments]
-
-        self.logger.info(f"Generated {len(all_clips)} clips, selected first {len(selected_clips)}")
-        for i, clip in enumerate(selected_clips, 1):
-            self.logger.info(f"  Clip {i}: {clip.name}")
-
-        return selected_clips
+            self.logger.error(f"ffmpeg split failed: {stderr_msg}")
+            raise
