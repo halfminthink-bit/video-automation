@@ -278,6 +278,7 @@ class ConfigManager:
             8: "08_thumbnail",
             9: "09_youtube",
             10: "10_shorts",
+            11: "11_tiktok",
         }
 
         phase_name = phase_names.get(phase_number)

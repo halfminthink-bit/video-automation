@@ -60,6 +60,7 @@ phases:
   "08_thumbnail": "config/phases/thumbnail_generation.yaml"
   "09_youtube": "config/phases/youtube_upload.yaml"
   "10_shorts": "config/phases/shorts_upload.yaml"
+  "11_tiktok": "config/phases/tiktok_upload.yaml"
 
 # ========================================
 # デフォルト動画設定

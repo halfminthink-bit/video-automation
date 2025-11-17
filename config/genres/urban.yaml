@@ -23,3 +23,12 @@ metadata:
 
 # BGMライブラリのパス
 bgm_library: "assets/bgm/urban"
+
+# TikTok認証とハッシュタグ
+tiktok:
+  cookies_file: "config/.tiktok_cookies_urban.txt"
+  hashtags:
+    - "都市伝説"
+    - "オカルト"
+    - "怖い話"
+    - "ミステリー"
