@@ -1,0 +1,19 @@
+genre_id: "history_mystery"
+channel_name: "歴史の謎解き部屋"
+
+youtube:
+  # 偉人系と同じ認証（同じチャンネルでテスト可能）
+  credentials_file: "config/.youtube_credentials_ijin.json"
+  token_file: "data/cache/youtube_token_ijin.json"
+
+prompts:
+  script: "config/prompts/script/history_mystery.j2"
+  image: "config/prompts/image/history_mystery.j2"
+  thumbnail: "config/prompts/thumbnail/history_mystery.j2"
+
+metadata:
+  target_audience: "歴史好きの知的好奇心層 25-55代"
+  tone: "documentary"
+  title_style: "mystery_driven"
+
+bgm_library: "assets/bgm/ijin"  # 偉人系と同じBGM使用

@@ -183,7 +183,7 @@ class PhaseOrchestrator:
             Phase06Subtitles(subject=subject, config=self.config, logger=self.logger),
             Phase07Composition(subject=subject, config=self.config, logger=self.logger, genre=self.genre),
             Phase08Thumbnail(subject=subject, config=self.config, logger=self.logger, genre=self.genre, text_layout=self.text_layout, style=self.thumbnail_style),
-            Phase09YouTube(subject=subject, config=self.config, logger=self.logger),
+            Phase09YouTube(subject=subject, config=self.config, logger=self.logger, genre=self.genre),
         ]
 
     def _print_success_summary(self, status: ProjectStatus):

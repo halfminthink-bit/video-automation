@@ -22,6 +22,16 @@ import argparse
 logger = logging.getLogger(__name__)
 
 
+def safe_print(text: str):
+    """絵文字を含む文字列を安全に出力（Windowsのエンコーディングエラーを回避）"""
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        # 絵文字をASCII文字に置き換え
+        safe_text = text.replace('✅', '[OK]').replace('❌', '[ERROR]').replace('⚠️', '[WARNING]')
+        print(safe_text)
+
+
 class ScriptNormalizer:
     """YAML台本を厳密なフォーマットに正規化"""
 
@@ -163,7 +173,7 @@ def convert_yaml_to_json(yaml_path: Path, output_path: Path):
     # サムネイル情報の取得（フォールバック付き）
     thumbnail_data = data.get("thumbnail")
     if thumbnail_data is None:
-        print(f"⚠️  Warning: 'thumbnail' field not found in {yaml_path.name}, using fallback values")
+        safe_print(f"⚠️  Warning: 'thumbnail' field not found in {yaml_path.name}, using fallback values")
         thumbnail = {
             "upper_text": data["subject"],  # フォールバック: 偉人名
             "lower_text": ""                # フォールバック: 空文字
@@ -211,14 +221,14 @@ def convert_yaml_to_json(yaml_path: Path, output_path: Path):
     with open(output_path, 'w', encoding='utf-8') as f:
         json.dump(script_json, f, indent=2, ensure_ascii=False)
 
-    print(f"✅ Converted: {yaml_path.name} → {output_path}")
+    safe_print(f"✅ Converted: {yaml_path.name} → {output_path}")
 
 
 def main():
     # ロギング設定
     logging.basicConfig(
         level=logging.WARNING,
-        format='⚠️  Warning: %(message)s'
+        format='[WARNING] %(message)s'
     )
 
     parser = argparse.ArgumentParser(description="手動台本をJSONに変換")
@@ -233,7 +243,7 @@ def main():
         # 全てのYAMLを変換
         yaml_files = list(manual_dir.glob("*.yaml"))
         if not yaml_files:
-            print(f"❌ No YAML files found in {manual_dir}")
+            safe_print(f"❌ No YAML files found in {manual_dir}")
             sys.exit(1)
 
         for yaml_file in yaml_files:
@@ -241,7 +251,7 @@ def main():
             output_path = output_dir / f"{subject}_script.json"
             convert_yaml_to_json(yaml_file, output_path)
 
-        print(f"\n✅ Converted {len(yaml_files)} files")
+        safe_print(f"\n✅ Converted {len(yaml_files)} files")
 
     elif args.subject:
         # 指定された偉人のみ
@@ -249,7 +259,7 @@ def main():
         output_path = output_dir / f"{args.subject}_script.json"
 
         if not yaml_path.exists():
-            print(f"❌ File not found: {yaml_path}")
+            safe_print(f"❌ File not found: {yaml_path}")
             sys.exit(1)
 
         convert_yaml_to_json(yaml_path, output_path)
