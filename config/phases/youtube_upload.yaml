@@ -10,6 +10,7 @@ authentication:
   token_file: "data/cache/youtube_token.json"
   scopes:
     - "https://www.googleapis.com/auth/youtube.upload"
+    - "https://www.googleapis.com/auth/youtube"  # サムネイルアップロードに必要
 
 # ========================================
 # アップロード設定

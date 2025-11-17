@@ -20,3 +20,6 @@ metadata:
   target_audience: "オカルト・ミステリー好きな15-35代"
   tone: "mysterious"
   title_style: "suspense_driven"
+
+# BGMライブラリのパス
+bgm_library: "assets/bgm/urban"

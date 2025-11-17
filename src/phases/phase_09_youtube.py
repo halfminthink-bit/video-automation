@@ -38,6 +38,10 @@ from googleapiclient.errors import HttpError
 class Phase09YouTube(PhaseBase):
     """Phase 9: YouTube自動投稿"""
 
+    def __init__(self, subject: str, config: ConfigManager, logger: logging.Logger, genre: Optional[str] = None):
+        super().__init__(subject, config, logger)
+        self.genre = genre
+
     def get_phase_number(self) -> int:
         return 9
 
@@ -332,10 +336,37 @@ class Phase09YouTube(PhaseBase):
 
     def _authenticate_youtube(self):
         """YouTube認証"""
-        auth_config = self.phase_config.get("authentication", {})
-        credentials_file = self.config.project_root / auth_config.get("credentials_file")
-        token_file = self.config.project_root / auth_config.get("token_file")
-        scopes = auth_config.get("scopes", ["https://www.googleapis.com/auth/youtube.upload"])
+        # ジャンル指定がある場合はジャンル設定から認証情報を取得
+        if self.genre:
+            try:
+                genre_config = self.config.get_genre_config(self.genre)
+                youtube_config = genre_config.get("youtube", {})
+                if youtube_config:
+                    self.logger.info(f"Using genre-specific YouTube credentials: {self.genre}")
+                    credentials_file = self.config.project_root / youtube_config.get("credentials_file")
+                    token_file = self.config.project_root / youtube_config.get("token_file")
+                    # スコープはフェーズ設定から取得
+                    auth_config = self.phase_config.get("authentication", {})
+                    scopes = auth_config.get("scopes", ["https://www.googleapis.com/auth/youtube.upload"])
+                else:
+                    # ジャンル設定にyoutubeセクションがない場合はフォールバック
+                    self.logger.warning(f"Genre '{self.genre}' has no youtube config, using default")
+                    auth_config = self.phase_config.get("authentication", {})
+                    credentials_file = self.config.project_root / auth_config.get("credentials_file")
+                    token_file = self.config.project_root / auth_config.get("token_file")
+                    scopes = auth_config.get("scopes", ["https://www.googleapis.com/auth/youtube.upload"])
+            except Exception as e:
+                self.logger.warning(f"Failed to load genre config for '{self.genre}': {e}, using default")
+                auth_config = self.phase_config.get("authentication", {})
+                credentials_file = self.config.project_root / auth_config.get("credentials_file")
+                token_file = self.config.project_root / auth_config.get("token_file")
+                scopes = auth_config.get("scopes", ["https://www.googleapis.com/auth/youtube.upload"])
+        else:
+            # ジャンル指定がない場合はフェーズ設定から取得
+            auth_config = self.phase_config.get("authentication", {})
+            credentials_file = self.config.project_root / auth_config.get("credentials_file")
+            token_file = self.config.project_root / auth_config.get("token_file")
+            scopes = auth_config.get("scopes", ["https://www.googleapis.com/auth/youtube.upload"])
 
         creds = None
 

@@ -63,9 +63,11 @@ class Phase07Composition(PhaseBase):
         subject: str,
         config: ConfigManager,
         logger,
+        genre: Optional[str] = None,
         use_legacy: bool = False
     ):
         super().__init__(subject, config, logger)
+        self.genre = genre
 
         if not MOVIEPY_AVAILABLE:
             error_msg = "MoviePy is required. Install with: pip install moviepy"
@@ -611,8 +613,17 @@ class Phase07Composition(PhaseBase):
     
     def _load_bgm(self) -> Optional[dict]:
         """BGMデータを読み込み（実際の音声長を使用）"""
-        # BGMフォルダのパス（プロジェクトルートからの絶対パス）
-        bgm_library_config = self.config.get("paths", {}).get("bgm_library", "assets/bgm")
+
+        # ジャンル設定から BGM パスを取得
+        if self.genre:
+            genre_config = self.config.get_genre_config(self.genre)
+            bgm_library_config = genre_config.get("bgm_library", "assets/bgm")
+            self.logger.info(f"Using genre-specific BGM library: {bgm_library_config} (genre={self.genre})")
+        else:
+            # フォールバック: 従来の動作（paths.bgm_library）
+            bgm_library_config = self.config.get("paths", {}).get("bgm_library", "assets/bgm")
+            self.logger.warning("No genre specified, using default BGM library from paths.bgm_library")
+
         bgm_base_path = Path(bgm_library_config)
 
         # 相対パスの場合はプロジェクトルートからの絶対パスに変換
@@ -620,7 +631,7 @@ class Phase07Composition(PhaseBase):
             project_root = Path(__file__).parent.parent.parent
             bgm_base_path = project_root / bgm_base_path
 
-        self.logger.info(f"BGM library path: {bgm_base_path}")
+        self.logger.info(f"BGM library path resolved: {bgm_base_path}")
 
         if not bgm_base_path.exists():
             self.logger.warning(f"BGM library not found: {bgm_base_path}")

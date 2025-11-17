@@ -193,6 +193,7 @@ def run_phase(
                     subject=subject,
                     config=config,
                     logger=logger,
+                    genre=genre,
                     use_legacy=use_legacy
                 )
         elif phase_number == 8:
@@ -203,6 +204,13 @@ def run_phase(
                 genre=genre,
                 text_layout=text_layout,
                 style=thumbnail_style
+            )
+        elif phase_number == 9:
+            phase = phase_class(
+                subject=subject,
+                config=config,
+                logger=logger,
+                genre=genre
             )
         else:
             phase = phase_class(
@@ -627,6 +635,12 @@ Examples:
         action="store_true",
         help="Use legacy02 (moviepy) implementation for Phase 7 with Phase03 images"
     )
+    run_parser.add_argument(
+        "--genre",
+        type=str,
+        default=None,
+        help="Genre name (for Phase 9: YouTube credentials selection)"
+    )
 
     # 引数をパース
     args = parser.parse_args()
@@ -662,7 +676,7 @@ Examples:
             skip_if_exists=args.skip_if_exists,
             use_auto_script=args.auto,
             verbose=args.verbose,
-            genre=getattr(args, 'genre', None),
+            genre=args.genre,
             audio_var=getattr(args, 'audio_var', None),
             text_layout=getattr(args, 'text_layout', None),
             thumbnail_style=getattr(args, 'thumbnail_style', None),
