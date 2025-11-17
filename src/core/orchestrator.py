@@ -181,7 +181,7 @@ class PhaseOrchestrator:
             # Phase04Animation(subject=subject, config=self.config, logger=self.logger),  # ❌ 無効化: 静止画をそのまま使用
             # Phase05BGM(subject=subject, config=self.config, logger=self.logger),        # ❌ 無効化: Phase07で直接統合
             Phase06Subtitles(subject=subject, config=self.config, logger=self.logger),
-            Phase07Composition(subject=subject, config=self.config, logger=self.logger),
+            Phase07Composition(subject=subject, config=self.config, logger=self.logger, genre=self.genre),
             Phase08Thumbnail(subject=subject, config=self.config, logger=self.logger, genre=self.genre, text_layout=self.text_layout, style=self.thumbnail_style),
             Phase09YouTube(subject=subject, config=self.config, logger=self.logger),
         ]

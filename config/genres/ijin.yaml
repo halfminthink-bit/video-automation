@@ -20,3 +20,6 @@ metadata:
   target_audience: "歴史に興味がある10-40代"
   tone: "educational"
   title_style: "curiosity_driven"
+
+# BGMライブラリのパス
+bgm_library: "assets/bgm/ijin"

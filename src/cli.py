@@ -193,6 +193,7 @@ def run_phase(
                     subject=subject,
                     config=config,
                     logger=logger,
+                    genre=genre,
                     use_legacy=use_legacy
                 )
         elif phase_number == 8:
