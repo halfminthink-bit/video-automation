@@ -63,7 +63,7 @@ bgm:
   # BGMタイプごとの音量調整（基本音量に対する倍率）
   volume_by_type:
     opening: 1.5   # openingは1.5倍（13% × 1.5 = 19.5%）
-    main: 1.5      # mainは1.5倍（13% × 1.5 = 19.5%）
+    main: 1.0      # mainは1.0倍（13% × 1.0 = 13%）← 下げました
     ending: 0.7    # endingは0.7倍（13% × 0.7 = 9.1%）
 
 # 字幕設定
@@ -96,3 +96,28 @@ memory:
 progress:
   enabled: true             # プログレスバーを表示
   show_eta: true            # 推定残り時間を表示
+
+# 画像タイミング設定
+image_timing:
+  mode: "llm"      # "equal_split" (均等分割), "keyword_match" (キーワードマッチング), or "llm" (LLM駆動)
+  
+  # LLM駆動型画像配置設定
+  llm:
+    model: "claude-3-haiku-20240307"  # 使用するClaudeモデル
+    cache_dir: null  # nullの場合は working_dir/07_composition を使用
+    min_display_duration: 3.0    # 最小表示時間（秒）
+    max_display_duration: 15.0   # 最大表示時間（秒）
+    gap_threshold: 2.0           # 隙間埋めの閾値（秒）
+  
+  # キーワードマッチング設定（フォールバック用）
+  keyword_match:
+    enabled: true
+    min_display_duration: 3.0    # 最小表示時間（秒）
+    max_display_duration: 15.0   # 最大表示時間（秒）
+    section_boundary_switch: true  # セクション境界で強制切り替え
+    
+    priority:
+      exact_match_weight: 10.0      # 完全一致の重み
+      partial_match_weight: 5.0    # 部分一致の重み
+      same_section_weight: 3.0     # 同一セクションの重み
+      keyword_length_weight: 1.0   # キーワード長の重み
