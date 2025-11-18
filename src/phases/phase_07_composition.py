@@ -37,6 +37,8 @@ except ImportError as e:
 from ..core.phase_base import PhaseBase
 from ..core.config_manager import ConfigManager
 from ..core.models import VideoComposition, VideoTimeline, TimelineClip, SubtitleEntry
+from ..utils.image_timing_matcher_fixed import ImageTimingMatcherFixed
+from ..utils.image_timing_matcher_llm import ImageTimingMatcherLLM
 
 
 class Phase07Composition(PhaseBase):
@@ -671,7 +673,13 @@ class Phase07Composition(PhaseBase):
         for bgm_type in sorted_bgm_types:
             sections = bgm_groups[bgm_type]
             # BGMフォルダからファイルを探す
-            bgm_folder = bgm_base_path / bgm_type
+            # bgm_base_pathが既にジャンルフォルダを含む場合はそのまま使用
+            # そうでない場合は、ジャンルが指定されている場合はジャンルフォルダを追加
+            if self.genre and not str(bgm_base_path).endswith(self.genre):
+                bgm_folder = bgm_base_path / self.genre / bgm_type
+            else:
+                bgm_folder = bgm_base_path / bgm_type
+            
             if not bgm_folder.exists():
                 self.logger.warning(f"BGM folder not found: {bgm_folder}")
                 continue
@@ -1591,47 +1599,188 @@ class Phase07Composition(PhaseBase):
             actual_audio_duration = self._get_audio_duration(audio_path)
             self.logger.info(f"Actual audio duration: {actual_audio_duration:.3f}s")
 
-            # Section 1とSection 2の合計時間を計算
-            section_1_2_duration = 0
-            for section_id in sorted_section_ids[:-1]:  # 最後以外
-                section_1_2_duration += section_durations.get(section_id, 0)
+            # 画像タイミングモードを確認
+            image_timing_config = self.phase_config.get("image_timing", {})
+            timing_mode = image_timing_config.get("mode", "equal_split")
+            
+            if timing_mode == "llm":
+                # LLM駆動型画像配置モード
+                self.logger.info("🤖 Using LLM-driven image timing mode")
+                try:
+                    # 字幕タイミングを読み込み
+                    subtitle_timing_path = self.working_dir / "06_subtitles" / "subtitle_timing.json"
+                    if subtitle_timing_path.exists():
+                        with open(subtitle_timing_path, 'r', encoding='utf-8') as f:
+                            subtitle_timing_data = json.load(f)
+                        subtitle_timing = subtitle_timing_data.get('subtitles', [])
+                        
+                        # APIキーを取得
+                        try:
+                            api_key = self.config.get_api_key("CLAUDE_API_KEY")
+                        except Exception:
+                            # 環境変数から直接取得を試みる
+                            import os
+                            api_key = os.getenv("CLAUDE_API_KEY")
+                            if not api_key:
+                                raise ValueError("CLAUDE_API_KEY not found in config or environment")
+                        
+                        # ImageTimingMatcherLLMを初期化
+                        llm_config = image_timing_config.get("llm", {})
+                        matcher = ImageTimingMatcherLLM(
+                            working_dir=self.working_dir,
+                            api_key=api_key,
+                            model=llm_config.get("model", "claude-3-haiku-20240307"),
+                            cache_dir=llm_config.get("cache_dir"),
+                            min_duration=llm_config.get("min_display_duration", 3.0),
+                            max_duration=llm_config.get("max_display_duration", 15.0),
+                            gap_threshold=llm_config.get("gap_threshold", 2.0),
+                            logger=self.logger
+                        )
+                        
+                        # セクションごとに画像クリップを生成
+                        all_image_clips = []
+                        for section_id in sorted_section_ids:
+                            image_clips = matcher.match_images_to_subtitles(
+                                script_data=script,
+                                classified_images=classified_data,
+                                subtitle_timing=subtitle_timing,
+                                section_id=section_id
+                            )
+                            all_image_clips.extend(image_clips)
+                        
+                        # 時間順にソート
+                        all_image_clips.sort(key=lambda clip: clip['start_time'])
+                        
+                        # image_timingsに変換
+                        for clip in all_image_clips:
+                            image_path = Path(clip['image_path'])
+                            start_time = clip['start_time']
+                            end_time = clip['end_time']
+                            duration = end_time - start_time
+                            
+                            if image_path.exists():
+                                image_timings.append({
+                                    'path': image_path,
+                                    'duration': duration,
+                                    'start_time': start_time,
+                                    'end_time': end_time
+                                })
+                        
+                        self.logger.info(f"✅ Generated {len(image_timings)} image clips with LLM matching")
+                    else:
+                        self.logger.warning(f"subtitle_timing.json not found. Falling back to equal split mode.")
+                        raise FileNotFoundError(f"subtitle_timing.json not found: {subtitle_timing_path}")
+                except Exception as e:
+                    self.logger.warning(f"LLM matching failed: {e}. Falling back to keyword match mode.")
+                    timing_mode = "keyword_match"  # フォールバック
+            
+            if timing_mode == "keyword_match":
+                # キーワードマッチングモード
+                self.logger.info("🎯 Using keyword-based image timing mode")
+                try:
+                    # 字幕タイミングを読み込み
+                    subtitle_timing_path = self.working_dir / "06_subtitles" / "subtitle_timing.json"
+                    if subtitle_timing_path.exists():
+                        with open(subtitle_timing_path, 'r', encoding='utf-8') as f:
+                            subtitle_timing_data = json.load(f)
+                        subtitle_timing = subtitle_timing_data.get('subtitles', [])
+                        
+                        # ImageTimingMatcherFixedを初期化
+                        keyword_match_config = image_timing_config.get("keyword_match", {})
+                        matcher = ImageTimingMatcherFixed(
+                            working_dir=self.working_dir,  # audio_timing.jsonを読むため
+                            min_duration=keyword_match_config.get("min_display_duration", 3.0),
+                            max_duration=keyword_match_config.get("max_display_duration", 15.0),
+                            section_boundary_switch=keyword_match_config.get("section_boundary_switch", True),
+                            exact_match_weight=keyword_match_config.get("priority", {}).get("exact_match_weight", 10.0),
+                            partial_match_weight=keyword_match_config.get("priority", {}).get("partial_match_weight", 5.0),
+                            same_section_weight=keyword_match_config.get("priority", {}).get("same_section_weight", 3.0),
+                            keyword_length_weight=keyword_match_config.get("priority", {}).get("keyword_length_weight", 1.0),
+                            logger=self.logger
+                        )
+                        
+                        # セクションごとに画像クリップを生成
+                        all_image_clips = []
+                        for section_id in sorted_section_ids:
+                            image_clips = matcher.match_images_to_subtitles(
+                                script_data=script,
+                                classified_images=classified_data,
+                                subtitle_timing=subtitle_timing,
+                                section_id=section_id
+                            )
+                            all_image_clips.extend(image_clips)
+                        
+                        # 時間順にソート
+                        all_image_clips.sort(key=lambda clip: clip['start_time'])
+                        
+                        # image_timingsに変換
+                        for clip in all_image_clips:
+                            image_path = Path(clip['image_path'])
+                            start_time = clip['start_time']
+                            end_time = clip['end_time']
+                            duration = end_time - start_time
+                            
+                            if image_path.exists():
+                                image_timings.append({
+                                    'path': image_path,
+                                    'duration': duration,
+                                    'start_time': start_time,
+                                    'end_time': end_time
+                                })
+                        
+                        self.logger.info(f"✅ Generated {len(image_timings)} image clips with keyword matching")
+                    else:
+                        self.logger.warning(f"subtitle_timing.json not found. Falling back to equal split mode.")
+                        raise FileNotFoundError(f"subtitle_timing.json not found: {subtitle_timing_path}")
+                except Exception as e:
+                    self.logger.warning(f"Keyword matching failed: {e}. Falling back to equal split mode.")
+                    timing_mode = "equal_split"  # フォールバック
+            
+            if timing_mode == "equal_split":
+                # 均等分割モード（従来の方法）
+                self.logger.info("📊 Using equal split image timing mode")
+                
+                # Section 1とSection 2の合計時間を計算
+                section_1_2_duration = 0
+                for section_id in sorted_section_ids[:-1]:  # 最後以外
+                    section_1_2_duration += section_durations.get(section_id, 0)
 
-            # Section 3に必要な時間（音声の実際の長さ - Section 1,2の合計）
-            if len(sorted_section_ids) >= 3:
-                remaining_duration = actual_audio_duration - section_1_2_duration
-                self.logger.info(
-                    f"Section 1+2 duration: {section_1_2_duration:.3f}s, "
-                    f"Section 3 needs: {remaining_duration:.3f}s"
-                )
+                # Section 3に必要な時間（音声の実際の長さ - Section 1,2の合計）
+                if len(sorted_section_ids) >= 3:
+                    remaining_duration = actual_audio_duration - section_1_2_duration
+                    self.logger.info(
+                        f"Section 1+2 duration: {section_1_2_duration:.3f}s, "
+                        f"Section 3 needs: {remaining_duration:.3f}s"
+                    )
 
-            for section_id in sorted_section_ids:
-                images = section_images[section_id]
-                images_count = len(images)
+                for section_id in sorted_section_ids:
+                    images = section_images[section_id]
+                    images_count = len(images)
 
-                if images_count == 0:
-                    continue
+                    if images_count == 0:
+                        continue
 
-                # 最後のセクション（Section 3）は音声の実際の長さに合わせる
-                if section_id == sorted_section_ids[-1] and len(sorted_section_ids) >= 3:
-                    section_duration = remaining_duration
-                else:
-                    section_duration = section_durations.get(section_id, 0)
+                    # 最後のセクション（Section 3）は音声の実際の長さに合わせる
+                    if section_id == sorted_section_ids[-1] and len(sorted_section_ids) >= 3:
+                        section_duration = remaining_duration
+                    else:
+                        section_duration = section_durations.get(section_id, 0)
 
-                if section_duration == 0:
-                    continue
+                    if section_duration == 0:
+                        continue
 
-                # このセクションの各画像の表示時間（均等分割）
-                duration_per_image = section_duration / images_count
+                    # このセクションの各画像の表示時間（均等分割）
+                    duration_per_image = section_duration / images_count
 
-                self.logger.info(
-                    f"Section {section_id}: {images_count} images × {duration_per_image:.3f}s = {section_duration:.3f}s"
-                )
+                    self.logger.info(
+                        f"Section {section_id}: {images_count} images × {duration_per_image:.3f}s = {section_duration:.3f}s"
+                    )
 
-                for image_path in images:
-                    image_timings.append({
-                        'path': image_path,
-                        'duration': duration_per_image
-                    })
+                    for image_path in images:
+                        image_timings.append({
+                            'path': image_path,
+                            'duration': duration_per_image
+                        })
 
             self.logger.info(f"Total images to process: {len(image_timings)}")
 
@@ -1818,7 +1967,12 @@ class Phase07Composition(PhaseBase):
             if concat_list and concat_list.exists():
                 concat_list.unlink()
             if temp_dir.exists():
-                temp_dir.rmdir()
+                try:
+                    # ディレクトリ内のファイルを削除してからディレクトリを削除
+                    import shutil
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                except Exception as e:
+                    self.logger.warning(f"Failed to delete temp directory: {e}")
             self.logger.info("✅ Cleanup completed")
 
     def _load_audio_timing(self) -> dict:
@@ -1964,6 +2118,32 @@ class Phase07Composition(PhaseBase):
             # シングルクォートでエスケープ
             return f"'{path_str}'"
 
+        # 画像タイミングモードを確認
+        image_timing_config = self.phase_config.get("image_timing", {})
+        timing_mode = image_timing_config.get("mode", "equal_split")
+        
+        if timing_mode == "keyword_match":
+            # キーワードマッチングモード
+            self.logger.info("🎯 Using keyword-based image timing mode")
+            try:
+                return self._create_concat_file_with_keyword_matching(
+                    script,
+                    classified_data,
+                    section_durations,
+                    section_images,
+                    concat_file,
+                    normalize_concat_path
+                )
+            except FileNotFoundError as e:
+                self.logger.warning(f"Keyword matching failed: {e}. Falling back to equal split mode.")
+                # フォールバック: 均等分割モードで続行
+            except Exception as e:
+                self.logger.error(f"Keyword matching error: {e}. Falling back to equal split mode.", exc_info=True)
+                # フォールバック: 均等分割モードで続行
+        
+        # 均等分割モード（従来の方法）
+        self.logger.info("📊 Using equal split image timing mode")
+        
         # セクション順にソート
         sorted_section_ids = sorted(section_images.keys())
 
@@ -2028,6 +2208,122 @@ class Phase07Composition(PhaseBase):
             lines = concat_content.split('\n')
             preview = '\n'.join(lines[:10])
             self.logger.debug(f"Concat file preview (first 10 lines):\n{preview}...")
+        
+        return concat_file
+    
+    def _create_concat_file_with_keyword_matching(
+        self,
+        script: dict,
+        classified_data: dict,
+        section_durations: dict,
+        section_images: dict,
+        concat_file: Path,
+        normalize_concat_path
+    ) -> Path:
+        """
+        キーワードマッチングモードでconcatファイルを生成
+        
+        Args:
+            script: 台本データ
+            classified_data: 分類済み画像データ
+            section_durations: セクション時間の辞書
+            section_images: セクションごとの画像リスト
+            concat_file: concatファイルのパス
+            normalize_concat_path: パス正規化関数
+            
+        Returns:
+            concatファイルのパス
+        """
+        # 字幕タイミングを読み込み
+        subtitle_timing_path = self.working_dir / "06_subtitles" / "subtitle_timing.json"
+        if not subtitle_timing_path.exists():
+            self.logger.warning(
+                f"subtitle_timing.json not found: {subtitle_timing_path}. "
+                "Falling back to equal split mode."
+            )
+            # 均等分割モードにフォールバック（再帰を避けるため、直接処理）
+            # この場合は通常の処理を続行するため、Noneを返して呼び出し元で処理
+            raise FileNotFoundError(f"subtitle_timing.json not found: {subtitle_timing_path}")
+        
+        with open(subtitle_timing_path, 'r', encoding='utf-8') as f:
+            subtitle_timing_data = json.load(f)
+        
+        subtitle_timing = subtitle_timing_data.get('subtitles', [])
+        
+        # ImageTimingMatcherを初期化
+        keyword_match_config = self.phase_config.get("image_timing", {}).get("keyword_match", {})
+        matcher = ImageTimingMatcher(
+            min_duration=keyword_match_config.get("min_display_duration", 3.0),
+            max_duration=keyword_match_config.get("max_display_duration", 15.0),
+            section_boundary_switch=keyword_match_config.get("section_boundary_switch", True),
+            exact_match_weight=keyword_match_config.get("priority", {}).get("exact_match_weight", 10.0),
+            partial_match_weight=keyword_match_config.get("priority", {}).get("partial_match_weight", 5.0),
+            same_section_weight=keyword_match_config.get("priority", {}).get("same_section_weight", 3.0),
+            keyword_length_weight=keyword_match_config.get("priority", {}).get("keyword_length_weight", 1.0),
+            logger=self.logger
+        )
+        
+        # セクションごとに画像クリップを生成
+        all_image_clips = []
+        sorted_section_ids = sorted(section_durations.keys())
+        
+        for section_id in sorted_section_ids:
+            image_clips = matcher.match_images_to_subtitles(
+                script_data=script,
+                classified_images=classified_data,
+                subtitle_timing=subtitle_timing,
+                section_id=section_id
+            )
+            all_image_clips.extend(image_clips)
+        
+        # 時間順にソート
+        all_image_clips.sort(key=lambda clip: clip['start_time'])
+        
+        # concatファイルを生成
+        concat_lines = []
+        
+        for i, clip in enumerate(all_image_clips):
+            image_path = Path(clip['image_path'])
+            start_time = clip['start_time']
+            end_time = clip['end_time']
+            duration = end_time - start_time
+            
+            if not image_path.exists():
+                self.logger.warning(f"Image file not found: {image_path}")
+                continue
+            
+            normalized_path = normalize_concat_path(image_path)
+            concat_lines.append(f"file {normalized_path}")
+            
+            # 最後のクリップ以外はduration指定
+            if i < len(all_image_clips) - 1:
+                concat_lines.append(f"duration {duration:.6f}")
+            
+            self.logger.debug(
+                f"Added image: {image_path.name} "
+                f"({start_time:.3f}s - {end_time:.3f}s, {duration:.3f}s) "
+                f"keyword: {clip.get('keyword_matched', 'N/A')}"
+            )
+        
+        # 最後の画像を再度追加（ffmpeg concat仕様）
+        if all_image_clips:
+            last_clip = all_image_clips[-1]
+            last_image_path = Path(last_clip['image_path'])
+            if last_image_path.exists():
+                normalized_last = normalize_concat_path(last_image_path)
+                concat_lines.append(f"file {normalized_last}")
+                self.logger.debug(f"Added final image without duration: {last_image_path.name}")
+        
+        # ファイルに書き込み
+        with open(concat_file, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(concat_lines))
+        
+        # 検証
+        if not concat_file.exists() or concat_file.stat().st_size == 0:
+            raise ValueError("Failed to create valid concat file (empty or not created)")
+        
+        self.logger.info(f"✅ Concat file created with keyword matching: {len(all_image_clips)} image clips")
+        self.logger.info(f"Concat file path: {concat_file}")
         
         return concat_file
     
