@@ -280,7 +280,14 @@ class Phase10Shorts(PhaseBase):
         aspect_config = self.phase_config.get("aspect_ratio", {})
         target_width = aspect_config.get("target_width", 1080)
         target_height = aspect_config.get("target_height", 1920)
-        crop_mode = aspect_config.get("crop_mode", "center")
+        # modeパラメータを取得（デフォルト: blur_bg）
+        # crop_modeは後方互換性のため残すが、非推奨
+        mode = aspect_config.get("mode", aspect_config.get("crop_mode", "blur_bg"))
+        if aspect_config.get("crop_mode") and not aspect_config.get("mode"):
+            self.logger.warning("aspect_ratio.crop_mode is deprecated, use aspect_ratio.mode instead")
+            # crop_modeが指定されていて、modeが指定されていない場合はcropに変換
+            if aspect_config.get("crop_mode") in ["center", "top", "bottom"]:
+                mode = "crop"
 
         # 出力ディレクトリ
         output_config = self.phase_config.get("output", {})
@@ -293,14 +300,14 @@ class Phase10Shorts(PhaseBase):
         for i, clip in enumerate(clips, 1):
             output_path = vertical_dir / f"vertical_{i:03d}.mp4"
 
-            self.logger.info(f"Converting clip {i}/{len(clips)} to vertical...")
+            self.logger.info(f"Converting clip {i}/{len(clips)} to vertical (mode={mode})...")
 
             converted = converter.convert_to_vertical(
                 input_path=clip,
                 output_path=output_path,
                 target_width=target_width,
                 target_height=target_height,
-                crop_mode=crop_mode
+                mode=mode
             )
 
             vertical_clips.append(converted)

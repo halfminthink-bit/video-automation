@@ -26,7 +26,11 @@ video_split:
 aspect_ratio:
   target_width: 1080
   target_height: 1920
-  crop_mode: "center"  # center / top / bottom
+  mode: "blur_bg"  # blur_bg（推奨）/ black_bars / crop（非推奨）
+  # blur_bg: ぼかし背景 + 元動画16:9維持
+  # black_bars: 黒帯追加 + 元動画16:9維持
+  # crop: 中央クロップ（アスペクト比変更、非推奨）
+  # 後方互換性のためcrop_modeも使用可能（非推奨）
 
 # ========================================
 # アップロード設定
