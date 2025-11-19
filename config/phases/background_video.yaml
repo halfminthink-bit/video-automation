@@ -1,0 +1,46 @@
+# config/phases/background_video.yaml
+# 背景動画選択の設定（3動画固定版）
+
+# 背景動画ライブラリのパス
+background_video_library_path: "assets/background_videos"
+
+# 固定背景動画構成（3動画のみ使用）
+fixed_background_structure:
+  enabled: true  # 固定背景動画使用
+  
+  # 各背景動画の配置ルール
+  videos:
+    opening:
+      file: "opening_001.mp4"
+      title: "Opening Background"
+      description: "オープニング用背景動画"
+      usage: "オープニング～序盤"
+      
+    main:
+      file: "main_001.mp4"
+      title: "Main Background"
+      description: "メインパート用背景動画"
+      usage: "中盤（メインパート）"
+      
+    ending:
+      file: "ending_001.mp4"
+      title: "Ending Background"
+      description: "エンディング用背景動画"
+      usage: "終盤～エンディング"
+
+# タイミング設定（動画全体の長さに基づいて自動計算）
+timing_ratios:
+  opening: 0.15    # 最初の15%で使用
+  main: 0.70       # 中盤70%で使用
+  ending: 0.15     # 最後15%で使用
+
+# ループ設定
+loop:
+  enabled: true       # ループを有効化
+  seamless: true      # シームレスなループを試みる
+
+# トランジション設定
+transition:
+  enabled: true       # トランジションを有効化
+  duration: 1.0       # トランジション時間（秒）
+  type: "crossfade"   # crossfade or fade
