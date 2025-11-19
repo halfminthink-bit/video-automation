@@ -1384,6 +1384,299 @@ dalle:
 
 ---
 
+## ⚙️ 設定ファイルの構造と優先度
+
+### 設定ファイルの種類と役割
+
+システムでは、以下の3種類の設定ファイルを使用します：
+
+1. **`config/phases/*.yaml`** - 各フェーズの基本設定
+2. **`config/variations/*.yaml`** - バリエーション設定（選択肢）
+3. **`config/genres/*.yaml`** - ジャンル別設定
+
+### 設定ファイルの優先度
+
+**優先度（高い順）**:
+
+1. **コマンドライン引数**
+   - `--genre`: ジャンル指定
+   - `--audio-var`: 音声バリエーション指定
+   - `--text-layout`: サムネイルテキストレイアウト指定
+   - `--thumbnail-style`: サムネイルスタイル指定
+
+2. **ジャンル設定** (`config/genres/*.yaml`)
+   - プロンプトテンプレートのパス
+   - YouTube認証情報
+   - BGMライブラリのパス
+   - TikTok設定
+
+3. **フェーズ設定** (`config/phases/*.yaml`)
+   - 各フェーズの処理方法
+   - API設定（サービス選択、パラメータ）
+   - デフォルト値
+
+4. **バリエーション設定** (`config/variations/*.yaml`)
+   - 選択可能なバリエーションのリスト
+   - 各バリエーションの詳細設定
+
+### `config/phases` と `config/variations` の違い
+
+#### `config/phases/*.yaml`（処理方法の設定）
+
+各フェーズの**処理方法**や**API設定**を定義します。
+
+**例: `config/phases/audio_generation.yaml`**
+```yaml
+service: "kokoro"  # 使用する音声サービス
+with_timestamps: true  # タイムスタンプを取得するか
+punctuation_pause:
+  enabled: true
+  pause_duration:
+    period: 0.8
+```
+
+**例: `config/phases/thumbnail_generation.yaml`**
+```yaml
+stable_diffusion:
+  style: "photorealistic"  # SDのスタイル（photorealistic, oil_painting, ukiyo-e など）
+  width: 1344
+  height: 768
+```
+
+#### `config/variations/*.yaml`（選択肢の定義）
+
+ユーザーが選べる**バリエーション**のリストを定義します。
+
+**例: `config/variations/audio.yaml`**
+```yaml
+audio_variations:
+  - id: "kokoro_standard"
+    service: "kokoro"
+    voice: "jf_alpha"
+    speed: 1.0
+  
+  - id: "elevenlabs_standard"
+    service: "elevenlabs"
+    voice_id: "3JDquces8E8bkmvbh6Bc"
+    model: "eleven_multilingual_v2"
+```
+
+**例: `config/variations/thumbnail_text.yaml`**
+```yaml
+text_layouts:
+  - id: "two_line_center_adjusted"
+    description: "中央揃え2行レイアウト（バランス改善版）"
+    upper:
+      position: [640, 120]
+      font_size: 65
+      color: "#FFFF00"
+  
+  - id: "two_line_upper_lower_max_impact"
+    description: "横書き・上部特大＆下部特大（バランス改善版）"
+    upper:
+      position: [640, 130]
+      font_size: 70
+```
+
+### 設定ファイルの読み込み方法
+
+#### 1. フェーズ設定の読み込み
+
+```python
+# Phase 2の設定を読み込む
+phase_config = config.get_phase_config(2)
+service = phase_config.get("service", "kokoro")
+```
+
+#### 2. バリエーション設定の読み込み
+
+```python
+# 音声バリエーションのリストを読み込む
+audio_config = config.get_variation_config("audio")
+variations = audio_config.get("audio_variations", [])
+
+# 特定のバリエーションを検索
+variation_id = "kokoro_standard"
+for var in variations:
+    if var["id"] == variation_id:
+        # このバリエーションの設定を使用
+        break
+```
+
+#### 3. ジャンル設定の読み込み
+
+```python
+# ジャンル設定を読み込む
+genre_config = config.get_genre_config("ijin")
+prompt_template_path = genre_config["prompts"]["thumbnail"]
+```
+
+### 実行時にどの設定が使われるか
+
+#### 一括実行時 (`generate`)
+
+```powershell
+python -m src.cli generate "エリサ・ラム事件" \
+  --genre urban \
+  --audio-var kokoro_standard \
+  --text-layout two_line_center_adjusted \
+  --thumbnail-style dramatic_side
+```
+
+**実行フロー**:
+
+1. **ジャンル設定の読み込み** (`config/genres/urban.yaml`)
+   - プロンプトテンプレート: `config/prompts/thumbnail/urban.j2`
+   - YouTube認証情報: `config/.youtube_credentials_urban.json`
+   - BGMライブラリ: `assets/bgm/urban`
+
+2. **Phase 2（音声生成）**
+   - `config/phases/audio_generation.yaml` から処理方法を読み込み
+   - `--audio-var kokoro_standard` → `config/variations/audio.yaml` から該当バリエーションを検索
+   - 見つかったバリエーションの設定を使用
+
+3. **Phase 8（サムネイル生成）**
+   - `config/phases/thumbnail_generation.yaml` から処理方法を読み込み
+   - `--text-layout two_line_center_adjusted` → `config/variations/thumbnail_text.yaml` から該当レイアウトを検索
+   - `--thumbnail-style dramatic_side` → `config/variations/thumbnail_style.yaml` から該当スタイルを検索
+   - `config/genres/urban.yaml` からプロンプトテンプレートを読み込み
+
+#### 単発実行時 (`run-phase`)
+
+```powershell
+python -m src.cli run-phase "エリサ・ラム事件" --phase 8 \
+  --text-layout two_line_center_adjusted \
+  --thumbnail-style dramatic_side \
+  --genre urban
+```
+
+**実行フロー**:
+
+1. **Phase 8の設定を読み込み**
+   - `config/phases/thumbnail_generation.yaml` から処理方法を読み込み
+   - `--genre urban` → `config/genres/urban.yaml` からプロンプトテンプレートを読み込み
+
+2. **バリエーション設定の読み込み**
+   - `--text-layout two_line_center_adjusted` → `config/variations/thumbnail_text.yaml` から該当レイアウトを検索
+   - `--thumbnail-style dramatic_side` → `config/variations/thumbnail_style.yaml` から該当スタイルを検索
+
+### 設定ファイルの優先順位の具体例
+
+#### 例1: Phase 8（サムネイル生成）
+
+**優先順位（高い順）**:
+
+1. **コマンドライン引数** (`--text-layout`, `--thumbnail-style`)
+   ```powershell
+   python -m src.cli run-phase "エリサ・ラム事件" --phase 8 \
+     --text-layout two_line_center_adjusted
+   ```
+
+2. **ジャンル設定** (`config/genres/urban.yaml`)
+   ```yaml
+   prompts:
+     thumbnail: "config/prompts/thumbnail/urban.j2"
+   ```
+
+3. **フェーズ設定** (`config/phases/thumbnail_generation.yaml`)
+   ```yaml
+   stable_diffusion:
+     style: "photorealistic"  # デフォルトスタイル
+     width: 1344
+     height: 768
+   ```
+
+4. **バリエーション設定** (`config/variations/thumbnail_text.yaml`)
+   ```yaml
+   text_layouts:
+     - id: "two_line_center_adjusted"
+       upper:
+         font_size: 65  # デフォルトのフォントサイズ
+   ```
+
+**注意**: 現在、Phase 8では `thumbnail_generation.yaml` の `text_style_v3` による上書きは無効化されています。全てのテキストスタイルは `config/variations/thumbnail_text.yaml` から直接選ばれます。
+
+#### 例2: Phase 2（音声生成）
+
+**優先順位（高い順）**:
+
+1. **コマンドライン引数** (`--audio-var`)
+   ```powershell
+   python -m src.cli generate "エリサ・ラム事件" --audio-var kokoro_standard
+   ```
+
+2. **フェーズ設定** (`config/phases/audio_generation.yaml`)
+   ```yaml
+   service: "kokoro"  # デフォルトサービス
+   with_timestamps: true
+   ```
+
+3. **バリエーション設定** (`config/variations/audio.yaml`)
+   ```yaml
+   audio_variations:
+     - id: "kokoro_standard"
+       service: "kokoro"
+       voice: "jf_alpha"
+       speed: 1.0
+   ```
+
+**実装の詳細**:
+- `--audio-var` が指定されていない場合、`audio_generation.yaml` の `service` とデフォルト設定が使用される
+- `--audio-var` が指定されている場合、`config/variations/audio.yaml` から該当バリエーションを検索し、その設定を使用
+
+### サムネイル生成の設定フロー（Phase 8）
+
+```
+1. コマンドライン引数
+   --text-layout two_line_center_adjusted
+   --thumbnail-style dramatic_side
+   --genre urban
+   ↓
+2. ジャンル設定読み込み (config/genres/urban.yaml)
+   prompts.thumbnail → "config/prompts/thumbnail/urban.j2"
+   ↓
+3. フェーズ設定読み込み (config/phases/thumbnail_generation.yaml)
+   stable_diffusion.style → "photorealistic"
+   stable_diffusion.width → 1344
+   ↓
+4. バリエーション設定読み込み (config/variations/thumbnail_text.yaml)
+   text_layouts → [two_line_center_adjusted, ...]
+   ↓
+5. バリエーション設定読み込み (config/variations/thumbnail_style.yaml)
+   styles → [dramatic_side, ...]
+   ↓
+6. 統合
+   - プロンプト: urban.j2（ジャンル設定から）
+   - SDスタイル: photorealistic（フェーズ設定から）
+   - テキストレイアウト: two_line_center_adjusted（バリエーション設定から）
+   - スタイル: dramatic_side（バリエーション設定から）
+```
+
+### 音源（BGM）の設定
+
+BGMの設定は以下の2箇所で管理されます：
+
+1. **`config/phases/bgm_selection.yaml`** - BGM選択の処理方法
+   - デフォルト音量
+   - フェードイン/アウト時間
+   - トラック間のトランジション設定
+
+2. **`config/genres/*.yaml`** - ジャンル別BGMライブラリのパス
+   ```yaml
+   bgm_library: "assets/bgm/ijin"
+   ```
+
+3. **`assets/bgm/{genre}/`** - 実際のBGMファイル
+   - 固定トラック構成（intro, main, outro など）
+
+**BGM選択の優先順位**:
+
+1. ジャンル設定のBGMライブラリパス
+2. フェーズ設定のデフォルト値
+3. 固定トラック構成（`bgm_selection.yaml` の `fixed_bgm_structure`）
+
+---
+
 ## 🎛️ 設定ファイルの完全な例
 
 ### config/phases/audio_generation.yaml（v4.0完全版）
