@@ -36,49 +36,105 @@ class ScriptNormalizer:
     """YAML台本を厳密なフォーマットに正規化"""
 
     @staticmethod
-    def normalize_narration(text: str) -> str:
-        """narrationフィールドを正規化
+    def extract_impact_sentences(text: str) -> tuple:
+        """
+        narrationからimpact markersを抽出
+        
+        マーカー形式:
+        - @@文章@@   : normal（赤・70px）
+        - @@@文章@@@ : mega（特大・中央、Phase 2で実装予定）
+        
+        Args:
+            text: 元のnarration（マーカー付き）
+        
+        Returns:
+            (clean_text, impact_data)
+            - clean_text: マーカーを削除したnarration（TTS用）
+            - impact_data: {"normal": [...], "mega": [...]}
+        
+        Example:
+            入力:
+                "「うつけ者」と呼ばれた。
+                 @@誰もが侮った男が、革命児となった。@@
+                 織田信長は天下を目指す。"
+            
+            出力:
+                clean_text = "「うつけ者」と呼ばれた。\n誰もが侮った男が、革命児となった。\n織田信長は天下を目指す。"
+                impact_data = {
+                    "normal": ["誰もが侮った男が、革命児となった。"],
+                    "mega": []
+                }
+        """
+        impact_data = {"normal": [], "mega": []}
+        
+        # @@@...@@@ を検出（mega）- Phase 2で実装予定
+        # 注意: @@@を先にチェックしないと@@にマッチしてしまう
+        mega_pattern = r'@@@(.+?)@@@'
+        for match in re.finditer(mega_pattern, text, re.DOTALL):
+            sentence = match.group(1).strip()
+            # 改行を含む場合は削除
+            sentence = sentence.replace('\n', '')
+            if sentence:
+                impact_data["mega"].append(sentence)
+        
+        # @@...@@ を検出（normal）
+        normal_pattern = r'@@(.+?)@@'
+        for match in re.finditer(normal_pattern, text, re.DOTALL):
+            sentence = match.group(1).strip()
+            # 改行を含む場合は削除
+            sentence = sentence.replace('\n', '')
+            # megaと重複しないようにチェック
+            if sentence and sentence not in impact_data["mega"]:
+                impact_data["normal"].append(sentence)
+        
+        # マーカーを削除（TTSに影響しないように）
+        clean_text = re.sub(r'@@@(.+?)@@@', r'\1', text)  # mega削除
+        clean_text = re.sub(r'@@(.+?)@@', r'\1', clean_text)  # normal削除
+        
+        return clean_text, impact_data
 
-        処理内容:
-        1. 空行を完全削除
-        2. 文末チェック:
-           - 。で終わる → そのまま
-           - ！で終わる → そのまま
-           - 」で終わる → 」。に変更
-           - その他 → 。を追加
-        3. 連続改行（\n\n以上）を1つの\nに正規化
+    @staticmethod
+    def normalize_narration(text: str) -> tuple:
+        """
+        narrationフィールドを正規化 + impact抽出
+        
+        処理順序:
+        1. まずimpact markersを抽出（マーカー削除）
+        2. その後、既存の正規化処理（空行削除、文末チェック等）
+        
+        Returns:
+            (normalized_text, impact_data)
+        
+        Note:
+            既存のnormalize_narrationメソッドを拡張
         """
         if not text:
-            return text
-
-        # 行に分割して処理
+            return text, {"normal": [], "mega": []}
+        
+        # 1. impact markersを抽出（先にやる！）
+        clean_text, impact_data = ScriptNormalizer.extract_impact_sentences(text)
+        
+        # 2. 既存の正規化処理（空行削除、文末チェック等）
         lines = []
-        for line in text.split('\n'):
-            # 前後の空白を削除
+        for line in clean_text.split('\n'):
             line = line.strip()
-
+            
             # 空行はスキップ
             if not line:
                 continue
-
+            
             # 文末チェック
             if line.endswith('。') or line.endswith('！'):
-                # 既に正しい文末 → そのまま
                 lines.append(line)
             elif line.endswith('」'):
-                # 」で終わる場合 → 。を追加
                 lines.append(line + '。')
             else:
-                # その他 → 。を追加
                 lines.append(line + '。')
-
-        # 改行で再結合
+        
         result = '\n'.join(lines)
-
-        # 連続改行を1つに正規化（念のため）
         result = re.sub(r'\n{2,}', '\n', result)
-
-        return result
+        
+        return result, impact_data
 
     @staticmethod
     def normalize_thumbnail(thumbnail: dict) -> dict:
@@ -143,13 +199,10 @@ class ScriptNormalizer:
         if "thumbnail" in data and data["thumbnail"]:
             data["thumbnail"] = ScriptNormalizer.normalize_thumbnail(data["thumbnail"])
 
-        # セクションを正規化
+        # セクションを正規化（impact抽出はconvert_yaml_to_jsonで行う）
         if "sections" in data:
             for section in data["sections"]:
-                # narrationを正規化
-                if "narration" in section:
-                    section["narration"] = ScriptNormalizer.normalize_narration(section["narration"])
-
+                # narrationはここでは正規化しない（convert_yaml_to_jsonでimpact抽出と同時に行う）
                 # bgm_suggestionのチェック
                 if "bgm" not in section or not section.get("bgm"):
                     section_id = section.get("section_id", "unknown")
@@ -199,19 +252,21 @@ def convert_yaml_to_json(yaml_path: Path, output_path: Path):
 
     # セクションを変換（正規化済みデータから）
     for section in data["sections"]:
-        # narrationは既に正規化済み（空行削除、文末チェック、連続改行正規化が完了）
+        # narrationを正規化 + impact抽出
         narration_text = section.get("narration", "")
+        normalized_narration, impact_data = ScriptNormalizer.normalize_narration(narration_text)
 
         script_json["sections"].append({
             "section_id": section.get("section_id", 0),
             "title": section.get("title", ""),
-            "narration": narration_text,
+            "narration": normalized_narration,  # ← マーカー削除済み（TTS用）
             "estimated_duration": float(section.get("duration", 0)),
             "image_keywords": section.get("keywords", []),
             "atmosphere": section.get("atmosphere", ""),
             "requires_ai_video": False,
             "ai_video_prompt": None,
-            "bgm_suggestion": section.get("bgm", "")
+            "bgm_suggestion": section.get("bgm", ""),
+            "impact_sentences": impact_data  # ← 新規追加！
         })
 
         script_json["total_estimated_duration"] += section.get("duration", 0)

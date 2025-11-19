@@ -285,8 +285,8 @@ class Phase06SubtitlesV2(PhaseBase):
         """
         timing_path = self.phase_dir / "subtitle_timing.json"
         
-        # 台本からimpact_phrasesを読み込み
-        impact_phrases = self._extract_impact_phrases_from_script()
+        # 台本からimpact_sentencesを読み込み
+        impact_sentences = self._load_impact_sentences_from_script()
 
         timing_data = {
             "subject": self.subject,
@@ -300,7 +300,7 @@ class Phase06SubtitlesV2(PhaseBase):
                     "duration": s.end_time - s.start_time,
                     "text_line1": s.text_line1,
                     "text_line2": s.text_line2,
-                    "impact_level": self._get_impact_level(s, impact_phrases)
+                    "impact_level": self._get_impact_level(s, impact_sentences)
                 }
                 for s in subtitles
             ]
@@ -312,65 +312,87 @@ class Phase06SubtitlesV2(PhaseBase):
         self.logger.info(f"Timing JSON saved: {timing_path}")
         return timing_path
 
-    def _extract_impact_phrases_from_script(self) -> Dict[str, List[str]]:
+    def _load_impact_sentences_from_script(self) -> Dict[str, List[str]]:
         """
-        台本(raw_script.yaml)からimpact_phrasesを抽出
+        台本(script.json)からimpact_sentencesを読み込み
+        
+        Note:
+            - raw_script.yamlではなくscript.jsonから読み込む
+            - convert_manual_script.pyで@@マーカー@@を検出してJSONに保存済み
         
         Returns:
-            {'normal': ['phrase1', 'phrase2'], 'mega': ['phrase3']}
+            {'normal': ['sentence1', ...], 'mega': ['sentence2', ...]}
         """
-        script_path = self.working_dir / "01_script" / "raw_script.yaml"
+        script_path = self.working_dir / "01_script" / "script.json"
         
         if not script_path.exists():
-            self.logger.debug(f"raw_script.yaml not found: {script_path}")
+            self.logger.debug(f"script.json not found: {script_path}")
             return {'normal': [], 'mega': []}
         
         try:
-            import yaml
             with open(script_path, 'r', encoding='utf-8') as f:
-                raw_script = yaml.safe_load(f)
+                script = json.load(f)
             
-            impact_phrases = {'normal': [], 'mega': []}
+            impact_sentences = {'normal': [], 'mega': []}
             
-            for section in raw_script.get('sections', []):
-                if 'impact_phrases' in section:
-                    impact_phrases['normal'].extend(
-                        section['impact_phrases'].get('normal', [])
+            # 各セクションのimpact_sentencesを集約
+            for section in script.get('sections', []):
+                if 'impact_sentences' in section:
+                    impact_sentences['normal'].extend(
+                        section['impact_sentences'].get('normal', [])
                     )
-                    impact_phrases['mega'].extend(
-                        section['impact_phrases'].get('mega', [])
+                    impact_sentences['mega'].extend(
+                        section['impact_sentences'].get('mega', [])
                     )
             
             self.logger.info(
-                f"Loaded impact phrases: {len(impact_phrases['normal'])} normal, "
-                f"{len(impact_phrases['mega'])} mega"
+                f"Loaded impact sentences: {len(impact_sentences['normal'])} normal, "
+                f"{len(impact_sentences['mega'])} mega"
             )
-            return impact_phrases
+            return impact_sentences
+            
         except Exception as e:
-            self.logger.warning(f"Failed to load impact phrases: {e}")
+            self.logger.warning(f"Failed to load impact sentences: {e}")
             return {'normal': [], 'mega': []}
     
     def _get_impact_level(
         self, 
         subtitle: SubtitleEntry, 
-        impact_phrases: Dict[str, List[str]]
+        impact_sentences: Dict[str, List[str]]
     ) -> str:
         """
-        字幕のimpact_levelを判定
+        字幕のimpact_levelを判定（完全一致）
+        
+        変更点:
+        - 部分一致（キーワードマッチ）→ 完全一致に変更
+        - より正確に1文だけを指定できる
+        
+        Args:
+            subtitle: 字幕エントリ
+            impact_sentences: {'normal': [...], 'mega': [...]}
         
         Returns:
             "none" | "normal" | "mega"
-        """
-        text = subtitle.text_line1 + (subtitle.text_line2 if subtitle.text_line2 else "")
         
-        # mega判定
-        for phrase in impact_phrases.get('mega', []):
-            if phrase in text:
+        Example:
+            字幕: "誰もが侮った男が、革命児となった。"
+            impact_sentences: {
+                "normal": ["誰もが侮った男が、革命児となった。"]
+            }
+            → return "normal"
+        """
+        # 字幕のテキスト全体を結合
+        text = subtitle.text_line1 + (subtitle.text_line2 if subtitle.text_line2 else "")
+        text = text.strip()
+        
+        # mega判定（完全一致）
+        for sentence in impact_sentences.get('mega', []):
+            if text == sentence.strip():
                 return 'mega'
         
-        # normal判定
-        for phrase in impact_phrases.get('normal', []):
-            if phrase in text:
+        # normal判定（完全一致）
+        for sentence in impact_sentences.get('normal', []):
+            if text == sentence.strip():
                 return 'normal'
         
         return 'none'
