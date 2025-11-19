@@ -1,0 +1,73 @@
+# ========================================
+# Phase 11: TikTok Upload Configuration
+# ========================================
+
+# ========================================
+# Chrome/Selenium設定
+# ========================================
+selenium:
+  headless: false  # デバッグ時はfalse、本番はtrue
+  window_size: "1920x1080"
+  wait_timeout: 10  # 要素待機のタイムアウト（秒）
+  chrome_profile_path: "C:\\Users\\hyokaimen\\AppData\\Local\\Google\\Chrome\\User Data"
+  
+  # Chromeを自動で閉じるか（Cookiesデータベースのロックを解除するため）
+  auto_close_chrome: true  # false にすると警告だけ出す
+  
+  # TikTok Studioのアップロードページに直接アクセス
+  # 空にして直接/uploadに移動（または明示的に指定: "https://www.tiktok.com/tiktokstudio/upload"）
+  account_page_url: ""  # 空にして直接/uploadに移動
+
+# ========================================
+# アップロード設定
+# ========================================
+upload:
+  privacy_status: "public"  # public / friends_only / private
+  allow_comments: true
+  allow_duet: true
+  allow_stitch: true
+  
+  # アップロード間隔（秒）- 連続投稿時のレート制限対策
+  interval_between_clips: 10
+
+# ========================================
+# UI要素セレクタ（複数候補を用意）
+# ========================================
+selectors:
+  # アカウントページからアップロードページへのボタン
+  account_upload_button:
+    - "//button[contains(@aria-label, 'Upload')]"
+    - "//a[contains(@href, '/upload')]"
+    - "//div[contains(@class, 'upload')]//button"
+    - "//button[contains(text(), 'アップロード')]"
+    - "//button[contains(text(), 'Upload')]"
+  # アップロードページのアップロードボタン（直接アクセス時）
+  upload_button:
+    - "//button[contains(@aria-label, 'Upload')]"
+    - "//a[contains(@href, '/upload')]"
+  file_input:
+    - "input[type='file']"
+    - "input[accept*='video']"
+  caption_input:
+    - "div[contenteditable='true']"
+    - "textarea[placeholder*='キャプション']"
+  post_button:
+    - "//button[contains(text(), '投稿')]"
+    - "//button[contains(text(), 'Post')]"
+
+# ========================================
+# 出力設定
+# ========================================
+output:
+  upload_log: "tiktok_upload_log.json"
+  screenshots_dir: "screenshots"
+
+# ========================================
+# リトライ設定
+# ========================================
+retry:
+  max_attempts: 3
+  delay_seconds: 5
+  retry_on_network_error: true
+  retry_on_ui_error: false  # UIエラーはリトライしない
+

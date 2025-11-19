@@ -99,7 +99,11 @@ def run_phase(
     text_layout: Optional[str] = None,
     thumbnail_style: Optional[str] = None,
     use_legacy: bool = False,
-    use_legacy02: bool = False
+    use_legacy02: bool = False,
+    text_only: bool = False,
+    text_only_image: Optional[str] = None,
+    is_batch_mode: bool = False,
+    all_variations: bool = False
 ) -> int:
     """
     指定されたフェーズを実行
@@ -115,6 +119,10 @@ def run_phase(
         thumbnail_style: サムネイルスタイルID
         use_legacy: Phase 7でlegacy (moviepy) 版を使用 (Phase04の動画)
         use_legacy02: Phase 7でlegacy02 (moviepy) 版を使用 (Phase03の画像)
+        text_only: Phase 8で既存画像にテキストのみ追加
+        text_only_image: Phase 8で使用する既存画像のパス
+        is_batch_mode: 一括実行モードかどうか
+        all_variations: Phase 8で全レイアウトのバリエーションを生成
 
     Returns:
         終了コード (0: 成功, 1: 失敗)
@@ -205,7 +213,11 @@ def run_phase(
                 logger=logger,
                 genre=genre,
                 text_layout=text_layout,
-                style=thumbnail_style
+                style=thumbnail_style,
+                text_only=text_only,
+                text_only_image=text_only_image,
+                is_batch_mode=is_batch_mode,
+                all_variations=all_variations
             )
         elif phase_number == 9:
             phase = phase_class(
@@ -322,7 +334,7 @@ def generate_video(
     subject: str,
     force: bool = False,
     from_phase: int = 1,
-    until_phase: int = 9,
+    until_phase: int = 10,
     verbose: bool = False,
     auto: bool = False,
     manual: bool = False,
@@ -431,12 +443,14 @@ def generate_video(
         logger.info("⏭️  Phase 05 (BGM selection) will be skipped")
 
     # Orchestratorを作成
+    # text_layoutが未指定の場合はtwo_line_red_whiteをデフォルトに
+    default_text_layout = text_layout if text_layout else "two_line_red_white"
     orchestrator = PhaseOrchestrator(
         config=config,
         logger=logger,
         genre=genre,
         audio_var=audio_var,
-        text_layout=text_layout,
+        text_layout=default_text_layout,
         thumbnail_style=thumbnail_style
     )
 
@@ -471,7 +485,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Generate entire video (Phase 1-9)
+  # Generate entire video (Phase 1-10)
   python -m src.cli generate "織田信長"
 
   # Generate with automatic script generation
@@ -548,7 +562,7 @@ Examples:
     generate_parser.add_argument(
         "--until-phase",
         type=int,
-        default=9,
+        default=10,
         choices=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
         help="Run until specified phase (1-10)"
     )
@@ -650,6 +664,34 @@ Examples:
         default=None,
         help="Genre name (for Phase 9: YouTube credentials selection)"
     )
+    run_parser.add_argument(
+        "--text-layout",
+        type=str,
+        default=None,
+        help="Thumbnail text layout ID (e.g., 'two_line_red_white')"
+    )
+    run_parser.add_argument(
+        "--thumbnail-style",
+        type=str,
+        default=None,
+        help="Thumbnail style ID (e.g., 'dramatic_side')"
+    )
+    run_parser.add_argument(
+        "--text-only",
+        action="store_true",
+        help="Phase 8: Add text only to existing image (requires --text-only-image)"
+    )
+    run_parser.add_argument(
+        "--text-only-image",
+        type=str,
+        default=None,
+        help="Phase 8: Path to existing image for --text-only mode"
+    )
+    run_parser.add_argument(
+        "--all-variations",
+        action="store_true",
+        help="Phase 8: Generate thumbnails with all text layout variations"
+    )
 
     # 引数をパース
     args = parser.parse_args()
@@ -690,7 +732,11 @@ Examples:
             text_layout=getattr(args, 'text_layout', None),
             thumbnail_style=getattr(args, 'thumbnail_style', None),
             use_legacy=args.legacy,
-            use_legacy02=getattr(args, 'legacy02', False)
+            use_legacy02=getattr(args, 'legacy02', False),
+            text_only=getattr(args, 'text_only', False),
+            text_only_image=getattr(args, 'text_only_image', None),
+            is_batch_mode=False,  # 単発実行
+            all_variations=getattr(args, 'all_variations', False)
         )
 
     return 0

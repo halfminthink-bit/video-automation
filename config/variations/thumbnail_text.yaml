@@ -1,96 +1,152 @@
-# ========================================
-# テキストレイアウトパターン
-# ========================================
-
 text_layouts:
-  - id: "two_line_red_white"
-    description: "上赤・下白の2行レイアウト"
-    upper:
-      position: [640, 100]           # 中央上部
-      font_size: 80
-      font_family: "fonts/NotoSansJP-Black.ttf"
-      color: "#FF0000"
-      stroke_width: 4
-      stroke_color: "#FFFFFF"
-      shadow: [3, 3, "#000000", 0.8]
-    lower:
-      position: [640, 650]           # 中央下部
-      font_size: 60
-      font_family: "fonts/NotoSansJP-Bold.ttf"
-      color: "#FFFFFF"
-      stroke_width: 3
-      stroke_color: "#000000"
-      shadow: [2, 2, "#000000", 0.8]
-
-  - id: "two_line_yellow_black"
-    description: "上黄・下黒の2行レイアウト"
-    upper:
-      position: [640, 100]
-      font_size: 85
-      font_family: "fonts/NotoSansJP-Black.ttf"
-      color: "#FFFF00"
-      stroke_width: 5
-      stroke_color: "#000000"
-      shadow: [3, 3, "#000000", 0.9]
-    lower:
-      position: [640, 650]
-      font_size: 65
-      font_family: "fonts/NotoSansJP-Bold.ttf"
-      color: "#000000"
-      stroke_width: 3
-      stroke_color: "#FFFFFF"
-      shadow: [2, 2, "#FFFFFF", 0.5]
-
-  - id: "three_zone"
-    description: "3ゾーンレイアウト"
-    upper:
-      position: [640, 80]
-      font_size: 50
-      font_family: "fonts/NotoSansJP-Bold.ttf"
-      color: "#FFFF00"
-      stroke_width: 3
-      stroke_color: "#000000"
-    middle:
-      position: [640, 360]
-      font_size: 100
-      font_family: "fonts/NotoSansJP-Black.ttf"
-      color: "#FFFFFF"
-      stroke_width: 4
-      stroke_color: "#000000"
-    lower:
-      position: [640, 640]
-      font_size: 45
-      font_family: "fonts/NotoSansJP-Regular.ttf"
-      color: "#CCCCCC"
-      stroke_width: 2
-      stroke_color: "#000000"
-
-  - id: "vertical_left_right"
-    description: "左右縦書きレイアウト（現行Phase 08）"
+  # 01: ユーザー提供のオリジナル（縦書き）
+  - id: "vertical_left_right_original"
+    description: "左右縦書きレイアウト（オリジナル）"
     mode: "vertical"
     canvas_size: [1280, 720]
     right:
-      # 右側縦書きテキスト（赤文字）
-      position_x: 1160                # 右端から120px内側
-      position_y: 100                 # 上部から100px
+      position_x: 1160
+      position_y: 100
       font_size: 90
       font_family: "fonts/NotoSansJP-Black.ttf"
-      color: "#DC143C"                # Crimson赤
+      color: "#DC143C"
       stroke_width: 15
       stroke_color: "#000000"
       shadow: [8, 8, "#000000", 0.6]
-      char_spacing: 100               # 文字間隔（縦方向）
-      column_spacing: 120             # 列間隔（横方向）
+      char_spacing: 100
+      column_spacing: 120
     left:
-      # 左側縦書きテキスト（白文字）
-      position_x: 100                 # 左端から100px内側
-      position_y: 100                 # 上部から100px
-      font_size: 70
+      position_x: 100
+      position_y: 100
+      font_size: 55 # 小さく（70→55）
       font_family: "fonts/NotoSansJP-Bold.ttf"
-      color: "#FFFFFF"                # 白
+      color: "#FFFFFF"
       stroke_width: 12
       stroke_color: "#000000"
       shadow: [8, 8, "#000000", 0.6]
-      char_spacing: 85                # 文字間隔（縦方向）
-      column_spacing: 100             # 列間隔（横方向）
+      char_spacing: 65
+      column_spacing: 100
 
+  # 02: サイズ調整版（バランス改善）
+  - id: "two_line_center_adjusted"
+    description: "中央揃え2行レイアウト（バランス改善版）"
+    upper:
+      position: [640, 120]  # 上に移動（150→120）
+      font_size: 65         # 小さく（80→65）
+      font_family: "fonts/NotoSansJP-Black.ttf"
+      color: "#FFFF00"
+      stroke_width: 6
+      stroke_color: "#000000"
+      shadow: [4, 4, "#FF0000", 0.9]
+    lower:
+      position: [640, 600]  # 下に移動（550→600）
+      font_size: 50         # 小さく（70→50）
+      font_family: "fonts/NotoSansJP-Bold.ttf"
+      color: "#FFFFFF"
+      stroke_width: 4
+      stroke_color: "#000000"
+      shadow: [3, 3, "#000000", 0.7]
+
+  # 03: 縦書き・左右入れ替え＆色変更
+  - id: "vertical_left_right_blue_yellow"
+    description: "左右縦書きレイアウト（青・黄）"
+    mode: "vertical"
+    canvas_size: [1280, 720]
+    right:
+      position_x: 1160
+      position_y: 100
+      font_size: 80 # サイズ微調整
+      font_family: "fonts/NotoSansJP-Black.ttf"
+      color: "#0000FF" # 青
+      stroke_width: 12
+      stroke_color: "#FFFFFF"
+      shadow: [6, 6, "#000000", 0.7]
+      char_spacing: 90
+      column_spacing: 110
+    left:
+      position_x: 100
+      position_y: 100
+      font_size: 60 # サイズ微調整
+      font_family: "fonts/NotoSansJP-Bold.ttf"
+      color: "#FFFF00" # 黄
+      stroke_width: 10
+      stroke_color: "#000000"
+      shadow: [5, 5, "#000000", 0.6]
+      char_spacing: 75
+      column_spacing: 90
+
+  # 04: 縦書き・右側特大＆左側サブ
+  - id: "vertical_right_main_left_sub"
+    description: "縦書き・右側特大＆左側サブ"
+    mode: "vertical"
+    canvas_size: [1280, 720]
+    right:
+      position_x: 1100
+      position_y: 50
+      font_size: 120 # 特大サイズ
+      font_family: "fonts/NotoSansJP-Black.ttf"
+      color: "#FF0000"
+      stroke_width: 18
+      stroke_color: "#FFFFFF"
+      shadow: [10, 10, "#000000", 0.9]
+      char_spacing: 130
+      column_spacing: 150
+    left:
+      position_x: 180
+      position_y: 100 # y軸に沿って上に移動（150→100）
+      font_size: 65 # 大きく（50→65）
+      font_family: "fonts/NotoSansJP-Bold.ttf"
+      color: "#FFFF00"
+      stroke_width: 8
+      stroke_color: "#000000"
+      shadow: [4, 4, "#000000", 0.6]
+      char_spacing: 75 # サイズアップに合わせて調整（60→75）
+      column_spacing: 95 # サイズアップに合わせて調整（80→95）
+
+  # 05: 横書き・上部特大＆下部特大（バランス改善）
+  - id: "two_line_upper_lower_max_impact"
+    description: "横書き・上部特大＆下部特大（バランス改善版）"
+    upper:
+      position: [640, 130]  # 上に移動（200→130）
+      font_size: 70         # 小さく（80→70）
+      font_family: "fonts/NotoSansJP-Black.ttf"
+      color: "#00FFFF"
+      stroke_width: 8       # 細く（10→8）
+      stroke_color: "#000000"
+      shadow: [6, 6, "#0000FF", 0.8]  # 影も少し控えめに
+    lower:
+      position: [640, 600]  # 下に移動（550→600）
+      font_size: 48         # 小さく（70→48）
+      font_family: "fonts/NotoSansJP-Bold.ttf"  # Boldに変更
+      color: "#FFFFFF"
+      stroke_width: 4       # 細く（10→4）
+      stroke_color: "#000000"
+      shadow: [4, 4, "#000000", 0.7]
+
+  # 06: 縦書き・左右特大（色違い）
+  - id: "vertical_left_right_max_impact"
+    description: "縦書き・左右特大（色違い）"
+    mode: "vertical"
+    canvas_size: [1280, 720]
+    right:
+      position_x: 1100
+      position_y: 50
+      font_size: 85 # サイズダウン（110→85）
+      font_family: "fonts/NotoSansJP-Black.ttf"
+      color: "#FFFF00"
+      stroke_width: 15
+      stroke_color: "#000000"
+      shadow: [8, 8, "#FF0000", 0.9]
+      char_spacing: 100 # サイズダウンに合わせて調整（120→100）
+      column_spacing: 120 # サイズダウンに合わせて調整（140→120）
+    left:
+      position_x: 180
+      position_y: 50
+      font_size: 70 # 少し小さく（85→70）
+      font_family: "fonts/NotoSansJP-Black.ttf"
+      color: "#00FFFF"
+      stroke_width: 15
+      stroke_color: "#000000"
+      shadow: [8, 8, "#0000FF", 0.9]
+      char_spacing: 85 # サイズダウンに合わせて調整（100→85）
+      column_spacing: 105 # サイズダウンに合わせて調整（120→105）

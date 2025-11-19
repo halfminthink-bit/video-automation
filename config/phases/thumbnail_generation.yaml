@@ -72,8 +72,9 @@ stable_diffusion:
   cfg_scale: 7.5
   sampler: "DPM++ 2M Karras"
 
-  # スタイル
-  style: "dramatic"                  # dramatic, professional, minimalist
+  # スタイル（SD画像生成用）
+  # 有効な値: photorealistic, oil_painting, ukiyo-e, watercolor, documentary
+  style: "photorealistic"            # デフォルト: 写実的（photorealistic）
 
   # プロンプトテンプレート（V3.0レイアウト対応）
   prompt_template: |

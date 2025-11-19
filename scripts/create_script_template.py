@@ -4,7 +4,7 @@
 
 使い方:
     python scripts/create_script_template.py 織田信長 --type ijin
-    python scripts/create_script_template.py ディアトロフ峠事件 --type legend
+    python scripts/create_script_template.py メアリー・セレスト号事件 --type legend
     python scripts/create_script_template.py "もしナポレオンが勝っていたら" --type history_if
 
     # --type省略時はijin（偉人）

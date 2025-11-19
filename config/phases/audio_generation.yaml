@@ -63,7 +63,7 @@ kokoro:
   voice: "jf_alpha"
 
   # 速度（0.5-2.0）
-  speed: 1.0
+  speed: 1.4
 
   # 出力フォーマット
   response_format: "mp3"  # mp3, wav, opus, flac

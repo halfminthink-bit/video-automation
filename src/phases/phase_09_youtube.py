@@ -483,14 +483,21 @@ class Phase09YouTube(PhaseBase):
             phase8_thumbnail_dir = self.config.get_phase_dir(self.subject, 8) / "thumbnails"
 
             if phase8_thumbnail_dir.exists():
-                thumbnails = sorted(phase8_thumbnail_dir.glob("*.png"))
+                # PNG、JPG、JPEG すべてを検索
+                thumbnails = sorted(
+                    list(phase8_thumbnail_dir.glob("*.png")) +
+                    list(phase8_thumbnail_dir.glob("*.jpg")) +
+                    list(phase8_thumbnail_dir.glob("*.jpeg"))
+                )
                 if thumbnails:
+                    self.logger.info(f"Found thumbnail in phase8/thumbnails: {thumbnails[0].name}")
                     return thumbnails[0]  # 最初のサムネイル
 
         # Phase 7のサムネイル（フォールバック）
         if thumbnail_config.get("fallback_to_phase7", True):
             phase7_thumbnail = self.config.get_phase_dir(self.subject, 7) / f"{self.subject}_thumbnail.jpg"
             if phase7_thumbnail.exists():
+                self.logger.info(f"Using fallback thumbnail from phase7: {phase7_thumbnail.name}")
                 return phase7_thumbnail
 
         self.logger.warning("No thumbnail found")

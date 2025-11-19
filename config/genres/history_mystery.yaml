@@ -17,3 +17,20 @@ metadata:
   title_style: "mystery_driven"
 
 bgm_library: "assets/bgm/ijin"  # 偉人系と同じBGM使用
+
+# ========================================
+# TikTok設定
+# ========================================
+tiktok:
+  profile_name: "Profile 6"  # 歴史ミステリー系TikTokアカウント用（将来的に作成）
+  
+  # キャプションテンプレート
+  caption_template: "{subject}の謎に迫る！({clip_number}/{total_clips}) #歴史ミステリー #謎 #{subject} #考察"
+  
+  # ハッシュタグ
+  hashtags:
+    - "歴史ミステリー"
+    - "謎"
+    - "考察"
+    - "歴史"
+    - "歴史好きと繋がりたい"

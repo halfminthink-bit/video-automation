@@ -23,3 +23,20 @@ metadata:
 
 # BGMライブラリのパス
 bgm_library: "assets/bgm/ijin"
+
+# ========================================
+# TikTok設定
+# ========================================
+tiktok:
+  profile_name: "Profile 6"  # 偉人系TikTokアカウント用
+  
+  # キャプションテンプレート（{subject}と{clip_number}、{total_clips}を置換）
+  caption_template: "{subject}の人生を解説！({clip_number}/{total_clips}) #偉人 #歴史 #{subject} #解説"
+  
+  # ハッシュタグ
+  hashtags:
+    - "偉人"
+    - "歴史"
+    - "解説"
+    - "教育"
+    - "歴史好きと繋がりたい"
