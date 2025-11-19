@@ -151,8 +151,6 @@ class Phase07CompositionV2(PhaseBase):
         bg_config = config.get_phase_config("background_video")
         self.bg_selector = BackgroundVideoSelector(
             video_library_path=Path(bg_config["background_video_library_path"]),
-            fixed_videos=bg_config["fixed_background_structure"]["videos"],
-            timing_ratios=bg_config["timing_ratios"],
             transition_duration=bg_config["transition"].get("duration", 1.0),
             logger=logger
         )
@@ -3637,8 +3635,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             audio_duration = self._get_audio_duration(audio_path)
             self.logger.info(f"Total audio duration: {audio_duration:.1f}s")
             
-            # 3. 背景動画を選択
-            bg_selection = self.bg_selector.select_videos_for_duration(audio_duration)
+            # 3. 背景動画を選択（台本のbgm_suggestionに基づく）
+            bg_selection = self.bg_selector.select_videos_for_sections(script.sections)
             self.logger.info(f"Selected {len(bg_selection['segments'])} background video segments")
             
             # 4. 画像リストを取得
