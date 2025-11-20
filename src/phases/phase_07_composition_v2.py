@@ -7,6 +7,7 @@ import json
 import platform
 import re
 import time
+import yaml
 from pathlib import Path
 from typing import List, Dict, Any, Optional, TYPE_CHECKING
 from datetime import datetime
@@ -86,7 +87,6 @@ class Phase07CompositionV2(PhaseBase):
             self.logger.info("🔄 Using legacy (moviepy) mode")
             legacy_config_path = Path(__file__).parent.parent.parent / "config/phases/video_composition_legacy.yaml"
             if legacy_config_path.exists():
-                import yaml
                 with open(legacy_config_path, 'r', encoding='utf-8') as f:
                     legacy_config = yaml.safe_load(f)
                 # phase_configを上書き
@@ -143,15 +143,25 @@ class Phase07CompositionV2(PhaseBase):
         # パフォーマンス設定
         perf_config = self.phase_config.get("performance", {})
         self.use_ffmpeg_direct = perf_config.get("use_ffmpeg_direct", False)
+        self.use_background_video = perf_config.get("use_background_video", False)
         self.encode_preset = perf_config.get("preset", "faster")
         self.parallel_processing = perf_config.get("parallel_processing", True)
         self.threads = perf_config.get("threads", 0)
         
         # 背景動画セレクターを初期化
-        bg_config = config.get_phase_config("background_video")
+        # background_video.yaml を直接読み込む（phasesセクションに定義されていないため）
+        bg_config_path = config.project_root / "config" / "phases" / "background_video.yaml"
+        if bg_config_path.exists():
+            with open(bg_config_path, 'r', encoding='utf-8') as f:
+                bg_config = yaml.safe_load(f) or {}
+        else:
+            self.logger.warning(f"Background video config not found: {bg_config_path}, using defaults")
+            bg_config = {}
+        
         self.bg_selector = BackgroundVideoSelector(
-            video_library_path=Path(bg_config["background_video_library_path"]),
-            transition_duration=bg_config["transition"].get("duration", 1.0),
+            video_library_path=Path(bg_config.get("background_video_library_path", "assets/background_videos")),
+            selection_mode=bg_config.get("selection_mode", "random"),
+            transition_duration=bg_config.get("transition", {}).get("duration", 1.0),
             logger=logger
         )
         self.logger.info("Background video selector initialized")
@@ -235,6 +245,11 @@ class Phase07CompositionV2(PhaseBase):
         if self.use_legacy:
             self.logger.info("🎬 Executing legacy moviepy composition")
             return self._execute_legacy()
+
+        # 背景動画モードの分岐
+        if self.use_background_video and self.use_ffmpeg_direct:
+            self.logger.info("🎬 Using background video mode (background video + scaled images)")
+            return self._execute_with_background_video()
 
         # ffmpeg直接統合モードの分岐
         if self.use_ffmpeg_direct:
@@ -410,6 +425,35 @@ class Phase07CompositionV2(PhaseBase):
     def _get_audio_path(self) -> Path:
         """音声ファイルパスを取得"""
         return self.working_dir / "02_audio" / "narration_full.mp3"
+    
+    def _get_video_duration(self, video_path: Path) -> float:
+        """
+        動画ファイルの長さを取得
+        
+        Args:
+            video_path: 動画ファイルのパス
+        
+        Returns:
+            動画の長さ（秒）
+        """
+        import subprocess
+        import json
+        
+        try:
+            # ffprobe を使用して動画ファイルの長さを取得
+            cmd = [
+                'ffprobe', '-v', 'error',
+                '-show_entries', 'format=duration',
+                '-of', 'json',
+                str(video_path)
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            data = json.loads(result.stdout)
+            duration = float(data.get('format', {}).get('duration', 10.0))
+            return duration
+        except Exception as e:
+            self.logger.warning(f"Failed to get video duration: {e}")
+            return 10.0  # デフォルト値
     
     def _get_audio_duration(self, audio_path: Path) -> float:
         """
@@ -632,9 +676,30 @@ class Phase07CompositionV2(PhaseBase):
             bgm_library_config = genre_config.get("bgm_library", "assets/bgm")
             self.logger.info(f"Using genre-specific BGM library: {bgm_library_config} (genre={self.genre})")
         else:
-            # フォールバック: 従来の動作（paths.bgm_library）
-            bgm_library_config = self.config.get("paths", {}).get("bgm_library", "assets/bgm")
-            self.logger.warning("No genre specified, using default BGM library from paths.bgm_library")
+            # フォールバック: ジャンルが指定されていない場合の処理
+            # 1. まず、利用可能なジャンルフォルダを探す
+            default_bgm_path = Path(__file__).parent.parent.parent / "assets" / "bgm"
+            available_genres = []
+            if default_bgm_path.exists():
+                for item in default_bgm_path.iterdir():
+                    if item.is_dir() and (item / "opening").exists() and (item / "main").exists():
+                        available_genres.append(item.name)
+            
+            # 2. 利用可能なジャンルがある場合は、最初のものを使用（通常はijin）
+            if available_genres:
+                inferred_genre = available_genres[0]  # 通常は "ijin"
+                bgm_library_config = f"assets/bgm/{inferred_genre}"
+                self.logger.info(
+                    f"No genre specified, inferred genre '{inferred_genre}' from BGM folder structure. "
+                    f"Using: {bgm_library_config} (available genres: {', '.join(available_genres)})"
+                )
+            else:
+                # 3. ジャンルフォルダが見つからない場合はデフォルトパスを使用
+                bgm_library_config = self.config.get("paths", {}).get("bgm_library", "assets/bgm")
+                self.logger.warning(
+                    f"No genre specified and no genre folders found in {default_bgm_path}. "
+                    f"Using default BGM library: {bgm_library_config}"
+                )
 
         bgm_base_path = Path(bgm_library_config)
 
@@ -684,11 +749,11 @@ class Phase07CompositionV2(PhaseBase):
             sections = bgm_groups[bgm_type]
             # BGMフォルダからファイルを探す
             # bgm_base_pathが既にジャンルフォルダを含む場合はそのまま使用
-            # そうでない場合は、ジャンルが指定されている場合はジャンルフォルダを追加
-            if self.genre and not str(bgm_base_path).endswith(self.genre):
-                bgm_folder = bgm_base_path / self.genre / bgm_type
-            else:
-                bgm_folder = bgm_base_path / bgm_type
+            # そうでない場合は、bgm_base_path / bgm_type を使用
+            # 例:
+            # - bgm_base_path = "assets/bgm/ijin" → bgm_folder = "assets/bgm/ijin/opening"
+            # - bgm_base_path = "assets/bgm" → bgm_folder = "assets/bgm/opening" (これは存在しない)
+            bgm_folder = bgm_base_path / bgm_type
             
             if not bgm_folder.exists():
                 self.logger.warning(f"BGM folder not found: {bgm_folder}")
@@ -3612,6 +3677,62 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     # V2専用メソッド: 背景動画 + インパクト字幕
     # ========================================
     
+    def _align_background_videos_with_bgm(self, bg_selection: dict, bgm_data: dict) -> dict:
+        """
+        背景動画のタイミングをBGMのタイミングに合わせる
+        
+        Args:
+            bg_selection: 背景動画の選択結果
+            bgm_data: BGMデータ（segmentsを含む）
+        
+        Returns:
+            タイミング調整後の背景動画選択結果
+        """
+        bgm_segments = bgm_data.get('segments', [])
+        bg_segments = bg_selection.get('segments', [])
+        
+        # BGMセグメントのタイミングを使って背景動画のタイミングを調整
+        aligned_segments = []
+        
+        # BGMセグメントごとに背景動画をマッピング
+        for bgm_seg in bgm_segments:
+            bgm_type = bgm_seg.get('bgm_type', '')
+            bgm_start = bgm_seg.get('start_time', 0)
+            bgm_duration = bgm_seg.get('duration', 0)
+            
+            # 対応する背景動画セグメントを探す
+            matching_bg_seg = None
+            for bg_seg in bg_segments:
+                if bg_seg.get('track_id', '') == bgm_type:
+                    matching_bg_seg = bg_seg
+                    break
+            
+            if matching_bg_seg:
+                # BGMのタイミングに合わせて背景動画のタイミングを調整
+                aligned_seg = {
+                    'track_id': bgm_type,
+                    'video_path': matching_bg_seg.get('video_path', ''),
+                    'start_time': bgm_start,  # BGMのstart_timeを使用
+                    'duration': bgm_duration  # BGMのdurationを使用
+                }
+                aligned_segments.append(aligned_seg)
+                
+                self.logger.info(
+                    f"Aligned background video: {bgm_type} "
+                    f"[{bgm_start:.1f}s - {bgm_start + bgm_duration:.1f}s] "
+                    f"(was: [{matching_bg_seg.get('start_time', 0):.1f}s - "
+                    f"{matching_bg_seg.get('start_time', 0) + matching_bg_seg.get('duration', 0):.1f}s])"
+                )
+            else:
+                self.logger.warning(
+                    f"No matching background video found for BGM type: {bgm_type}"
+                )
+        
+        return {
+            'segments': aligned_segments,
+            'total_duration': bg_selection.get('total_duration', 0)
+        }
+    
     def _execute_with_background_video(self) -> VideoComposition:
         """
         背景動画 + 画像70%縮小 + インパクト字幕の2パス処理
@@ -3636,7 +3757,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             self.logger.info(f"Total audio duration: {audio_duration:.1f}s")
             
             # 3. 背景動画を選択（台本のbgm_suggestionに基づく）
-            bg_selection = self.bg_selector.select_videos_for_sections(script.sections)
+            script_sections = script.get('sections', [])
+            bg_selection = self.bg_selector.select_videos_for_sections(script_sections)
             self.logger.info(f"Selected {len(bg_selection['segments'])} background video segments")
             
             # 4. 画像リストを取得
@@ -3645,6 +3767,27 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             
             # 5. BGM読み込み
             bgm_data = self._load_bgm()
+            
+            # 6. 背景動画を全体の長さに拡張（main動画を使用）
+            if bg_selection and bg_selection.get('segments'):
+                # 最初のセグメント（main動画）を取得
+                main_segment = bg_selection['segments'][0]
+                
+                # 音声の長さ全体に拡張
+                bg_selection = {
+                    'segments': [{
+                        'track_id': 'main',
+                        'video_path': main_segment['video_path'],
+                        'start_time': 0.0,
+                        'duration': audio_duration  # 52秒全体
+                    }],
+                    'total_duration': audio_duration
+                }
+                
+                self.logger.info(
+                    f"✓ Extended background video to full duration: "
+                    f"{audio_duration:.1f}s (using {Path(main_segment['video_path']).name})"
+                )
             
             # Pass 1: 背景 + 画像 + 音声（字幕なし）
             temp_video = self.phase_dir / "temp_video_no_subtitles.mp4"
@@ -3726,68 +3869,80 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         output_path: Path
     ) -> None:
         """
-        背景動画の上に70%縮小した画像を配置
+        背景動画 + 画像75%縮小 + 黒バー
         
-        ffmpegの処理:
-        1. 背景動画3本を concat で繋ぐ（opening/main/ending）
-        2. 画像を concat で繋いで1本の動画にする
-        3. 画像を70%に scale (1344x756)
-        4. 背景の上に overlay で配置（中央）
-        5. 音声とBGMを追加
+        新しい処理フロー:
+        1. 背景動画を事前処理（リサイズ・ループ・トリミング）
+        2. 処理済み動画をconcatで繋ぐ（シンプル）
+        3. 画像をconcatで繋ぐ
+        4. オーバーレイ
+        5. 黒バー追加
+        6. BGM追加
         """
         import subprocess
         
-        # 背景動画concatファイル作成
-        bg_concat_file = self.phase_dir / "bg_concat.txt"
-        with open(bg_concat_file, 'w', encoding='utf-8') as f:
-            for seg in background_videos:
-                # ffmpeg concatフォーマット
-                f.write(f"file '{seg['video_path']}'\n")
-                f.write(f"duration {seg['duration']}\n")
-            # 最後のファイルをもう一度（ffmpeg仕様）
-            f.write(f"file '{background_videos[-1]['video_path']}'\n")
+        # 音声の長さを取得
+        audio_duration = self._get_audio_duration(audio_path)
+        self.logger.info(f"Audio duration: {audio_duration:.2f} seconds")
         
-        self.logger.info(f"Background concat file created: {bg_concat_file}")
+        # 1. 背景動画をconcatファイルとして準備
+        self.logger.info(f"Creating background video concat file for {len(background_videos)} segments...")
+        bg_concat_file = self._create_background_concat_file(background_videos)
+        self.logger.info(f"✓ Background video concat file created")
         
-        # 画像concatファイル作成
-        image_concat_file = self._create_image_concat_file(images, background_videos)
+        # 2. 画像concatファイル作成
+        image_concat_file = self._create_image_concat_file(images, audio_duration)
         self.logger.info(f"Image concat file created: {image_concat_file}")
         
-        # BGMの処理
-        bgm_filter = ""
-        bgm_map = []
-        if bgm_data:
-            bgm_filter, bgm_map = self._create_bgm_filter_for_background(bgm_data, audio_path)
-        
-        # ffmpegコマンド
+        # 3. ffmpegコマンド（シンプル版）
         cmd = [
             'ffmpeg',
+            # 背景動画（concat形式）
             '-f', 'concat',
             '-safe', '0',
-            '-i', str(bg_concat_file),  # [0] 背景動画
+            '-i', str(bg_concat_file),  # [0] 背景
+            # 画像（concat形式）
             '-f', 'concat',
             '-safe', '0',
             '-i', str(image_concat_file),  # [1] 画像
+            # 音声
             '-i', str(audio_path),  # [2] 音声
         ]
         
         # BGMファイルを追加
-        bgm_input_count = 3
+        bgm_input_start_index = 3
         if bgm_data:
+            seen_files = set()
             for segment in bgm_data.get('segments', []):
-                track = next((t for t in bgm_data.get('tracks_used', []) if t['track_id'] == segment['track_id']), None)
-                if track:
-                    cmd.extend(['-i', track['file_path']])
-                    bgm_input_count += 1
+                file_path = segment.get('file_path')
+                if file_path and file_path not in seen_files:
+                    bgm_file_path = Path(file_path)
+                    if not bgm_file_path.is_absolute():
+                        bgm_file_path = self.config.project_root / bgm_file_path
+                    
+                    cmd.extend(['-i', str(bgm_file_path)])
+                    seen_files.add(file_path)
+            
+            self.logger.info(f"Added {len(seen_files)} BGM files")
         
-        # フィルターコンプレックス
+        # BGMフィルターを作成
+        bgm_filter = ""
+        bgm_map = []
+        if bgm_data:
+            bgm_filter, bgm_map = self._create_bgm_filter_for_background(
+                bgm_data, audio_path, num_bg_videos=0  # 背景動画は事前処理済み
+            )
+        
+        # 4. シンプルなフィルター
         filter_complex = (
-            # 背景をループ
-            '[0:v]loop=loop=-1:size=1:start=0,scale=1920:1080,setsar=1[bg];'
-            # 画像を70%に縮小
-            '[1:v]scale=1344:756[scaled_img];'
-            # 背景の上に画像を中央配置
-            '[bg][scaled_img]overlay=(W-w)/2:(H-h)/2[video]'
+            # 背景: そのまま使用（事前処理済み）
+            '[0:v]copy[bg];'
+            # 画像: 75%縮小（1440x810）
+            '[1:v]scale=1440:810[img];'
+            # オーバーレイ（固定位置: 240, 27）
+            '[bg][img]overlay=240:27[composed];'
+            # 黒バー追加（下部216px）
+            '[composed]pad=1920:1080:0:0:black[video]'
         )
         
         cmd.extend([
@@ -3799,7 +3954,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         if bgm_map:
             cmd.extend(bgm_map)
         else:
-            cmd.extend(['-map', '2:a'])  # 音声のみ
+            cmd.extend(['-map', '2:a'])
         
         cmd.extend([
             '-c:v', 'libx264',
@@ -3807,54 +3962,374 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             '-crf', '23',
             '-c:a', 'aac',
             '-b:a', '192k',
-            '-shortest',  # 最短の入力に合わせる
-            '-y',
-            str(output_path)
+            '-shortest',
+            '-y', str(output_path)
         ])
         
-        self.logger.info("Running ffmpeg for background video integration...")
-        subprocess.run(cmd, check=True, capture_output=True)
+        self.logger.info("Running ffmpeg for video composition...")
+        self.logger.debug(f"Command: {' '.join(cmd)}")
         
-        self.logger.info(f"Video with background created: {output_path}")
+        try:
+            result = subprocess.run(
+                cmd, 
+                check=True, 
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='replace'
+            )
+            self.logger.info(f"Video with background created: {output_path}")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"FFmpeg failed: {e.stderr}")
+            self.logger.error(f"Command: {' '.join(cmd)}")
+            raise
     
-    def _create_image_concat_file(self, images: List[Path], background_videos: List[dict]) -> Path:
-        """画像のconcatファイルを作成"""
+    def _create_image_concat_file(self, images: List[Path], audio_duration: float) -> Path:
+        """画像のconcatファイルを作成（音声の長さに合わせる）"""
         concat_file = self.phase_dir / "image_concat.txt"
         
         # 各画像の表示時間を計算（均等分割）
-        total_duration = sum(seg['duration'] for seg in background_videos)
-        duration_per_image = total_duration / len(images)
+        duration_per_image = audio_duration / len(images)
         
         with open(concat_file, 'w', encoding='utf-8') as f:
             for img in images:
-                f.write(f"file '{img}'\n")
+                # パスを絶対パスに変換（Windows対応）
+                img_path = Path(img)
+                if not img_path.is_absolute():
+                    img_path = img_path.resolve()
+                # Windowsパスをスラッシュ区切りに変換
+                img_path_str = str(img_path).replace('\\', '/')
+                f.write(f"file '{img_path_str}'\n")
                 f.write(f"duration {duration_per_image}\n")
             # 最後のファイルをもう一度（ffmpeg仕様）
-            f.write(f"file '{images[-1]}'\n")
+            last_img = Path(images[-1])
+            if not last_img.is_absolute():
+                last_img = last_img.resolve()
+            last_img_str = str(last_img).replace('\\', '/')
+            f.write(f"file '{last_img_str}'\n")
         
         return concat_file
     
-    def _create_bgm_filter_for_background(self, bgm_data: dict, audio_path: Path) -> tuple:
-        """BGMフィルターを作成"""
-        # 簡略版: BGMを音声とミックス
-        bgm_filter = ";[2:a]volume=1.0[narration]"
+    def _create_background_concat_file(
+        self, 
+        background_videos: List[dict]
+    ) -> Path:
+        """
+        背景動画のconcatファイルを作成（BGMと同じ方式）
         
-        # BGMセグメントを処理
-        bgm_streams = []
-        input_index = 3
-        for i, segment in enumerate(bgm_data.get('segments', [])):
-            volume = segment.get('volume', 0.1)
-            bgm_filter += f";[{input_index}:a]volume={volume}[bgm{i}]"
-            bgm_streams.append(f"[bgm{i}]")
-            input_index += 1
+        各セグメントを事前に処理してから繋ぐ：
+        1. リサイズ・クロップ（1920x1080 → 1920x864）
+        2. 速度調整（opening/main: 0.5倍、ending: 1倍）
+        3. ループまたはトリミング（必要な長さに調整）
+        4. 一時ファイルとして保存
+        5. concatで繋ぐ
         
-        # 全ての音声をミックス
-        if bgm_streams:
-            all_streams = "[narration]" + "".join(bgm_streams)
-            bgm_filter += f";{all_streams}amix=inputs={len(bgm_streams)+1}:duration=shortest[audio]"
-            bgm_map = ['-map', '[audio]']
+        Args:
+            background_videos: 背景動画セグメント情報のリスト
+                [
+                    {
+                        'track_id': 'opening',
+                        'video_path': 'assets/background_videos/opening/video1.mp4',
+                        'start_time': 0.0,
+                        'duration': 15.0
+                    },
+                    ...
+                ]
+        
+        Returns:
+            concatファイルのパス
+        """
+        import subprocess
+        
+        concat_file = self.phase_dir / "bg_concat.txt"
+        temp_files = []
+        
+        for i, seg in enumerate(background_videos):
+            video_path = Path(seg['video_path'])
+            if not video_path.is_absolute():
+                video_path = self.config.project_root / video_path
+            
+            # ファイルの存在確認
+            if not video_path.exists():
+                self.logger.error(f"Background video not found: {video_path}")
+                continue
+            
+            duration = seg['duration']
+            track_id = seg.get('track_id', '')
+            
+            # 一時ファイル
+            temp_file = self.phase_dir / f"bg_temp_{i}_{track_id}.mp4"
+            
+            # 背景動画の実際の長さを取得
+            try:
+                video_duration = self._get_video_duration(video_path)
+            except Exception as e:
+                self.logger.warning(
+                    f"Could not get video duration for {video_path.name}: {e}"
+                )
+                video_duration = 10.0  # デフォルト値
+            
+            # opening/mainは0.5倍速（ゆっくり再生、2倍の長さになる）
+            if track_id in ['opening', 'main']:
+                speed_filter = 'setpts=PTS*2'
+                effective_duration = video_duration * 2
+                speed_info = "0.5x speed"
+            else:
+                speed_filter = 'setpts=PTS-STARTPTS'
+                effective_duration = video_duration
+                speed_info = "1.0x speed"
+            
+            # ループまたはトリミング
+            if duration > effective_duration:
+                # 動画が短い → ループが必要（必要な回数を計算）
+                loop_count = int(duration / effective_duration) + 1
+                # 20回を上限とする（処理時間を考慮）
+                if loop_count > 20:
+                    loop_count = 20
+                    self.logger.warning(
+                        f"Loop count capped at 20 (calculated: {int(duration / effective_duration) + 1})"
+                    )
+                
+                vf = (
+                    f"scale=1920:1080,crop=1920:864:0:0,"
+                    f"{speed_filter},"
+                    f"loop=loop={loop_count}:size=32767:start=0,"
+                    f"trim=duration={duration},"
+                    f"setpts=PTS-STARTPTS"
+                )
+                loop_info = f"looping {loop_count}x"
+                
+                self.logger.info(
+                    f"  Video length: {video_duration:.1f}s "
+                    f"→ Effective: {effective_duration:.1f}s (speed={speed_info}) "
+                    f"→ Loops needed: {loop_count}x for {duration:.1f}s"
+                )
+            else:
+                # 動画が長い → トリミングのみ
+                vf = (
+                    f"scale=1920:1080,crop=1920:864:0:0,"
+                    f"{speed_filter},"
+                    f"trim=duration={duration},"
+                    f"setpts=PTS-STARTPTS"
+                )
+                loop_info = "trimming"
+            
+            # ffmpegで処理
+            cmd = [
+                'ffmpeg',
+                '-i', str(video_path),
+                '-vf', vf,
+                '-c:v', 'libx264',
+                '-preset', 'ultrafast',  # 速度優先
+                '-crf', '28',
+                '-an',  # 音声なし
+                '-y', str(temp_file)
+            ]
+            
+            self.logger.info(
+                f"Processing background {i+1}/{len(background_videos)}: "
+                f"{track_id} ({video_path.name}) -> {duration:.1f}s "
+                f"({speed_info}, {loop_info})"
+            )
+            self.logger.info(f"Running ffmpeg command (this may take a while)...")
+            
+            try:
+                result = subprocess.run(
+                    cmd, 
+                    check=True, 
+                    capture_output=True,
+                    text=True,
+                    encoding='utf-8',
+                    errors='replace'
+                )
+                self.logger.info(f"✓ Background video {i+1} processed successfully")
+                temp_files.append(temp_file)
+            except subprocess.CalledProcessError as e:
+                self.logger.error(
+                    f"Failed to process background video {video_path.name}: "
+                    f"{e.stderr}"
+                )
+                continue
+        
+        # concatファイル作成
+        if not temp_files:
+            raise RuntimeError("No background videos were successfully processed")
+        
+        with open(concat_file, 'w', encoding='utf-8') as f:
+            for temp_file in temp_files:
+                # Windowsパス対応
+                temp_path_str = str(temp_file).replace('\\', '/')
+                f.write(f"file '{temp_path_str}'\n")
+        
+        self.logger.info(
+            f"Background concat file created: {concat_file} "
+            f"({len(temp_files)} segments)"
+        )
+        
+        return concat_file
+    
+    def _create_bgm_filter_for_background(
+        self, bgm_data: dict, audio_path: Path, num_bg_videos: int = 0
+    ) -> tuple:
+        """
+        BGMフィルターを作成（タイムラインに基づいた切り替え対応）
+        
+        Args:
+            bgm_data: {"segments": [...]} 形式
+            audio_path: 音声ファイルのパス
+            num_bg_videos: 背景動画の数（BGMファイルの入力インデックス計算用）
+        
+        Returns:
+            (bgm_filter, bgm_map) タプル
+        """
+        if not bgm_data or not bgm_data.get('segments'):
+            # 音声のインデックスを決定
+            if num_bg_videos == 0:
+                return "", ['-map', '2:a']  # [2] = 音声（背景動画が事前処理済み）
+            else:
+                return "", ['-map', '1:a']  # [1] = 音声（旧実装）
+        
+        bgm_segments = bgm_data.get('segments', [])
+        filters = []
+        
+        self.logger.info("=" * 60)
+        self.logger.info("Building BGM filter for background video:")
+        self.logger.info(f"  BGM segments: {len(bgm_segments)}")
+        self.logger.info(f"  Background videos: {num_bg_videos}")
+        
+        # 入力インデックス計算:
+        # num_bg_videos=0 の場合（背景動画が事前処理済み）:
+        #   [0] = 背景動画（concat）, [1] = 画像（concat）, [2] = 音声, [3]以降 = BGM
+        # num_bg_videos>0 の場合（背景動画が個別入力）:
+        #   [0] = 画像, [1] = 音声, [2]以降 = 背景動画, その後 = BGM
+        
+        if num_bg_videos == 0:
+            # 背景動画が事前処理済みの場合
+            audio_input_idx = 2  # [2] = 音声
+            bgm_start_index = 3  # [3]以降 = BGM
         else:
-            bgm_map = ['-map', '2:a']
+            # 背景動画が個別入力の場合（旧実装との互換性）
+            audio_input_idx = 1  # [1] = 音声
+            bgm_start_index = 2 + num_bg_videos  # [2+num_bg_videos]以降 = BGM
+        
+        # ナレーション
+        filters.append(f"[{audio_input_idx}:a]volume=1.0[narration]")
+        
+        # ユニークなBGMファイルを取得（同じファイルが複数セグメントで使われる可能性がある）
+        bgm_files_map = {}  # {file_path: input_index}
+        current_bgm_index = bgm_start_index
+        
+        seen_files = set()
+        for segment in bgm_segments:
+            file_path = segment.get('file_path')
+            if file_path and file_path not in seen_files:
+                bgm_files_map[file_path] = current_bgm_index
+                seen_files.add(file_path)
+                current_bgm_index += 1
+        
+        # 各BGMセグメントを処理
+        bgm_outputs = []
+        for i, segment in enumerate(bgm_segments):
+            file_path = segment.get('file_path')
+            if not file_path:
+                continue
+            
+            # このセグメントで使用するBGMファイルの入力インデックスを取得
+            bgm_input_idx = bgm_files_map.get(file_path)
+            if bgm_input_idx is None:
+                continue
+            
+            start_time = segment.get('start_time', 0)
+            duration = segment.get('duration', 0)
+            fade_in = segment.get('fade_in', self.bgm_fade_in)
+            fade_out = segment.get('fade_out', self.bgm_fade_out)
+            bgm_volume = segment.get('volume', 0.13)  # セグメントごとの音量を取得
+            
+            # BGMファイルの実際の長さを取得
+            bgm_path = Path(file_path)
+            if not bgm_path.is_absolute():
+                bgm_path = self.config.project_root / bgm_path
+            
+            if bgm_path.exists():
+                bgm_actual_duration = self._get_audio_duration(bgm_path)
+            else:
+                bgm_actual_duration = 30.0
+                self.logger.warning(f"BGM file not found: {bgm_path}, using default duration")
+            
+            self.logger.info(
+                f"  BGM {i+1} ({segment.get('bgm_type', 'unknown')}): "
+                f"start={start_time:.1f}s, duration={duration:.1f}s, "
+                f"bgm_length={bgm_actual_duration:.1f}s, "
+                f"volume={bgm_volume:.1%}"
+            )
+            
+            # Step 1: BGMをループ・トリミング
+            if duration > bgm_actual_duration:
+                loop_count = int(duration / bgm_actual_duration) + 2
+                bgm_part = (
+                    f"[{bgm_input_idx}:a]"
+                    f"aloop=loop={loop_count}:size={int(bgm_actual_duration * 48000)},"
+                    f"atrim=0:{duration},"
+                    f"asetpts=PTS-STARTPTS"
+                    f"[bgm{i}_trimmed]"
+                )
+                self.logger.info(f"    Looping {loop_count} times")
+            else:
+                bgm_part = (
+                    f"[{bgm_input_idx}:a]"
+                    f"atrim=0:{min(duration, bgm_actual_duration)},"
+                    f"asetpts=PTS-STARTPTS"
+                    f"[bgm{i}_trimmed]"
+                )
+            
+            filters.append(bgm_part)
+            
+            # Step 2: フェード適用
+            fade_part = (
+                f"[bgm{i}_trimmed]"
+                f"afade=t=in:st=0:d={fade_in},"
+                f"afade=t=out:st={duration - fade_out}:d={fade_out},"
+                f"volume={bgm_volume:.3f}"
+                f"[bgm{i}_faded]"
+            )
+            filters.append(fade_part)
+            
+            # Step 3: 前に無音を追加（anullsrc + concat）
+            if start_time > 0:
+                silence_part = (
+                    f"anullsrc=channel_layout=stereo:sample_rate=48000:duration={start_time}"
+                    f"[silence{i}];"
+                    f"[silence{i}][bgm{i}_faded]concat=n=2:v=0:a=1"
+                    f"[bgm{i}]"
+                )
+                self.logger.info(f"    Adding {start_time:.1f}s silence before BGM")
+            else:
+                silence_part = f"[bgm{i}_faded]acopy[bgm{i}]"
+            
+            filters.append(silence_part)
+            bgm_outputs.append(f'[bgm{i}]')
+        
+        # Step 4: 全BGMをミックス
+        if len(bgm_outputs) > 1:
+            bgm_mix = f"{''.join(bgm_outputs)}amix=inputs={len(bgm_outputs)}:duration=longest:dropout_transition=0[bgm_all]"
+            filters.append(bgm_mix)
+            self.logger.info(f"  Mixing {len(bgm_outputs)} BGM tracks")
+            
+            # Step 5: ナレーションとミックス（ナレーションの長さに合わせる）
+            final_mix = "[narration][bgm_all]amix=inputs=2:duration=first:dropout_transition=3[audio]"
+        else:
+            if len(bgm_outputs) == 1:
+                # BGMが1つのみの場合
+                final_mix = "[narration][bgm0]amix=inputs=2:duration=first:dropout_transition=3[audio]"
+            else:
+                # BGMがない場合
+                final_mix = "[narration]acopy[audio]"
+        
+        filters.append(final_mix)
+        
+        # フィルターを結合
+        bgm_filter = ";" + ";".join(filters)
+        bgm_map = ['-map', '[audio]']
         
         return bgm_filter, bgm_map
 
@@ -3876,6 +4351,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         import subprocess
         import re
         
+        is_windows = platform.system() == 'Windows'
+        
+        # パス正規化関数
+        def normalize_path(p: Path) -> str:
+            path_str = str(p.resolve())
+            if is_windows:
+                path_str = path_str.replace('\\', '/')
+            return path_str
+        
         # subtitle_timing.jsonを読み込み
         with open(subtitle_timing_path, 'r', encoding='utf-8') as f:
             timing_data = json.load(f)
@@ -3886,23 +4370,51 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             timing_data=timing_data
         )
         
+        # ASSファイルパスのエスケープ処理（Windows対応）
+        ass_path_str = normalize_path(ass_path)
+        if is_windows:
+            # Windowsの場合、コロンをエスケープしてシングルクォートで囲む
+            ass_path_str = ass_path_str.replace(':', '\\:')
+            ass_filter = f"ass='{ass_path_str}'"
+        else:
+            ass_filter = f"ass='{ass_path_str}'"
+        
+        # 入力・出力パスの正規化
+        input_normalized = normalize_path(input_video)
+        output_normalized = normalize_path(output_path)
+        
         # ffmpegで字幕を焼き込む
         cmd = [
             'ffmpeg',
-            '-i', str(input_video),
-            '-vf', f"ass={ass_path}",
+            '-i', input_normalized,
+            '-vf', ass_filter,
             '-c:v', 'libx264',
             '-preset', 'medium',
             '-crf', '23',
             '-c:a', 'copy',
             '-y',
-            str(output_path)
+            output_normalized
         ]
         
         self.logger.info("Running ffmpeg for subtitle burning...")
-        subprocess.run(cmd, check=True, capture_output=True)
+        self.logger.debug(f"ASS filter: {ass_filter}")
         
-        self.logger.info(f"Subtitles burned: {output_path}")
+        try:
+            result = subprocess.run(
+                cmd,
+                check=True,
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='replace'
+            )
+            self.logger.info(f"Subtitles burned: {output_path}")
+        except subprocess.CalledProcessError as e:
+            # エラー出力をログに記録
+            error_output = e.stderr if isinstance(e.stderr, str) else e.stderr.decode('utf-8', errors='replace')
+            self.logger.error(f"FFmpeg failed: {error_output}")
+            self.logger.error(f"Command: {' '.join(cmd)}")
+            raise
     
     def _convert_srt_to_ass_with_impact(
         self,
