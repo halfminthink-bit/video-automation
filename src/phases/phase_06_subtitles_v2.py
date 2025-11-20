@@ -361,11 +361,11 @@ class Phase06SubtitlesV2(PhaseBase):
         impact_sentences: Dict[str, List[str]]
     ) -> str:
         """
-        字幕のimpact_levelを判定（完全一致）
+        字幕のimpact_levelを判定（正規化して比較）
         
         変更点:
-        - 部分一致（キーワードマッチ）→ 完全一致に変更
-        - より正確に1文だけを指定できる
+        - 句点、改行、空白を正規化して比較
+        - より柔軟にマッチングできるように改善
         
         Args:
             subtitle: 字幕エントリ
@@ -375,24 +375,30 @@ class Phase06SubtitlesV2(PhaseBase):
             "none" | "normal" | "mega"
         
         Example:
-            字幕: "誰もが侮った男が、革命児となった。"
+            字幕: "誰もが侮った男が、革命児となった" (句点なし)
             impact_sentences: {
-                "normal": ["誰もが侮った男が、革命児となった。"]
+                "normal": ["誰もが侮った男が、革命児となった。"] (句点あり)
             }
-            → return "normal"
+            → return "normal" (正規化後は一致)
         """
-        # 字幕のテキスト全体を結合
-        text = subtitle.text_line1 + (subtitle.text_line2 if subtitle.text_line2 else "")
-        text = text.strip()
+        def normalize_text(t: str) -> str:
+            """テキストを正規化（句点、改行、空白を除去）"""
+            # 句点、読点、改行、空白を除去
+            t = t.replace('。', '').replace('、', '').replace('\n', '').replace(' ', '').replace('　', '')
+            return t.strip()
         
-        # mega判定（完全一致）
+        # 字幕のテキスト全体を結合して正規化
+        text = subtitle.text_line1 + (subtitle.text_line2 if subtitle.text_line2 else "")
+        text_normalized = normalize_text(text)
+        
+        # mega判定（正規化後で比較）
         for sentence in impact_sentences.get('mega', []):
-            if text == sentence.strip():
+            if text_normalized == normalize_text(sentence):
                 return 'mega'
         
-        # normal判定（完全一致）
+        # normal判定（正規化後で比較）
         for sentence in impact_sentences.get('normal', []):
-            if text == sentence.strip():
+            if text_normalized == normalize_text(sentence):
                 return 'normal'
         
         return 'none'

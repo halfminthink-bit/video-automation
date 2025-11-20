@@ -4,6 +4,10 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from .style_loader import StyleLoader
+from .style_converter import StyleConverter
+from .animation_tags import AnimationTagBuilder
+
 
 class ASSGenerator:
     """
@@ -12,13 +16,16 @@ class ASSGenerator:
     Phase 6とPhase 7で共通利用
     """
     
-    def __init__(self, font_name: str = "Arial", logger=None):
+    def __init__(self, config_path: Path, font_name: str = "Arial", logger=None):
         """
         Args:
+            config_path: subtitle_generation.yamlのパス
             font_name: フォント名
             logger: ロガー
         """
-        self.font_name = font_name
+        self.style_loader = StyleLoader(config_path)
+        self.style_converter = StyleConverter(font_name)
+        self.animation_builder = AnimationTagBuilder()
         self.logger = logger
     
     def create_ass_header(
@@ -28,11 +35,6 @@ class ASSGenerator:
         """
         ASSヘッダーを作成
         
-        スタイル定義:
-        - Normal: 白・60px・下部中央
-        - ImpactNormal: 赤・70px・下部中央（普通インパクト）
-        - ImpactMega: 白・100px・中央（特大インパクト、Phase 2で実装予定）
-        
         Args:
             resolution: 解像度 (width, height)
         
@@ -41,6 +43,7 @@ class ASSGenerator:
         """
         width, height = resolution
         
+        # 基本ヘッダー
         header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {width}
@@ -48,12 +51,15 @@ PlayResY: {height}
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Normal,{self.font_name},60,&HFFFFFF,&HFFFFFF,&H000000,&H80000000,1,0,0,0,100,100,0,0,1,2,0,2,10,10,70,1
-Style: ImpactNormal,{self.font_name},70,&H0000FF,&H0000FF,&H000000,&H80000000,1,0,0,0,100,100,0,0,1,3,0,2,10,10,70,1
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
+        
+        # スタイル定義を追加
+        all_styles = self.style_loader.get_all_styles()
+        style_section = self.style_converter.build_all_styles(all_styles, resolution)
+        
+        header += style_section + "\n\n[Events]\n"
+        header += "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+        
         return header
     
     def create_ass_file(
@@ -105,10 +111,19 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if index <= len(timing_data.get('subtitles', [])):
                 impact_level = timing_data['subtitles'][index - 1].get('impact_level', 'none')
             
-            # スタイルを決定
-            style = 'ImpactNormal' if impact_level == 'normal' else 'Normal'
+            # スタイル設定を取得
+            style_config = self.style_loader.get_style(impact_level)
+            style_name = style_config.get('name', 'Normal')
             
-            ass_events.append(f"Dialogue: 0,{start},{end},{style},,0,0,0,,{text}")
+            # アニメーションタグを生成
+            animation_tags = self.animation_builder.build_all_tags(
+                style_config.get('animations', [])
+            )
+            
+            # テキストにアニメーションタグを追加
+            formatted_text = f"{animation_tags}{text}" if animation_tags else text
+            
+            ass_events.append(f"Dialogue: 0,{start},{end},{style_name},,0,0,0,,{formatted_text}")
         
         # ASSファイルに書き込み
         with open(output_path, 'w', encoding='utf-8') as f:

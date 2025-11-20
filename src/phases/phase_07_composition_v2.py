@@ -193,7 +193,9 @@ class Phase07CompositionV2(PhaseBase):
             threads=self.threads,
             bgm_processor=self.bgm_processor
         )
+        subtitle_config_path = self.config.project_root / "config" / "phases" / "subtitle_generation.yaml"
         self.ass_generator = ASSGenerator(
+            config_path=subtitle_config_path,
             font_name=self.subtitle_font,
             logger=self.logger
         )
