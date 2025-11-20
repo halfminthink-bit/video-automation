@@ -41,6 +41,11 @@ from ..core.models import VideoComposition, VideoTimeline, TimelineClip, Subtitl
 from ..utils.image_timing_matcher_fixed import ImageTimingMatcherFixed
 from ..utils.image_timing_matcher_llm import ImageTimingMatcherLLM
 from ..generators.background_video_selector import BackgroundVideoSelector
+from ..utils.video_composition.background_processor import BackgroundVideoProcessor
+from ..utils.video_composition.image_processor import ImageProcessor
+from ..utils.video_composition.bgm_processor import BGMProcessor
+from ..utils.video_composition.ffmpeg_builder import FFmpegBuilder
+from ..utils.subtitle_utils.ass_generator import ASSGenerator
 
 
 class Phase07CompositionV2(PhaseBase):
@@ -165,6 +170,33 @@ class Phase07CompositionV2(PhaseBase):
             logger=logger
         )
         self.logger.info("Background video selector initialized")
+        
+        # ユーティリティの初期化
+        self.bg_processor = BackgroundVideoProcessor(
+            self.config.project_root,
+            self.logger
+        )
+        self.img_processor = ImageProcessor(
+            self.config.project_root,
+            self.logger
+        )
+        self.bgm_processor = BGMProcessor(
+            self.config.project_root,
+            self.logger,
+            bgm_fade_in=self.bgm_fade_in,
+            bgm_fade_out=self.bgm_fade_out
+        )
+        self.ffmpeg_builder = FFmpegBuilder(
+            self.config.project_root,
+            self.logger,
+            encode_preset=self.encode_preset,
+            threads=self.threads,
+            bgm_processor=self.bgm_processor
+        )
+        self.ass_generator = ASSGenerator(
+            font_name=self.subtitle_font,
+            logger=self.logger
+        )
     
     def get_phase_number(self) -> int:
         return 7
@@ -436,24 +468,7 @@ class Phase07CompositionV2(PhaseBase):
         Returns:
             動画の長さ（秒）
         """
-        import subprocess
-        import json
-        
-        try:
-            # ffprobe を使用して動画ファイルの長さを取得
-            cmd = [
-                'ffprobe', '-v', 'error',
-                '-show_entries', 'format=duration',
-                '-of', 'json',
-                str(video_path)
-            ]
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            data = json.loads(result.stdout)
-            duration = float(data.get('format', {}).get('duration', 10.0))
-            return duration
-        except Exception as e:
-            self.logger.warning(f"Failed to get video duration: {e}")
-            return 10.0  # デフォルト値
+        return self.bg_processor.get_video_duration(video_path)
     
     def _get_audio_duration(self, audio_path: Path) -> float:
         """
@@ -465,42 +480,7 @@ class Phase07CompositionV2(PhaseBase):
         Returns:
             音声の長さ（秒）
         """
-        import subprocess
-
-        try:
-            # ffprobe を使用して音声ファイルの長さを取得
-            cmd = [
-                'ffprobe', '-v', 'error',
-                '-show_entries', 'format=duration',
-                '-of', 'default=noprint_wrappers=1:nokey=1',
-                str(audio_path)
-            ]
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=False,  # バイナリモードで
-                check=True
-            )
-            duration_str = result.stdout.decode('utf-8', errors='ignore').strip()
-            duration = float(duration_str)
-            self.logger.debug(f"Audio duration ({audio_path.name}): {duration:.2f}s")
-            return duration
-        except Exception as e:
-            self.logger.warning(f"Failed to get audio duration for {audio_path}: {e}")
-            # フォールバック: audio_timing.jsonから合計時間を計算
-            audio_timing = self._load_audio_timing()
-            if isinstance(audio_timing, list):
-                total_duration = 0.0
-                for section in audio_timing:
-                    char_end_times = section.get('character_end_times_seconds', [])
-                    if char_end_times:
-                        total_duration = max(total_duration, char_end_times[-1])
-                if total_duration > 0:
-                    self.logger.info(f"Audio duration from timing data: {total_duration:.2f}s")
-                    return total_duration
-            # 最後のフォールバック: デフォルト値
-            self.logger.warning("Using default audio duration: 420.0s")
-            return 420.0
+        return self.bgm_processor.get_audio_duration(audio_path)
     
     def _load_animated_clips(self) -> List[Path]:
         """アニメ化動画クリップを読み込み（セクション順を保持）"""
@@ -2763,6 +2743,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         output_path: Path,
         bgm_data: Optional[dict]
     ) -> list:
+        """最適化されたFFmpegコマンド（FFmpegBuilderに委譲）"""
+        return self.ffmpeg_builder.build_ffmpeg_command_optimized(
+            concat_file,
+            audio_path,
+            ass_path,
+            output_path,
+            bgm_data
+        )
         """
         最適化されたFFmpegコマンド
 
@@ -3002,14 +2990,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         """
         秒数をASS形式の時刻に変換（高精度版 H:MM:SS.CS）
         """
-        hours = int(seconds // 3600)
-        minutes = int((seconds % 3600) // 60)
-        secs = int(seconds % 60)
-        # センチ秒を四捨五入し、99でクリップ
-        centisecs = round((seconds % 1) * 100)
-        if centisecs >= 100:
-            centisecs = 99
-        return f"{hours}:{minutes:02d}:{secs:02d}.{centisecs:02d}"
+        return self.ass_generator.format_ass_time(seconds)
 
     def _build_ffmpeg_command_with_ass_debug(
         self,
@@ -3019,6 +3000,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         output_path: Path,
         bgm_data: Optional[dict]
     ) -> list:
+        """FFmpegコマンドを構築（ASS字幕デバッグ版、FFmpegBuilderに委譲）"""
+        return self.ffmpeg_builder.build_ffmpeg_command_with_ass_debug(
+            concat_file,
+            audio_path,
+            ass_path,
+            output_path,
+            bgm_data
+        )
         """
         FFmpegコマンドを構築（ASS字幕デバッグ版）
 
@@ -3238,6 +3227,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         output_path: Path,
         bgm_data: Optional[dict]
     ) -> list:
+        """ASS字幕を使用したFFmpegコマンドを構築（FFmpegBuilderに委譲）"""
+        return self.ffmpeg_builder.build_ffmpeg_command_with_ass(
+            concat_file,
+            audio_path,
+            ass_path,
+            output_path,
+            bgm_data
+        )
         """
         ASS字幕を使用したFFmpegコマンドを構築（Legacy02仕様完全準拠）
 
@@ -3347,207 +3344,18 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         output_path: Path,
         bgm_data: Optional[dict]
     ) -> list:
-        """
-        ffmpegコマンドを構築
-
-        - 黒バー（下部216px）を追加
-        - SRT字幕を焼き込み（srt_pathがNoneでない場合のみ）
-        - BGMをナレーションとミックス（音量調整、フェード付き）
-        
-        Args:
-            srt_path: 字幕ファイル（Noneの場合は字幕フィルタをスキップ）
-        
-        修正点:
-        - Windowsパスを/区切りに統一
-        - 字幕フィルタはPass 1ではスキップ（Pass 2で別途追加）
-        """
-        import multiprocessing
-
-        # Windowsの場合はパスを正規化
-        is_windows = platform.system() == 'Windows'
-        
-        def normalize_path(p: Path) -> str:
-            """WindowsパスをUnix形式に変換（ffmpeg互換）"""
-            path_str = str(p.resolve())
-            if is_windows:
-                # C:\Users\... → C:/Users/...
-                path_str = path_str.replace('\\', '/')
-            return path_str
-
-        # スレッド数を決定
-        threads = self.threads if self.threads > 0 else multiprocessing.cpu_count()
-
-        # 基本コマンド
-        cmd = [
-            'ffmpeg',
-            '-f', 'concat',
-            '-safe', '0',
-            '-i', normalize_path(concat_file),
-            '-i', normalize_path(audio_path),
-        ]
-
-        # BGMファイルを入力として追加
-        bgm_segments = []
-        if bgm_data and bgm_data.get("segments"):
-            bgm_segments = bgm_data.get("segments", [])
-            for segment in bgm_segments:
-                bgm_path = segment.get("file_path")
-                if bgm_path and Path(bgm_path).exists():
-                    cmd.extend(['-i', normalize_path(Path(bgm_path))])
-
-        # ビデオフィルタを構築
-        video_filters = []
-
-        # 1. 黒バーを追加（下部216px）
-        video_filters.append("drawbox=y=ih-216:color=black@1.0:width=iw:height=216:t=fill")
-
-        # 2. 字幕フィルタ（srt_pathがNoneでない場合のみ追加）
-        # Pass 1では字幕なし、Pass 2で別途追加
-        if srt_path and srt_path.exists():
-            self.logger.warning("⚠️ Subtitle filter in Pass 1 is deprecated. Use Pass 2 instead.")
-
-        # ビデオフィルタを適用
-        if video_filters:
-            cmd.extend(['-vf', ','.join(video_filters)])
-
-        # オーディオフィルタ（BGMがある場合）
-        if bgm_segments:
-            audio_filter = self._build_audio_filter(bgm_segments)
-            cmd.extend(['-filter_complex', audio_filter])
-            cmd.extend(['-map', '0:v', '-map', '[audio]'])
-        else:
-            # BGMなし: ナレーションのみ
-            cmd.extend(['-map', '0:v', '-map', '1:a'])
-
-        # 音声の長さを取得
-        audio_duration = self._get_audio_duration(audio_path)
-        self.logger.debug(f"Audio duration: {audio_duration:.2f}s (video will match this)")
-
-        # エンコード設定
-        cmd.extend([
-            '-c:v', 'libx264',
-            '-preset', self.encode_preset,
-            '-crf', '23',
-            '-pix_fmt', 'yuv420p',
-            '-c:a', 'aac',
-            '-b:a', '192k',
-            '-threads', str(threads),
-            '-t', str(audio_duration),  # 音声の長さを明示的に指定
-            '-y',
-            normalize_path(output_path)
-        ])
-
-        return cmd
+        """ffmpegコマンドを構築（FFmpegBuilderに委譲）"""
+        return self.ffmpeg_builder.build_ffmpeg_command(
+            concat_file,
+            audio_path,
+            srt_path,
+            output_path,
+            bgm_data
+        )
 
     def _build_audio_filter(self, bgm_segments: List[dict]) -> str:
-        """
-        BGMミックス用のffmpegフィルター生成（セグメントごとの音量対応）
-
-        戦略:
-        1. 各BGMをループ・トリミング
-        2. anullsrcで前に無音を追加
-        3. concatで結合
-        4. 各BGMに個別の音量を適用
-        5. 全BGMをamixでミックス
-        6. ナレーションとミックス
-        """
-        filters = []
-
-        self.logger.info("=" * 60)
-        self.logger.info("Building audio filter:")
-        self.logger.info(f"  BGM segments: {len(bgm_segments)}")
-
-        # ナレーション（入力1）
-        filters.append("[1:a]volume=1.0[narration]")
-
-        # 各BGMセグメントを処理
-        bgm_outputs = []
-        for i, segment in enumerate(bgm_segments):
-            input_idx = i + 2  # BGMは入力2から
-            start_time = segment.get('start_time', 0)
-            duration = segment.get('duration', 0)
-            fade_in = segment.get('fade_in', self.bgm_fade_in)
-            fade_out = segment.get('fade_out', self.bgm_fade_out)
-            bgm_volume = segment.get('volume', 0.13)  # セグメントごとの音量を取得
-
-            # BGMファイルの実際の長さを取得
-            bgm_path = Path(segment.get('file_path', ''))
-            if bgm_path.exists():
-                bgm_actual_duration = self._get_audio_duration(bgm_path)
-            else:
-                bgm_actual_duration = 30.0
-
-            self.logger.info(
-                f"  BGM {i+1} ({segment.get('bgm_type')}): "
-                f"start={start_time:.1f}s, duration={duration:.1f}s, "
-                f"bgm_length={bgm_actual_duration:.1f}s, "
-                f"volume={bgm_volume:.1%}"
-            )
-
-            # Step 1: BGMをループ・トリミング
-            if duration > bgm_actual_duration:
-                loop_count = int(duration / bgm_actual_duration) + 2
-                bgm_part = (
-                    f"[{input_idx}:a]"
-                    f"aloop=loop={loop_count}:size={int(bgm_actual_duration * 48000)},"
-                    f"atrim=0:{duration},"
-                    f"asetpts=PTS-STARTPTS"
-                    f"[bgm{i}_trimmed]"
-                )
-                self.logger.info(f"    Looping {loop_count} times")
-            else:
-                bgm_part = (
-                    f"[{input_idx}:a]"
-                    f"atrim=0:{min(duration, bgm_actual_duration)},"
-                    f"asetpts=PTS-STARTPTS"
-                    f"[bgm{i}_trimmed]"
-                )
-
-            filters.append(bgm_part)
-
-            # Step 2: フェード適用
-            fade_part = (
-                f"[bgm{i}_trimmed]"
-                f"afade=t=in:st=0:d={fade_in},"
-                f"afade=t=out:st={duration - fade_out}:d={fade_out},"
-                f"volume={bgm_volume:.3f}"
-                f"[bgm{i}_faded]"
-            )
-            filters.append(fade_part)
-
-            # Step 3: 前に無音を追加（anullsrc + concat）
-            if start_time > 0:
-                silence_part = (
-                    f"anullsrc=channel_layout=stereo:sample_rate=48000:duration={start_time}"
-                    f"[silence{i}];"
-                    f"[silence{i}][bgm{i}_faded]concat=n=2:v=0:a=1"
-                    f"[bgm{i}]"
-                )
-                self.logger.info(f"    Adding {start_time:.1f}s silence before BGM")
-            else:
-                silence_part = f"[bgm{i}_faded]acopy[bgm{i}]"
-
-            filters.append(silence_part)
-            bgm_outputs.append(f'[bgm{i}]')
-
-        # Step 4: 全BGMをミックス
-        if len(bgm_outputs) > 1:
-            bgm_mix = f"{''.join(bgm_outputs)}amix=inputs={len(bgm_outputs)}:duration=longest:dropout_transition=0[bgm_all]"
-            filters.append(bgm_mix)
-            self.logger.info(f"  Mixing {len(bgm_outputs)} BGM tracks")
-
-            # Step 5: ナレーションとミックス（ナレーションの長さに合わせる）
-            final_mix = "[narration][bgm_all]amix=inputs=2:duration=first:dropout_transition=3[audio]"
-        else:
-            final_mix = f"[narration]{bgm_outputs[0]}amix=inputs=2:duration=first:dropout_transition=3[audio]"
-
-        filters.append(final_mix)
-
-        filter_str = ";".join(filters)
-        self.logger.info("=" * 60)
-        self.logger.debug(f"Filter string:\n{filter_str}")
-
-        return filter_str
+        """BGMミックス用のffmpegフィルター生成（BGMProcessorに委譲）"""
+        return self.bgm_processor.build_audio_filter(bgm_segments)
 
     def _burn_subtitles(self, input_video: Path, srt_path: Path, output_path: Path) -> None:
         """
@@ -3986,29 +3794,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     
     def _create_image_concat_file(self, images: List[Path], audio_duration: float) -> Path:
         """画像のconcatファイルを作成（音声の長さに合わせる）"""
-        concat_file = self.phase_dir / "image_concat.txt"
-        
-        # 各画像の表示時間を計算（均等分割）
-        duration_per_image = audio_duration / len(images)
-        
-        with open(concat_file, 'w', encoding='utf-8') as f:
-            for img in images:
-                # パスを絶対パスに変換（Windows対応）
-                img_path = Path(img)
-                if not img_path.is_absolute():
-                    img_path = img_path.resolve()
-                # Windowsパスをスラッシュ区切りに変換
-                img_path_str = str(img_path).replace('\\', '/')
-                f.write(f"file '{img_path_str}'\n")
-                f.write(f"duration {duration_per_image}\n")
-            # 最後のファイルをもう一度（ffmpeg仕様）
-            last_img = Path(images[-1])
-            if not last_img.is_absolute():
-                last_img = last_img.resolve()
-            last_img_str = str(last_img).replace('\\', '/')
-            f.write(f"file '{last_img_str}'\n")
-        
-        return concat_file
+        return self.img_processor.create_concat_file(
+            images,
+            audio_duration,
+            self.phase_dir
+        )
     
     def _create_background_concat_file(
         self, 
@@ -4017,156 +3807,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         """
         背景動画のconcatファイルを作成（BGMと同じ方式）
         
-        各セグメントを事前に処理してから繋ぐ：
-        1. リサイズ・クロップ（1920x1080 → 1920x864）
-        2. 速度調整（opening/main: 0.5倍、ending: 1倍）
-        3. ループまたはトリミング（必要な長さに調整）
-        4. 一時ファイルとして保存
-        5. concatで繋ぐ
-        
         Args:
             background_videos: 背景動画セグメント情報のリスト
-                [
-                    {
-                        'track_id': 'opening',
-                        'video_path': 'assets/background_videos/opening/video1.mp4',
-                        'start_time': 0.0,
-                        'duration': 15.0
-                    },
-                    ...
-                ]
         
         Returns:
             concatファイルのパス
         """
-        import subprocess
-        
-        concat_file = self.phase_dir / "bg_concat.txt"
-        temp_files = []
-        
-        for i, seg in enumerate(background_videos):
-            video_path = Path(seg['video_path'])
-            if not video_path.is_absolute():
-                video_path = self.config.project_root / video_path
-            
-            # ファイルの存在確認
-            if not video_path.exists():
-                self.logger.error(f"Background video not found: {video_path}")
-                continue
-            
-            duration = seg['duration']
-            track_id = seg.get('track_id', '')
-            
-            # 一時ファイル
-            temp_file = self.phase_dir / f"bg_temp_{i}_{track_id}.mp4"
-            
-            # 背景動画の実際の長さを取得
-            try:
-                video_duration = self._get_video_duration(video_path)
-            except Exception as e:
-                self.logger.warning(
-                    f"Could not get video duration for {video_path.name}: {e}"
-                )
-                video_duration = 10.0  # デフォルト値
-            
-            # opening/mainは0.5倍速（ゆっくり再生、2倍の長さになる）
-            if track_id in ['opening', 'main']:
-                speed_filter = 'setpts=PTS*2'
-                effective_duration = video_duration * 2
-                speed_info = "0.5x speed"
-            else:
-                speed_filter = 'setpts=PTS-STARTPTS'
-                effective_duration = video_duration
-                speed_info = "1.0x speed"
-            
-            # ループまたはトリミング
-            if duration > effective_duration:
-                # 動画が短い → ループが必要（必要な回数を計算）
-                loop_count = int(duration / effective_duration) + 1
-                # 20回を上限とする（処理時間を考慮）
-                if loop_count > 20:
-                    loop_count = 20
-                    self.logger.warning(
-                        f"Loop count capped at 20 (calculated: {int(duration / effective_duration) + 1})"
-                    )
-                
-                vf = (
-                    f"scale=1920:1080,crop=1920:864:0:0,"
-                    f"{speed_filter},"
-                    f"loop=loop={loop_count}:size=32767:start=0,"
-                    f"trim=duration={duration},"
-                    f"setpts=PTS-STARTPTS"
-                )
-                loop_info = f"looping {loop_count}x"
-                
-                self.logger.info(
-                    f"  Video length: {video_duration:.1f}s "
-                    f"→ Effective: {effective_duration:.1f}s (speed={speed_info}) "
-                    f"→ Loops needed: {loop_count}x for {duration:.1f}s"
-                )
-            else:
-                # 動画が長い → トリミングのみ
-                vf = (
-                    f"scale=1920:1080,crop=1920:864:0:0,"
-                    f"{speed_filter},"
-                    f"trim=duration={duration},"
-                    f"setpts=PTS-STARTPTS"
-                )
-                loop_info = "trimming"
-            
-            # ffmpegで処理
-            cmd = [
-                'ffmpeg',
-                '-i', str(video_path),
-                '-vf', vf,
-                '-c:v', 'libx264',
-                '-preset', 'ultrafast',  # 速度優先
-                '-crf', '28',
-                '-an',  # 音声なし
-                '-y', str(temp_file)
-            ]
-            
-            self.logger.info(
-                f"Processing background {i+1}/{len(background_videos)}: "
-                f"{track_id} ({video_path.name}) -> {duration:.1f}s "
-                f"({speed_info}, {loop_info})"
-            )
-            self.logger.info(f"Running ffmpeg command (this may take a while)...")
-            
-            try:
-                result = subprocess.run(
-                    cmd, 
-                    check=True, 
-                    capture_output=True,
-                    text=True,
-                    encoding='utf-8',
-                    errors='replace'
-                )
-                self.logger.info(f"✓ Background video {i+1} processed successfully")
-                temp_files.append(temp_file)
-            except subprocess.CalledProcessError as e:
-                self.logger.error(
-                    f"Failed to process background video {video_path.name}: "
-                    f"{e.stderr}"
-                )
-                continue
-        
-        # concatファイル作成
-        if not temp_files:
-            raise RuntimeError("No background videos were successfully processed")
-        
-        with open(concat_file, 'w', encoding='utf-8') as f:
-            for temp_file in temp_files:
-                # Windowsパス対応
-                temp_path_str = str(temp_file).replace('\\', '/')
-                f.write(f"file '{temp_path_str}'\n")
-        
-        self.logger.info(
-            f"Background concat file created: {concat_file} "
-            f"({len(temp_files)} segments)"
+        return self.bg_processor.create_concat_file(
+            background_videos,
+            self.phase_dir
         )
-        
-        return concat_file
     
     def _create_bgm_filter_for_background(
         self, bgm_data: dict, audio_path: Path, num_bg_videos: int = 0
@@ -4182,156 +3832,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         Returns:
             (bgm_filter, bgm_map) タプル
         """
-        if not bgm_data or not bgm_data.get('segments'):
-            # 音声のインデックスを決定
-            if num_bg_videos == 0:
-                return "", ['-map', '2:a']  # [2] = 音声（背景動画が事前処理済み）
-            else:
-                return "", ['-map', '1:a']  # [1] = 音声（旧実装）
-        
-        bgm_segments = bgm_data.get('segments', [])
-        filters = []
-        
-        self.logger.info("=" * 60)
-        self.logger.info("Building BGM filter for background video:")
-        self.logger.info(f"  BGM segments: {len(bgm_segments)}")
-        self.logger.info(f"  Background videos: {num_bg_videos}")
-        
-        # 入力インデックス計算:
-        # num_bg_videos=0 の場合（背景動画が事前処理済み）:
-        #   [0] = 背景動画（concat）, [1] = 画像（concat）, [2] = 音声, [3]以降 = BGM
-        # num_bg_videos>0 の場合（背景動画が個別入力）:
-        #   [0] = 画像, [1] = 音声, [2]以降 = 背景動画, その後 = BGM
-        
-        if num_bg_videos == 0:
-            # 背景動画が事前処理済みの場合
-            audio_input_idx = 2  # [2] = 音声
-            bgm_start_index = 3  # [3]以降 = BGM
-        else:
-            # 背景動画が個別入力の場合（旧実装との互換性）
-            audio_input_idx = 1  # [1] = 音声
-            bgm_start_index = 2 + num_bg_videos  # [2+num_bg_videos]以降 = BGM
-        
-        # ナレーション
-        filters.append(f"[{audio_input_idx}:a]volume=1.0[narration]")
-        
-        # ユニークなBGMファイルを取得（同じファイルが複数セグメントで使われる可能性がある）
-        bgm_files_map = {}  # {file_path: input_index}
-        current_bgm_index = bgm_start_index
-        
-        seen_files = set()
-        for segment in bgm_segments:
-            file_path = segment.get('file_path')
-            if file_path and file_path not in seen_files:
-                bgm_files_map[file_path] = current_bgm_index
-                seen_files.add(file_path)
-                current_bgm_index += 1
-        
-        # 各BGMセグメントを処理
-        bgm_outputs = []
-        for i, segment in enumerate(bgm_segments):
-            file_path = segment.get('file_path')
-            if not file_path:
-                continue
-            
-            # このセグメントで使用するBGMファイルの入力インデックスを取得
-            bgm_input_idx = bgm_files_map.get(file_path)
-            if bgm_input_idx is None:
-                continue
-            
-            start_time = segment.get('start_time', 0)
-            duration = segment.get('duration', 0)
-            fade_in = segment.get('fade_in', self.bgm_fade_in)
-            fade_out = segment.get('fade_out', self.bgm_fade_out)
-            bgm_volume = segment.get('volume', 0.13)  # セグメントごとの音量を取得
-            
-            # BGMファイルの実際の長さを取得
-            bgm_path = Path(file_path)
-            if not bgm_path.is_absolute():
-                bgm_path = self.config.project_root / bgm_path
-            
-            if bgm_path.exists():
-                bgm_actual_duration = self._get_audio_duration(bgm_path)
-            else:
-                bgm_actual_duration = 30.0
-                self.logger.warning(f"BGM file not found: {bgm_path}, using default duration")
-            
-            self.logger.info(
-                f"  BGM {i+1} ({segment.get('bgm_type', 'unknown')}): "
-                f"start={start_time:.1f}s, duration={duration:.1f}s, "
-                f"bgm_length={bgm_actual_duration:.1f}s, "
-                f"volume={bgm_volume:.1%}"
-            )
-            
-            # Step 1: BGMをループ・トリミング
-            if duration > bgm_actual_duration:
-                loop_count = int(duration / bgm_actual_duration) + 2
-                bgm_part = (
-                    f"[{bgm_input_idx}:a]"
-                    f"aloop=loop={loop_count}:size={int(bgm_actual_duration * 48000)},"
-                    f"atrim=0:{duration},"
-                    f"asetpts=PTS-STARTPTS"
-                    f"[bgm{i}_trimmed]"
-                )
-                self.logger.info(f"    Looping {loop_count} times")
-            else:
-                bgm_part = (
-                    f"[{bgm_input_idx}:a]"
-                    f"atrim=0:{min(duration, bgm_actual_duration)},"
-                    f"asetpts=PTS-STARTPTS"
-                    f"[bgm{i}_trimmed]"
-                )
-            
-            filters.append(bgm_part)
-            
-            # Step 2: フェード適用
-            fade_part = (
-                f"[bgm{i}_trimmed]"
-                f"afade=t=in:st=0:d={fade_in},"
-                f"afade=t=out:st={duration - fade_out}:d={fade_out},"
-                f"volume={bgm_volume:.3f}"
-                f"[bgm{i}_faded]"
-            )
-            filters.append(fade_part)
-            
-            # Step 3: 前に無音を追加（anullsrc + concat）
-            if start_time > 0:
-                silence_part = (
-                    f"anullsrc=channel_layout=stereo:sample_rate=48000:duration={start_time}"
-                    f"[silence{i}];"
-                    f"[silence{i}][bgm{i}_faded]concat=n=2:v=0:a=1"
-                    f"[bgm{i}]"
-                )
-                self.logger.info(f"    Adding {start_time:.1f}s silence before BGM")
-            else:
-                silence_part = f"[bgm{i}_faded]acopy[bgm{i}]"
-            
-            filters.append(silence_part)
-            bgm_outputs.append(f'[bgm{i}]')
-        
-        # Step 4: 全BGMをミックス
-        if len(bgm_outputs) > 1:
-            bgm_mix = f"{''.join(bgm_outputs)}amix=inputs={len(bgm_outputs)}:duration=longest:dropout_transition=0[bgm_all]"
-            filters.append(bgm_mix)
-            self.logger.info(f"  Mixing {len(bgm_outputs)} BGM tracks")
-            
-            # Step 5: ナレーションとミックス（ナレーションの長さに合わせる）
-            final_mix = "[narration][bgm_all]amix=inputs=2:duration=first:dropout_transition=3[audio]"
-        else:
-            if len(bgm_outputs) == 1:
-                # BGMが1つのみの場合
-                final_mix = "[narration][bgm0]amix=inputs=2:duration=first:dropout_transition=3[audio]"
-            else:
-                # BGMがない場合
-                final_mix = "[narration]acopy[audio]"
-        
-        filters.append(final_mix)
-        
-        # フィルターを結合
-        bgm_filter = ";" + ";".join(filters)
-        bgm_map = ['-map', '[audio]']
-        
-        return bgm_filter, bgm_map
+        return self.bgm_processor.create_bgm_filter_for_background(
+            bgm_data,
+            audio_path,
+            num_bg_videos
+        )
 
     def _burn_subtitles_with_impact(
         self,
@@ -4424,81 +3929,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         """
         SRTをASS形式に変換（impact_level対応）
         """
-        import re
-        
         ass_path = srt_path.with_suffix('.ass')
-        
-        # ASSヘッダー
-        ass_header = f"""[Script Info]
-ScriptType: v4.00+
-PlayResX: 1920
-PlayResY: 1080
-
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Normal,Arial,60,&HFFFFFF,&HFFFFFF,&H000000,&H80000000,1,0,0,0,100,100,0,0,1,2,0,2,10,10,70,1
-Style: ImpactNormal,Arial,70,&H0000FF,&H0000FF,&H000000,&H80000000,1,0,0,0,100,100,0,0,1,3,0,2,10,10,70,1
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-"""
-        
-        # SRTを読み込んで各字幕にスタイルを適用
-        with open(srt_path, 'r', encoding='utf-8') as f:
-            srt_content = f.read()
-        
-        srt_blocks = srt_content.strip().split('\n\n')
-        
-        ass_events = []
-        for block in srt_blocks:
-            lines = block.split('\n')
-            if len(lines) < 3:
-                continue
-            
-            index = int(lines[0])
-            timing = lines[1]
-            text = '\\N'.join(lines[2:])
-            
-            # タイミングをASS形式に変換
-            match = re.match(
-                r'(\d{2}):(\d{2}):(\d{2}),(\d{3}) --> (\d{2}):(\d{2}):(\d{2}),(\d{3})',
-                timing
-            )
-            if not match:
-                continue
-            
-            start = f"{match.group(1)}:{match.group(2)}:{match.group(3)}.{match.group(4)[:2]}"
-            end = f"{match.group(5)}:{match.group(6)}:{match.group(7)}.{match.group(8)[:2]}"
-            
-            # impact_levelを取得
-            impact_level = 'none'
-            if index <= len(timing_data['subtitles']):
-                impact_level = timing_data['subtitles'][index - 1].get('impact_level', 'none')
-            
-            # スタイルを決定
-            style = 'ImpactNormal' if impact_level == 'normal' else 'Normal'
-            
-            ass_events.append(f"Dialogue: 0,{start},{end},{style},,0,0,0,,{text}")
-        
-        # ASSファイルに書き込み
-        with open(ass_path, 'w', encoding='utf-8') as f:
-            f.write(ass_header)
-            f.write('\n'.join(ass_events))
-        
-        self.logger.info(f"ASS subtitle file created: {ass_path}")
-        return ass_path
+        return self.ass_generator.create_ass_file(
+            srt_path,
+            timing_data,
+            ass_path
+        )
     
     def _get_images_for_sections(self, script: dict) -> List[Path]:
         """セクションごとの画像を取得"""
-        images_dir = self.working_dir / "03_images" / "generated"
-        
-        if not images_dir.exists():
-            raise FileNotFoundError(f"Images directory not found: {images_dir}")
-        
-        # 画像ファイルを取得（セクション順）
-        images = sorted(images_dir.glob("section_*.png"))
-        
-        if not images:
-            raise FileNotFoundError(f"No images found in: {images_dir}")
-        
-        return images
+        return self.img_processor.get_images_for_sections(
+            script,
+            self.working_dir
+        )
