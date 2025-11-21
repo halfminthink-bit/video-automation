@@ -1,0 +1,91 @@
+[33mcommit 7865e559f7cf2433394863a572725ad13f706fef[m
+Author: halfminthink-bit <halfminthink@gmail.com>
+Date:   Fri Nov 21 13:46:50 2025 +0900
+
+    fix: Change subtitle font to cinecaption (PostScript name)
+    
+    - Move font directory to assets/fonts/cinema
+    
+    - Change font name from cinecaption226 to cinecaption
+    
+    - Update FFmpeg fontsdir to cinema directory
+    
+    - Add debug logging for font loading
+
+[1mdiff --git a/assets/fonts/cinema/cinecaption226.ttf b/assets/fonts/cinema/cinecaption226.ttf[m
+[1mnew file mode 100644[m
+[1mindex 0000000..0ad3f98[m
+Binary files /dev/null and b/assets/fonts/cinema/cinecaption226.ttf differ
+[1mdiff --git a/config/phases/subtitle_generation.yaml b/config/phases/subtitle_generation.yaml[m
+[1mindex 56fda89..2477c47 100644[m
+[1m--- a/config/phases/subtitle_generation.yaml[m
+[1m+++ b/config/phases/subtitle_generation.yaml[m
+[36m@@ -121,7 +121,7 @@[m [mstyles:[m
+   none:[m
+     name: "Normal"[m
+     font:[m
+[31m-      family: "Noto Sans JP Bold"[m
+[32m+[m[32m      family: "cinecaption"[m
+       size: 60[m
+       color: "#FFFFFF"[m
+       stroke_color: "#000000"[m
+[36m@@ -142,7 +142,7 @@[m [mstyles:[m
+   normal:[m
+     name: "ImpactNormal"[m
+     font:[m
+[31m-      family: "Noto Sans JP Bold"[m
+[32m+[m[32m      family: "cinecaption"[m
+       size: 80[m
+       color: "#FF0000"[m
+       stroke_color: "#000000"[m
+[36m@@ -163,7 +163,7 @@[m [mstyles:[m
+   mega:[m
+     name: "ImpactMega"[m
+     font:[m
+[31m-      family: "Noto Sans JP Bold"[m
+[32m+[m[32m      family: "cinecaption"[m
+       size: 120[m
+       color: "#FFFF00"  # 黄色[m
+       stroke_color: "#FF0000"  # 赤の縁取り[m
+[1mdiff --git a/config/phases/video_composition.yaml b/config/phases/video_composition.yaml[m
+[1mindex e014f19..e73df8a 100644[m
+[1m--- a/config/phases/video_composition.yaml[m
+[1m+++ b/config/phases/video_composition.yaml[m
+[36m@@ -5,6 +5,7 @@[m
+ # ========================================[m
+ performance:[m
+   use_ffmpeg_direct: true       # ffmpeg直接統合を使用（高速化）✅ Phase04/05無効化により有効化[m
+[32m+[m[32m  use_background_video: true   # 背景動画を使用（assets/background_videosから選択）[m
+   preset: "faster"              # エンコードプリセット (ultrafast/veryfast/faster/fast/medium)[m
+   parallel_processing: true     # 並列処理有効化[m
+   threads: 0                    # 使用スレッド数（0=自動検出）[m
+[36m@@ -68,7 +69,7 @@[m [mbgm:[m
+ [m
+ # 字幕設定[m
+ subtitle:[m
+[31m-  font_family: "Noto-Sans-JP-Bold"  # フォント名[m
+[32m+[m[32m  font_family: "cinecaption"  # フォント名（PostScript名）[m
+   font_size: 60                     # フォントサイズ（ピクセル）[m
+   color: "white"                    # テキスト色[m
+   background_color: "#000000"       # 背景色[m
+[1mdiff --git a/src/phases/phase_07_composition.py b/src/phases/phase_07_composition.py[m
+[1mindex 447378e..d6f2fab 100644[m
+[1m--- a/src/phases/phase_07_composition.py[m
+[1m+++ b/src/phases/phase_07_composition.py[m
+[36m@@ -1393,11 +1393,17 @@[m [mclass Phase07Composition(PhaseBase):[m
+         return img[m
+ [m
+     def _load_japanese_font(self, size: int):[m
+[31m-        """日本語フォントを読み込む（明朝体優先）"""[m
+[32m+[m[32m        """日本語フォントを読み込む（cinecaption226.ttf優先）"""[m
+         from PIL import ImageFont[m
+ [m
+[31m-        # フォントパスのリスト（明朝体を優先）[m
+[32m+[m[32m        # プロジェクトルートからフォントパスを取得[m
+[32m+[m[32m        project_root = self.config.project_root[m
+[32m+[m[32m        cinecaption_font = project_root / "assets" / "fonts" / "cinema" / "cinecaption226.ttf"[m
+[32m+[m
+[32m+[m[32m        # フォントパスのリスト（cinecaption226.ttfを最優先）[m
+         font_paths = [[m
+[32m+[m[32m            # プロジェクト内のフォント（最優先）[m
+[3
