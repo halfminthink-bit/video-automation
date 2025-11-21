@@ -300,7 +300,8 @@ class Phase06SubtitlesV2(PhaseBase):
                     "duration": s.end_time - s.start_time,
                     "text_line1": s.text_line1,
                     "text_line2": s.text_line2,
-                    "impact_level": self._get_impact_level(s, impact_sentences)
+                    "impact_level": self._get_impact_level(s, impact_sentences),
+                    "special_type": s.special_type  # special_typeを追加
                 }
                 for s in subtitles
             ]
@@ -356,24 +357,25 @@ class Phase06SubtitlesV2(PhaseBase):
             return {'normal': [], 'mega': []}
     
     def _get_impact_level(
-        self, 
-        subtitle: SubtitleEntry, 
+        self,
+        subtitle: SubtitleEntry,
         impact_sentences: Dict[str, List[str]]
     ) -> str:
         """
         字幕のimpact_levelを判定（正規化して比較）
-        
+
         変更点:
+        - special_typeが"section_title"の場合は"section_title"を返す
         - 句点、改行、空白を正規化して比較
         - より柔軟にマッチングできるように改善
-        
+
         Args:
             subtitle: 字幕エントリ
             impact_sentences: {'normal': [...], 'mega': [...]}
-        
+
         Returns:
-            "none" | "normal" | "mega"
-        
+            "none" | "normal" | "mega" | "section_title"
+
         Example:
             字幕: "誰もが侮った男が、革命児となった" (句点なし)
             impact_sentences: {
@@ -381,26 +383,32 @@ class Phase06SubtitlesV2(PhaseBase):
             }
             → return "normal" (正規化後は一致)
         """
+        # special_typeが"section_title"の場合は"section_title"を返す
+        if subtitle.special_type == "section_title":
+            return "section_title"
+
         def normalize_text(t: str) -> str:
             """テキストを正規化（句点、改行、空白を除去）"""
             # 句点、読点、改行、空白を除去
             t = t.replace('。', '').replace('、', '').replace('\n', '').replace(' ', '').replace('　', '')
             return t.strip()
-        
+
         # 字幕のテキスト全体を結合して正規化
         text = subtitle.text_line1 + (subtitle.text_line2 if subtitle.text_line2 else "")
         text_normalized = normalize_text(text)
-        
+
         # mega判定（正規化後で比較）
+        # 要件: megaは削除し、normalにフォールバック
         for sentence in impact_sentences.get('mega', []):
             if text_normalized == normalize_text(sentence):
-                return 'mega'
-        
+                self.logger.warning("'mega' is deprecated. Using 'normal' instead.")
+                return 'normal'
+
         # normal判定（正規化後で比較）
         for sentence in impact_sentences.get('normal', []):
             if text_normalized == normalize_text(sentence):
                 return 'normal'
-        
+
         return 'none'
 
     def _fix_three_line_quotations(

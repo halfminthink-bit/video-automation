@@ -495,7 +495,7 @@ class Phase02Audio(PhaseBase):
         文脈として渡すことで自然なイントネーションを実現。
 
         🆕 セクションタイトル機能:
-        - 各セクションの冒頭でタイトルを0.5倍速で読み上げ
+        - 各セクションの冒頭でタイトルを0.8倍速で読み上げ
         - タイトル後に2秒の無音を挿入
         - タイミング情報に title_timing, silence_after_title を追加
 
@@ -541,7 +541,7 @@ class Phase02Audio(PhaseBase):
         # 🆕 セクションタイトル設定を読み込み
         section_title_config = self.phase_config.get("section_title", {})
         section_title_enabled = section_title_config.get("enabled", True)
-        title_speed = section_title_config.get("speed", 0.5)
+        title_speed = section_title_config.get("speed", 0.8)
         title_silence_after = section_title_config.get("silence_after", 2.0)
 
         segments = []
@@ -622,7 +622,7 @@ class Phase02Audio(PhaseBase):
 
             # タイムスタンプ付きで音声生成（文脈対応）
             try:
-                # 🆕 1. タイトル音声を生成（0.5倍速）
+                # 🆕 1. タイトル音声を生成（0.8倍速）
                 if section_title_enabled and section.title:
                     self.logger.info(f"Generating title audio: {section.title}")
 

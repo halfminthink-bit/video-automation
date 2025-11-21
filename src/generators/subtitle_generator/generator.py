@@ -633,7 +633,25 @@ class SubtitleGenerator:
 
         for section in audio_timing_data:
             offset = section.get("offset", 0.0)
-            
+
+            # 🆕 タイトル字幕を追加（section_titleがある場合）
+            title_timing = section.get("title_timing")
+            if title_timing:
+                title_text = title_timing.get("text", "")
+                title_start = offset + title_timing.get("start_time", 0.0)
+                title_end = offset + title_timing.get("end_time", 0.0)
+
+                # タイトル字幕を一時保存（special_typeマーカー付き）
+                temp_subtitles.append({
+                    "start": title_start,
+                    "end": title_end,
+                    "original_duration": title_end - title_start,
+                    "lines": [title_text, "", ""],
+                    "special_type": "section_title"  # マーカー
+                })
+
+                self.logger.debug(f"Added title subtitle: {title_text} ({title_start:.2f}s - {title_end:.2f}s)")
+
             # 🆕 narration_timingから文字とタイミング情報を取得
             narration_timing = section.get("narration_timing", {})
             if not narration_timing:
@@ -750,7 +768,8 @@ class SubtitleGenerator:
                             "start": subtitle_start,
                             "end": subtitle_end,
                             "original_duration": original_duration,
-                            "lines": lines
+                            "lines": lines,
+                            "special_type": None  # 通常の字幕
                         })
 
         # 全字幕の終了時刻を調整（重なり防止）
@@ -878,7 +897,8 @@ class SubtitleGenerator:
                 start_time=subtitle_start,
                 end_time=subtitle_end,
                 text_line1=lines[0] if len(lines) > 0 else "",
-                text_line2=lines[1] if len(lines) > 1 else ""
+                text_line2=lines[1] if len(lines) > 1 else "",
+                special_type=temp_sub.get("special_type")  # special_typeを取得
             ))
             subtitle_index += 1
 
