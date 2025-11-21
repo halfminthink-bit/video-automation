@@ -190,16 +190,22 @@ class BGMProcessor:
         self,
         bgm_data: dict,
         audio_path: Path,
-        num_bg_videos: int = 0
+        num_bg_videos: int = 0,
+        sfx_inputs: List[dict] = None,
+        title_segments: List[dict] = None,
+        bgm_volume_multiplier: float = 1.0
     ) -> Tuple[str, List[str]]:
         """
-        BGMフィルターを作成（タイムラインに基づいた切り替え対応）
-        
+        BGMフィルターを作成（タイムラインに基づいた切り替え対応、効果音とタイトル区間の音量調整対応）
+
         Args:
             bgm_data: {"segments": [...]} 形式
             audio_path: 音声ファイルのパス
             num_bg_videos: 背景動画の数（BGMファイルの入力インデックス計算用）
-        
+            sfx_inputs: 効果音の入力情報リスト
+            title_segments: セクションタイトル区間のリスト
+            bgm_volume_multiplier: タイトル区間でのBGM音量倍率（デフォルト: 1.0）
+
         Returns:
             (bgm_filter, bgm_map) タプル
         """
@@ -304,15 +310,51 @@ class BGMProcessor:
                 )
             
             filters.append(bgm_part)
-            
-            # Step 2: フェード適用
-            fade_part = (
-                f"[bgm{i}_trimmed]"
-                f"afade=t=in:st=0:d={fade_in},"
-                f"afade=t=out:st={duration - fade_out}:d={fade_out},"
-                f"volume={bgm_volume:.3f}"
-                f"[bgm{i}_faded]"
-            )
+
+            # Step 2: フェード適用 + タイトル区間の音量調整
+            # タイトル区間での音量調整式を生成
+            if title_segments and bgm_volume_multiplier != 1.0:
+                # 動的音量式を生成
+                volume_expr = f"{bgm_volume:.3f}"
+
+                # タイトル区間では音量を下げる
+                for seg in title_segments:
+                    # グローバル時間で判定（start_timeオフセットを考慮）
+                    seg_start_global = start_time + seg['start']
+                    seg_end_global = start_time + seg['end']
+
+                    # このBGMセグメントとタイトル区間が重なる場合のみ適用
+                    bgm_end = start_time + duration
+                    if seg_start_global < bgm_end and seg_end_global > start_time:
+                        # ローカル時間に変換（このBGMセグメント内での時間）
+                        local_start = max(0, seg['start'] - start_time)
+                        local_end = min(duration, seg['end'] - start_time)
+
+                        if local_start < duration and local_end > 0:
+                            adjusted_volume = bgm_volume * bgm_volume_multiplier
+                            volume_expr = (
+                                f"if(between(t,{local_start:.3f},{local_end:.3f}),"
+                                f"{adjusted_volume:.3f},"
+                                f"{volume_expr})"
+                            )
+
+                fade_part = (
+                    f"[bgm{i}_trimmed]"
+                    f"afade=t=in:st=0:d={fade_in},"
+                    f"afade=t=out:st={duration - fade_out}:d={fade_out},"
+                    f"volume='{volume_expr}'"
+                    f"[bgm{i}_faded]"
+                )
+            else:
+                # タイトル区間の音量調整なし
+                fade_part = (
+                    f"[bgm{i}_trimmed]"
+                    f"afade=t=in:st=0:d={fade_in},"
+                    f"afade=t=out:st={duration - fade_out}:d={fade_out},"
+                    f"volume={bgm_volume:.3f}"
+                    f"[bgm{i}_faded]"
+                )
+
             filters.append(fade_part)
             
             # Step 3: 前に無音を追加（anullsrc + concat）
@@ -335,17 +377,62 @@ class BGMProcessor:
             bgm_mix = f"{''.join(bgm_outputs)}amix=inputs={len(bgm_outputs)}:duration=longest:dropout_transition=0[bgm_all]"
             filters.append(bgm_mix)
             self.logger.info(f"  Mixing {len(bgm_outputs)} BGM tracks")
-            
-            # Step 5: ナレーションとミックス（ナレーションの長さに合わせる）
-            final_mix = "[narration][bgm_all]amix=inputs=2:duration=first:dropout_transition=3[audio]"
+        elif len(bgm_outputs) == 1:
+            # BGMが1つのみの場合はそのまま使用
+            filters.append("[bgm0]acopy[bgm_all]")
+
+        # Step 5: 効果音を処理
+        sfx_outputs = []
+        if sfx_inputs:
+            # 効果音の開始インデックスを計算
+            sfx_start_index = bgm_start_index + len(bgm_files_map)
+
+            for i, sfx in enumerate(sfx_inputs):
+                sfx_input_idx = sfx_start_index  # すべての効果音が同じファイルを使用
+                start_time = sfx['start_time']
+                volume = sfx.get('volume', 0.5)
+                fade_in = sfx.get('fade_in', 0.05)
+                fade_out = sfx.get('fade_out', 0.1)
+
+                # 🔍 デバッグ: 効果音の詳細情報
+                self.logger.info(f"  🔊 [DEBUG] SFX {i+1}: start={start_time:.2f}s, volume={volume}, fade_in={fade_in}s, fade_out={fade_out}s")
+
+                # 効果音の処理（フェード + 音量調整）
+                sfx_filter = (
+                    f"[{sfx_input_idx}:a]"
+                    f"afade=t=in:st=0:d={fade_in},"
+                    f"afade=t=out:st=0.5:d={fade_out},"
+                    f"volume={volume}"
+                    f"[sfx{i}_faded];"
+                )
+
+                # 無音を追加してタイミング調整
+                sfx_filter += (
+                    f"anullsrc=channel_layout=stereo:sample_rate=48000:duration={start_time}"
+                    f"[silence_sfx{i}];"
+                    f"[silence_sfx{i}][sfx{i}_faded]concat=n=2:v=0:a=1"
+                    f"[sfx{i}]"
+                )
+
+                filters.append(sfx_filter)
+                sfx_outputs.append(f'[sfx{i}]')
+
+            self.logger.info(f"  Added {len(sfx_outputs)} sound effects")
+
+        # Step 6: 最終ミックス（ナレーション + BGM + 効果音）
+        all_inputs = ['[narration]']
+
+        if bgm_outputs:
+            all_inputs.append('[bgm_all]')
+
+        if sfx_outputs:
+            all_inputs.extend(sfx_outputs)
+
+        if len(all_inputs) > 1:
+            final_mix = f"{''.join(all_inputs)}amix=inputs={len(all_inputs)}:duration=first:dropout_transition=3[audio]"
         else:
-            if len(bgm_outputs) == 1:
-                # BGMが1つのみの場合
-                final_mix = "[narration][bgm0]amix=inputs=2:duration=first:dropout_transition=3[audio]"
-            else:
-                # BGMがない場合
-                final_mix = "[narration]acopy[audio]"
-        
+            final_mix = "[narration]acopy[audio]"
+
         filters.append(final_mix)
         
         # フィルターを結合

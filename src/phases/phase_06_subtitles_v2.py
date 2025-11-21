@@ -137,6 +137,10 @@ class Phase06SubtitlesV2(PhaseBase):
             self.logger.info("Optimizing subtitle gaps...")
             subtitles = generator.timing.optimize_gaps(subtitles)
 
+            # 6.5. audio_timing.jsonからspecial_typeを設定（セクションタイトル用）
+            self.logger.info("Setting special_type from audio_timing.json...")
+            subtitles = self._set_special_type_from_audio_timing(subtitles, audio_timing_data)
+
             # 7. SRT・JSONを保存
             srt_path = self._save_srt_file(subtitles)
             timing_path = self._save_timing_json(subtitles)
@@ -483,6 +487,86 @@ class Phase06SubtitlesV2(PhaseBase):
                 )
         
         return fixed_subtitles
+
+    def _set_special_type_from_audio_timing(
+        self,
+        subtitles: List[SubtitleEntry],
+        audio_timing_data: List[Dict]
+    ) -> List[SubtitleEntry]:
+        """
+        audio_timing.jsonからspecial_typeを設定（セクションタイトル用）
+        
+        audio_timing.jsonの各セクションのtitle_timingからspecial_typeを読み取り、
+        タイミングが一致する字幕エントリに設定する。
+        
+        Args:
+            subtitles: 字幕エントリのリスト
+            audio_timing_data: audio_timing.jsonのデータ（リスト形式）
+        
+        Returns:
+            special_typeが設定された字幕エントリのリスト
+        """
+        # audio_timing.jsonからtitle_timingの情報を収集
+        title_timings = []
+        
+        for section in audio_timing_data:
+            section_id = section.get('section_id')
+            offset = section.get('offset', 0.0)  # セクションのオフセット（グローバル時間）
+            title_timing = section.get('title_timing')
+            
+            if title_timing and title_timing.get('special_type') == 'section_title':
+                # グローバル時間に変換
+                global_start = offset + title_timing.get('start_time', 0.0)
+                global_end = offset + title_timing.get('end_time', 0.0)
+                title_text = title_timing.get('text', '')
+                
+                title_timings.append({
+                    'start_time': global_start,
+                    'end_time': global_end,
+                    'text': title_text,
+                    'section_id': section_id
+                })
+                
+                self.logger.info(
+                    f"Found section title in section {section_id}: "
+                    f"{global_start:.2f}s - {global_end:.2f}s: '{title_text}'"
+                )
+        
+        if not title_timings:
+            self.logger.warning("No title_timing found in audio_timing.json")
+            return subtitles
+        
+        # 各字幕エントリに対して、タイミングが一致するtitle_timingを探す
+        updated_subtitles = []
+        matched_count = 0
+        
+        for subtitle in subtitles:
+            # タイミングが一致するtitle_timingを探す（許容誤差0.1秒）
+            matched = False
+            for title_timing in title_timings:
+                # 開始時間と終了時間がほぼ一致するかチェック
+                start_diff = abs(subtitle.start_time - title_timing['start_time'])
+                end_diff = abs(subtitle.end_time - title_timing['end_time'])
+                
+                if start_diff < 0.5 and end_diff < 0.5:
+                    # special_typeを設定
+                    subtitle.special_type = 'section_title'
+                    matched = True
+                    matched_count += 1
+                    
+                    self.logger.info(
+                        f"✅ Set special_type='section_title' for subtitle {subtitle.index}: "
+                        f"{subtitle.start_time:.2f}s - {subtitle.end_time:.2f}s: '{subtitle.text_line1}'"
+                    )
+                    break
+            
+            updated_subtitles.append(subtitle)
+        
+        self.logger.info(
+            f"Set special_type='section_title' for {matched_count}/{len(title_timings)} title segments"
+        )
+        
+        return updated_subtitles
 
     def _save_generation_metadata(self, subtitle_gen: SubtitleGeneration):
         """
