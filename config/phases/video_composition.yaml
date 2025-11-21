@@ -5,7 +5,7 @@
 # ========================================
 performance:
   use_ffmpeg_direct: true       # ffmpeg直接統合を使用（高速化）✅ Phase04/05無効化により有効化
-  use_background_video: true   # 背景動画を使用（assets/background_videosから選択）
+  use_background_video: false  # 背景動画を使用（assets/background_videosから選択） ← シネマティックスタイルのため無効化
   preset: "faster"              # エンコードプリセット (ultrafast/veryfast/faster/fast/medium)
   parallel_processing: true     # 並列処理有効化
   threads: 0                    # 使用スレッド数（0=自動検出）
@@ -21,7 +21,7 @@ output:
 
 # 二分割レイアウト設定
 split_layout:
-  enabled: true             # 二分割レイアウトを有効化
+  enabled: false            # 二分割レイアウトを有効化 ← シネマティックスタイルのため無効化
   direction: "vertical"     # レイアウト方向: "horizontal" (左右) or "vertical" (上下)
   ratio: 0.8                # 上部エリアの比率（0.8 = 80%, 下部20%は字幕）
 

@@ -1907,19 +1907,45 @@ class Phase07CompositionV2(PhaseBase):
 
             self.logger.info(f"Total images to process: {len(image_timings)}")
 
-            # 3. 各画像を動画セグメントに変換
-            self.logger.info("Creating video segments from images...")
+            # 3. 各画像を動画セグメントに変換（シネマティックスタイル）
+            self.logger.info("Creating cinematic video segments from images...")
             for i, timing in enumerate(image_timings):
                 img_path = timing['path']
                 duration = timing['duration']
                 output_segment = temp_dir / f"segment_{i:03d}.mp4"
+
+                # zoompanのパラメータ計算
+                fps = 30
+                total_frames = int(duration * fps)
+                zoom_increment = 0.15 / total_frames if total_frames > 0 else 0.001
+
+                # シネマティックフィルタチェーン
+                # 1. [bg] 背景層: スケール+クロップ → ブラー → 暗くする
+                # 2. [fg] 前景層: スケール+パッド → ゆっくりズーム
+                # 3. [video] 背景+前景を合成
+                # 4. [gradient] 画面下部にグラデーション生成
+                # 5. [out] 最終合成
+                filter_complex = (
+                    # 背景層: 画面全体にフィット（クロップ）してブラー+暗くする
+                    "[0:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,boxblur=100:5,eq=brightness=-0.3[bg];"
+                    # 前景層: アスペクト比維持してパッド、ゆっくりズーム
+                    f"[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,"
+                    f"zoompan=z='min(zoom+{zoom_increment:.6f},1.15)':d={total_frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1920x1080:fps={fps}[fg];"
+                    # 背景+前景を合成
+                    "[bg][fg]overlay=(W-w)/2:(H-h)/2[video];"
+                    # グラデーション生成（画面下部30%に透明→黒）
+                    "color=black@0:s=1920x1080,geq=lum='if(lt(Y,ih*0.7),0,255*(Y-ih*0.7)/(ih*0.3))':cb=128:cr=128,format=rgba[gradient];"
+                    # 最終合成
+                    "[video][gradient]overlay=0:0:format=auto,format=yuv420p[out]"
+                )
 
                 cmd = [
                     'ffmpeg', '-y',
                     '-loop', '1',
                     '-i', str(img_path),
                     '-t', f"{duration:.6f}",
-                    '-vf', 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2',
+                    '-filter_complex', filter_complex,
+                    '-map', '[out]',
                     '-c:v', 'libx264',
                     '-preset', 'ultrafast',  # 速度重視
                     '-crf', '0',  # ロスレス
