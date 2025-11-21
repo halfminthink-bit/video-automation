@@ -567,10 +567,36 @@ class Phase07CompositionV2(PhaseBase):
                         'end': subtitle['end_time'],
                         'text': subtitle.get('text_line1', '')
                     })
+            
+            # 🔍 デバッグ: special_typeが設定されていない場合、テキストパターンで検出（一時的フォールバック）
+            if len(title_segments) == 0:
+                self.logger.warning("  ⚠️ No section title segments found via special_type!")
+                self.logger.info("  🔍 [DEBUG] Trying fallback: detecting by text pattern...")
+                
+                # セクションタイトルのパターン（「起：」「承転：」「結：」など）
+                title_patterns = ['起：', '承転：', '結：', '序：', '破：', '急：']
+                
+                for subtitle in subtitles:
+                    text = subtitle.get('text_line1', '')
+                    # パターンマッチング
+                    if any(pattern in text for pattern in title_patterns):
+                        title_segments.append({
+                            'start': subtitle['start_time'],
+                            'end': subtitle['end_time'],
+                            'text': text
+                        })
+                        self.logger.info(f"  ✅ [FALLBACK] Detected title by pattern: {subtitle['start_time']:.2f}s - {subtitle['end_time']:.2f}s: '{text}'")
 
-            self.logger.info(f"Detected {len(title_segments)} section title segments")
-            for seg in title_segments:
-                self.logger.info(f"  {seg['start']:.2f}s - {seg['end']:.2f}s: {seg['text']}")
+            self.logger.info(f"🔍 [DEBUG] Detected {len(title_segments)} section title segments")
+            if len(title_segments) == 0:
+                self.logger.warning("  ⚠️ No section title segments found! Check subtitle_timing.json for 'special_type': 'section_title'")
+                # デバッグ: 全字幕を確認
+                self.logger.info("  [DEBUG] All subtitles in file:")
+                for i, sub in enumerate(subtitles[:10]):  # 最初の10個のみ表示
+                    self.logger.info(f"    [{i}] special_type={sub.get('special_type')}, text={sub.get('text_line1', '')[:30]}")
+            else:
+                for seg in title_segments:
+                    self.logger.info(f"  ✅ {seg['start']:.2f}s - {seg['end']:.2f}s: '{seg['text']}'")
 
             return title_segments
 
@@ -2655,10 +2681,48 @@ class Phase07CompositionV2(PhaseBase):
 
         self.logger.info(f"ASS字幕生成: {len(subtitles)}個のエントリ")
 
+        # 🔍 デバッグ: subtitle_timing.jsonからspecial_typeを確認
+        subtitle_timing_path = self.working_dir / "06_subtitles" / "subtitle_timing.json"
+        subtitle_timing_data = {}
+        if subtitle_timing_path.exists():
+            try:
+                with open(subtitle_timing_path, 'r', encoding='utf-8') as f:
+                    subtitle_timing_data = json.load(f)
+                self.logger.info(f"🔍 [DEBUG] Loaded subtitle_timing.json with {len(subtitle_timing_data.get('subtitles', []))} entries")
+            except Exception as e:
+                self.logger.warning(f"Failed to load subtitle_timing.json: {e}")
+
+        # subtitle_timing.jsonのインデックスとSubtitleEntryのインデックスをマッピング
+        timing_map = {}
+        if subtitle_timing_data:
+            for timing_sub in subtitle_timing_data.get('subtitles', []):
+                idx = timing_sub.get('index')
+                if idx is not None:
+                    timing_map[idx] = timing_sub
+
+        # セクションタイトルのパターン（フォールバック用）
+        title_patterns = ['起：', '承転：', '結：', '序：', '破：', '急：']
+
         for subtitle in subtitles:
             # オリジナルのタイミングをそのまま使用
             start_time = subtitle.start_time
             end_time = subtitle.end_time
+
+            # 🔍 デバッグ: special_typeを確認
+            timing_info = timing_map.get(subtitle.index)
+            special_type = timing_info.get('special_type') if timing_info else None
+            
+            # フォールバック: special_typeがNoneの場合、テキストパターンで判定
+            if special_type is None:
+                text = subtitle.text_line1
+                if any(pattern in text for pattern in title_patterns):
+                    special_type = 'section_title'
+                    self.logger.info(f"🔍 [DEBUG] Detected section_title by pattern at index {subtitle.index}: {start_time:.2f}s - {end_time:.2f}s")
+                    self.logger.info(f"  Text: {text}")
+            
+            if special_type == 'section_title':
+                self.logger.info(f"🔍 [DEBUG] Using SectionTitle style for subtitle at index {subtitle.index}: {start_time:.2f}s - {end_time:.2f}s")
+                self.logger.info(f"  Text: {subtitle.text_line1}")
 
             # セクション境界付近の字幕を特別にログ
             for boundary in section_boundaries:
@@ -2689,8 +2753,11 @@ class Phase07CompositionV2(PhaseBase):
 
             subtitle_text = '\\N'.join(text_parts)
 
+            # 🔍 デバッグ: section_titleの場合は特別なスタイルを使用（現在はDefaultのまま）
+            style_name = "SectionTitle" if special_type == 'section_title' else "Default"
+            
             # ASSイベント行を追加
-            ass_content += f"Dialogue: 0,{start_time_str},{end_time_str},Default,,0,0,0,,{subtitle_text}\n"
+            ass_content += f"Dialogue: 0,{start_time_str},{end_time_str},{style_name},,0,0,0,,{subtitle_text}\n"
 
         # ファイルに保存
         ass_path = self.phase_dir / "subtitles.ass"
@@ -2725,6 +2792,10 @@ class Phase07CompositionV2(PhaseBase):
         # MarginV = 1080 - 972 - 38 ≒ 70 （さらに約15px下げる）
         margin_v = 70  # 83→70 に変更（さらに下方向へ）
 
+        # 🔍 デバッグ: SectionTitleスタイルを追加（センター、大きく）
+        section_title_font_size = 120  # タイトル用に大きく
+        section_title_margin_v = 400  # 画面中央に配置（1080/2 - 60 = 480、少し上に）
+        
         return f"""[Script Info]
 Title: Generated Subtitles
 ScriptType: v4.00+
@@ -2737,6 +2808,7 @@ ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Default,MS Mincho,{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,3,2,2,10,10,{margin_v},128
+Style: SectionTitle,MS Mincho,{section_title_font_size},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,5,3,5,10,10,{section_title_margin_v},128
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -3815,11 +3887,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             sfx_path = self.config.project_root / sfx_config.get('file', 'assets/sfx/impact_title.mp3')
 
             if sfx_path.exists():
+                # 🔍 デバッグ: 効果音の音量を一時的に上げる（0.5 → 1.0）
+                original_volume = sfx_config.get('volume', 0.5)
+                debug_volume = 1.0  # デバッグ用に音量を上げる
+                
                 for seg in title_segments:
                     sfx_inputs.append({
                         'file': sfx_path,
                         'start_time': seg['start'],
-                        'volume': sfx_config.get('volume', 0.5),
+                        'volume': debug_volume,  # デバッグ用に音量を上げる
                         'fade_in': sfx_config.get('fade_in', 0.05),
                         'fade_out': sfx_config.get('fade_out', 0.1)
                     })
@@ -3831,7 +3907,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         cmd.extend(['-i', str(sfx['file'])])
                         seen_sfx_files.add(str(sfx['file']))
 
-                self.logger.info(f"Added {len(sfx_inputs)} sound effects")
+                self.logger.info(f"🔊 [DEBUG] Added {len(sfx_inputs)} sound effects")
+                self.logger.info(f"  Original volume: {original_volume} → Debug volume: {debug_volume} (temporarily increased)")
+                for i, sfx in enumerate(sfx_inputs):
+                    self.logger.info(f"  SFX {i+1}: {sfx['start_time']:.2f}s, volume={sfx['volume']}")
             else:
                 self.logger.warning(f"Sound effect file not found: {sfx_path}")
 
@@ -3866,13 +3945,30 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         overlay_config = section_title_config.get('overlay', {})
         overlay_enabled = section_title_config.get('enabled', True)
 
+        # 🔍 デバッグ: タイトル区間の詳細情報
+        self.logger.info("=" * 60)
+        self.logger.info("🔍 [DEBUG] Section Title Overlay Debug Info:")
+        self.logger.info(f"  overlay_enabled: {overlay_enabled}")
+        self.logger.info(f"  title_segments count: {len(title_segments) if title_segments else 0}")
+        self.logger.info(f"  overlay_config: {overlay_config}")
+        
+        if title_segments:
+            self.logger.info(f"  Title segments details:")
+            for i, seg in enumerate(title_segments):
+                self.logger.info(f"    [{i+1}] {seg['start']:.2f}s - {seg['end']:.2f}s: '{seg.get('text', 'N/A')}'")
+        else:
+            self.logger.warning("  ⚠️ No title segments found! Overlay will not be applied.")
+        self.logger.info("=" * 60)
+
         if overlay_enabled and title_segments and overlay_config:
             opacity = overlay_config.get('opacity', 0.9)
 
             # 黒オーバーレイのenable条件を生成
             enable_conditions = []
             for seg in title_segments:
-                enable_conditions.append(f"between(t,{seg['start']},{seg['end']})")
+                condition = f"between(t,{seg['start']},{seg['end']})"
+                enable_conditions.append(condition)
+                self.logger.info(f"  [DEBUG] Overlay condition for {seg['start']:.2f}s-{seg['end']:.2f}s: {condition}")
 
             if enable_conditions:
                 enable_expr = "+".join(enable_conditions)
@@ -3885,13 +3981,23 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 )
                 filter_complex += overlay_filter
 
-                self.logger.info(f"Section title overlay opacity: {opacity}")
-                self.logger.info(f"Overlay enabled for {len(title_segments)} title segments")
+                self.logger.info(f"✅ [DEBUG] Section title overlay applied:")
+                self.logger.info(f"  Opacity: {opacity} (90% = 0.9)")
+                self.logger.info(f"  Title segments: {len(title_segments)}")
+                self.logger.info(f"  Enable expression: {enable_expr}")
+                self.logger.info(f"  Overlay filter: {overlay_filter}")
             else:
                 # オーバーレイなし
+                self.logger.warning("⚠️ [DEBUG] No enable conditions generated, overlay not applied")
                 filter_complex += '[padded]copy[video]'
         else:
             # オーバーレイなし
+            if not overlay_enabled:
+                self.logger.warning("⚠️ [DEBUG] Overlay disabled in config")
+            elif not title_segments:
+                self.logger.warning("⚠️ [DEBUG] No title segments found")
+            elif not overlay_config:
+                self.logger.warning("⚠️ [DEBUG] Overlay config not found")
             filter_complex += '[padded]copy[video]'
         
         cmd.extend([
@@ -4001,7 +4107,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         )
     
     def _create_bgm_filter_for_background(
-        self, bgm_data: dict, audio_path: Path, num_bg_videos: int = 0
+        self,
+        bgm_data: dict,
+        audio_path: Path,
+        num_bg_videos: int = 0,
+        sfx_inputs: List[dict] = None,
+        title_segments: List[dict] = None,
+        bgm_volume_multiplier: float = 1.0
     ) -> tuple:
         """
         BGMフィルターを作成（タイムラインに基づいた切り替え対応）
@@ -4010,6 +4122,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             bgm_data: {"segments": [...]} 形式
             audio_path: 音声ファイルのパス
             num_bg_videos: 背景動画の数（BGMファイルの入力インデックス計算用）
+            sfx_inputs: 効果音の入力情報リスト
+            title_segments: セクションタイトル区間のリスト
+            bgm_volume_multiplier: タイトル区間でのBGM音量倍率（デフォルト: 1.0）
         
         Returns:
             (bgm_filter, bgm_map) タプル
@@ -4017,7 +4132,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         return self.bgm_processor.create_bgm_filter_for_background(
             bgm_data,
             audio_path,
-            num_bg_videos
+            num_bg_videos,
+            sfx_inputs,
+            title_segments,
+            bgm_volume_multiplier
         )
 
     def _burn_subtitles_with_impact(

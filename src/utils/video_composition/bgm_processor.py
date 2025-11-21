@@ -394,6 +394,9 @@ class BGMProcessor:
                 fade_in = sfx.get('fade_in', 0.05)
                 fade_out = sfx.get('fade_out', 0.1)
 
+                # 🔍 デバッグ: 効果音の詳細情報
+                self.logger.info(f"  🔊 [DEBUG] SFX {i+1}: start={start_time:.2f}s, volume={volume}, fade_in={fade_in}s, fade_out={fade_out}s")
+
                 # 効果音の処理（フェード + 音量調整）
                 sfx_filter = (
                     f"[{sfx_input_idx}:a]"
