@@ -507,7 +507,29 @@ class Phase07Composition(PhaseBase):
 
         self.logger.info(f"Loaded {len(subtitles)} subtitles")
         return subtitles
-    
+
+    def _load_subtitle_timing(self) -> Optional[dict]:
+        """
+        🆕 subtitle_timing.json を読み込み（impact_level情報を含む）
+
+        Returns:
+            subtitle_timing.json の内容、またはNone
+        """
+        subtitle_timing_path = self.working_dir / "06_subtitles" / "subtitle_timing.json"
+
+        if not subtitle_timing_path.exists():
+            self.logger.warning("subtitle_timing.json not found")
+            return None
+
+        try:
+            with open(subtitle_timing_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            self.logger.info(f"Loaded subtitle_timing.json with {len(data.get('subtitles', []))} entries")
+            return data
+        except Exception as e:
+            self.logger.error(f"Failed to load subtitle_timing.json: {e}")
+            return None
+
     def _load_audio_timing(self) -> Optional[dict]:
         """Phase 2の音声タイミングデータを読み込み"""
         audio_timing_path = self.working_dir / "02_audio" / "audio_timing.json"
@@ -2525,6 +2547,10 @@ class Phase07Composition(PhaseBase):
         1. タイミングの微調整を削除（オリジナルのタイミングを維持）
         2. 各字幕のデバッグ情報を出力
         3. セクション境界の字幕を特別に処理（ログ）
+
+        🆕 セクションタイトル対応:
+        - subtitle_timing.json から impact_level を読み込み
+        - section_title の場合は SectionTitle スタイルを適用
         """
         subtitles = self._load_subtitles()
 
@@ -2534,6 +2560,9 @@ class Phase07Composition(PhaseBase):
             with open(ass_path, 'w', encoding='utf-8') as f:
                 f.write(self._get_ass_header_fixed())
             return ass_path
+
+        # 🆕 subtitle_timing.json を読み込んでimpact_level情報を取得
+        subtitle_timing_data = self._load_subtitle_timing()
 
         # ASSヘッダー
         ass_content = self._get_ass_header_fixed()
@@ -2557,6 +2586,14 @@ class Phase07Composition(PhaseBase):
             pass
 
         self.logger.info(f"ASS字幕生成: {len(subtitles)}個のエントリ")
+
+        # 🆕 subtitle_timing_data から impact_level マップを作成
+        impact_level_map = {}
+        if subtitle_timing_data:
+            for sub_data in subtitle_timing_data.get('subtitles', []):
+                index = sub_data.get('index')
+                if index:
+                    impact_level_map[index] = sub_data.get('impact_level', 'none')
 
         for subtitle in subtitles:
             # オリジナルのタイミングをそのまま使用
@@ -2592,8 +2629,15 @@ class Phase07Composition(PhaseBase):
 
             subtitle_text = '\\N'.join(text_parts)
 
+            # 🆕 impact_level に基づいてスタイルを選択
+            impact_level = impact_level_map.get(subtitle.index, 'none')
+            if impact_level == 'section_title':
+                style_name = 'SectionTitle'
+            else:
+                style_name = 'Default'
+
             # ASSイベント行を追加
-            ass_content += f"Dialogue: 0,{start_time_str},{end_time_str},Default,,0,0,0,,{subtitle_text}\n"
+            ass_content += f"Dialogue: 0,{start_time_str},{end_time_str},{style_name},,0,0,0,,{subtitle_text}\n"
 
         # ファイルに保存
         ass_path = self.phase_dir / "subtitles.ass"
@@ -2610,12 +2654,18 @@ class Phase07Composition(PhaseBase):
     def _get_ass_header_fixed(self) -> str:
         """
         ASS字幕のヘッダー（2行字幕の位置調整版）
+
+        🆕 セクションタイトル対応:
+        - SectionTitle スタイルを追加（赤文字、中央配置、大きめ）
         """
         video_width = 1920
         video_height = 1080
 
-        # フォントサイズ
+        # 通常字幕のフォントサイズ
         font_size = 48
+
+        # 🆕 セクションタイトルのフォントサイズ
+        title_font_size = 100
 
         # 黒バーの高さ: 216px
         # 黒バーの開始位置: 1080 - 216 = 864px
@@ -2627,6 +2677,9 @@ class Phase07Composition(PhaseBase):
         # 黒バー中央（972px）に字幕中央を配置するには：
         # MarginV = 1080 - 972 - 38 ≒ 70 （さらに約15px下げる）
         margin_v = 70  # 83→70 に変更（さらに下方向へ）
+
+        # 🆕 セクションタイトルは画面中央に配置
+        title_margin_v = 0
 
         return f"""[Script Info]
 Title: Generated Subtitles
@@ -2640,6 +2693,7 @@ ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Default,MS Mincho,{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,3,2,2,10,10,{margin_v},128
+Style: SectionTitle,MS Mincho,{title_font_size},&H000000FF,&H000000FF,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,4,4,5,10,10,{title_margin_v},128
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text

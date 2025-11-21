@@ -121,3 +121,25 @@ image_timing:
       partial_match_weight: 5.0    # 部分一致の重み
       same_section_weight: 3.0     # 同一セクションの重み
       keyword_length_weight: 1.0   # キーワード長の重み
+
+# ========================================
+# セクションタイトル演出設定
+# ========================================
+section_title:
+  enabled: true
+
+  # 黒背景設定
+  background:
+    type: "solid_color"
+    color: "#000000"
+
+  # 効果音設定
+  sound_effect:
+    enabled: true
+    file: "assets/sfx/impact_title.mp3"
+    volume: 0.5
+    fade_in: 0.05   # 効果音フェードイン（秒）
+    fade_out: 0.1   # 効果音フェードアウト（秒）
+
+  # BGM音量調整（タイトル時）
+  bgm_volume_multiplier: 0.7  # 通常の70%に下げる

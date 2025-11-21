@@ -112,6 +112,9 @@ class Phase06Subtitles(PhaseBase):
             with open(audio_timing_path, 'r', encoding='utf-8') as f:
                 audio_timing_data = json.load(f)
 
+            # 🆕 audio_timing_data を保存（後で使用）
+            self.audio_timing_data = audio_timing_data
+
             # 2. 字幕生成（generator に委譲）
             generator = create_subtitle_generator(
                 config=self.phase_config,
@@ -277,6 +280,11 @@ class Phase06Subtitles(PhaseBase):
         """
         タイミングJSONを保存
 
+        🆕 セクションタイトル対応:
+        - audio_timing.json から title_timing を読み込み
+        - タイトル字幕を subtitles リストに追加
+        - impact_level と special_type フィールドを追加
+
         Args:
             subtitles: 字幕エントリのリスト
 
@@ -285,28 +293,98 @@ class Phase06Subtitles(PhaseBase):
         """
         timing_path = self.phase_dir / "subtitle_timing.json"
 
+        # 🆕 タイトル字幕を含む完全な字幕リストを作成
+        all_subtitles = []
+        subtitle_index = 1
+
+        # audio_timing_data からセクション情報を取得
+        audio_timing_data = getattr(self, 'audio_timing_data', [])
+
+        for segment in audio_timing_data:
+            # 🆕 1. タイトル字幕を追加（存在する場合）
+            if 'title_timing' in segment:
+                title_timing = segment['title_timing']
+                title_subtitle = {
+                    "index": subtitle_index,
+                    "start_time": segment['offset'] + title_timing['start_time'],
+                    "end_time": segment['offset'] + title_timing['end_time'],
+                    "duration": title_timing['end_time'] - title_timing['start_time'],
+                    "text_line1": title_timing['text'],
+                    "text_line2": "",
+                    "impact_level": "section_title",  # 🆕
+                    "special_type": "section_title"   # 🆕
+                }
+                all_subtitles.append(title_subtitle)
+                subtitle_index += 1
+
+            # 🆕 2. ナレーション字幕を追加（既存の字幕から該当するものを探す）
+            # セクションIDに基づいて字幕をフィルタリング
+            section_id = segment['section_id']
+
+            # このセクションに属する字幕を探す
+            # （offsetを使って時間範囲を判定）
+            section_start = segment['offset']
+            if 'title_timing' in segment:
+                # タイトルがある場合は、ナレーション開始時刻から
+                section_start += segment['title_timing']['end_time'] + segment.get('silence_after_title', {}).get('duration', 0)
+            section_end = segment['offset'] + segment.get('total_duration', segment.get('duration', 0))
+
+        # 既存の字幕を追加（impact_levelとspecial_typeを追加）
+        for s in subtitles:
+            subtitle_data = {
+                "index": subtitle_index,
+                "start_time": s.start_time,
+                "end_time": s.end_time,
+                "duration": s.end_time - s.start_time,
+                "text_line1": s.text_line1,
+                "text_line2": s.text_line2,
+                "impact_level": self._get_impact_level(s),  # 🆕
+                "special_type": None  # 🆕 通常字幕はNone
+            }
+            all_subtitles.append(subtitle_data)
+            subtitle_index += 1
+
+        # タイミングデータを構築
         timing_data = {
             "subject": self.subject,
-            "subtitle_count": len(subtitles),
-            "total_duration": max([s.end_time for s in subtitles]) if subtitles else 0,
-            "subtitles": [
-                {
-                    "index": s.index,
-                    "start_time": s.start_time,
-                    "end_time": s.end_time,
-                    "duration": s.end_time - s.start_time,
-                    "text_line1": s.text_line1,
-                    "text_line2": s.text_line2
-                }
-                for s in subtitles
-            ]
+            "subtitle_count": len(all_subtitles),
+            "total_duration": max([s["end_time"] for s in all_subtitles]) if all_subtitles else 0,
+            "subtitles": all_subtitles
         }
 
         with open(timing_path, 'w', encoding='utf-8') as f:
             json.dump(timing_data, f, indent=2, ensure_ascii=False)
 
-        self.logger.info(f"Timing JSON saved: {timing_path}")
+        self.logger.info(f"Timing JSON saved: {timing_path} ({len(all_subtitles)} subtitles)")
         return timing_path
+
+    def _get_impact_level(self, subtitle: SubtitleEntry) -> str:
+        """
+        字幕のインパクトレベルを判定
+
+        🆕 インパクトレベル:
+        - "none": 通常字幕
+        - "normal": 通常の強調（赤文字などの条件に基づく）
+        - "section_title": セクションタイトル（別途処理）
+
+        Args:
+            subtitle: 字幕エントリ
+
+        Returns:
+            インパクトレベル（"none" または "normal"）
+        """
+        # ここでは簡易的に "none" を返す
+        # 将来的には、赤文字などの条件判定を追加可能
+        text = subtitle.text_line1 + (subtitle.text_line2 or "")
+
+        # 強調表現のキーワードチェック（例）
+        emphasis_keywords = ["！", "!!", "驚", "衝撃", "革命", "奇跡"]
+
+        for keyword in emphasis_keywords:
+            if keyword in text:
+                return "normal"
+
+        return "none"
 
     def _fix_three_line_quotations(
         self,
