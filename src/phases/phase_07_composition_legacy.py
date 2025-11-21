@@ -32,9 +32,9 @@ except ImportError as e:
     if TYPE_CHECKING:
         from moviepy.editor import VideoFileClip, AudioFileClip
 
-from src.core.phase_base import PhaseBase
-from src.core.config_manager import ConfigManager
-from src.core.models import VideoComposition, VideoTimeline, TimelineClip, SubtitleEntry
+from ..core.phase_base import PhaseBase
+from ..core.config_manager import ConfigManager
+from ..core.models import VideoComposition, VideoTimeline, TimelineClip, SubtitleEntry
 
 
 class Phase07Composition(PhaseBase):

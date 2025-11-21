@@ -99,10 +99,8 @@ htmlcov/
 # ========================================
 # Documentation Build
 # ========================================
-docs/_build/
+docs/
 site/
-docs/CONFIGURATION.md
-docs/COMMON_COMMANDS.md
 
 # ========================================
 # OS
