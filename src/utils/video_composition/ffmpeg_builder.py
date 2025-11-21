@@ -292,13 +292,17 @@ class FFmpegBuilder:
         # 3. ASS字幕を適用（fontsdir指定）
         if ass_path and ass_path.exists():
             ass_path_str = str(ass_path.resolve()).replace('\\', '/')
+            # プロジェクト内のフォントディレクトリを優先的に使用
+            fonts_dir_path = self.project_root / "assets" / "fonts" / "cinema"
+            fonts_dir_str = str(fonts_dir_path.resolve()).replace('\\', '/')
+            
             if is_windows:
                 # コロンをエスケープ（C: → C\:）
                 ass_path_str = ass_path_str.replace(':', '\\:')
-                fonts_dir = "C\\:/Windows/Fonts"
-                ass_filter = f"ass='{ass_path_str}':fontsdir='{fonts_dir}'"
+                fonts_dir_str = fonts_dir_str.replace(':', '\\:')
+                ass_filter = f"ass='{ass_path_str}':fontsdir='{fonts_dir_str}'"
             else:
-                ass_filter = f"ass='{ass_path_str}'"
+                ass_filter = f"ass='{ass_path_str}':fontsdir='{fonts_dir_str}'"
             video_filters.append(ass_filter)
             self.logger.debug(f"ASS filter: {ass_filter}")
 
@@ -389,14 +393,37 @@ class FFmpegBuilder:
         # 4. ASS字幕
         if ass_path and ass_path.exists():
             ass_path_str = str(ass_path.resolve())
+            # プロジェクト内のフォントディレクトリを優先的に使用
+            fonts_dir_path = self.project_root / "assets" / "fonts" / "cinema"
+            fonts_dir_resolved = fonts_dir_path.resolve()
+            fonts_dir_str = str(fonts_dir_resolved).replace('\\', '/')
+            
+            # デバッグ: フォントディレクトリ情報
+            self.logger.info(f"[Font Debug] フォントディレクトリ: {fonts_dir_resolved}")
+            self.logger.info(f"[Font Debug] フォントディレクトリ存在確認: {fonts_dir_resolved.exists()}")
+            
+            # デバッグ: cinecaption226.ttf の存在確認（.ttfファイルのみ）
+            cinecaption_font = fonts_dir_resolved / "cinecaption226.ttf"
+            self.logger.info(f"[Font Debug] cinecaption226.ttf パス: {cinecaption_font}")
+            self.logger.info(f"[Font Debug] cinecaption226.ttf 存在確認: {cinecaption_font.exists()}")
+            
+            # デバッグ: フォントディレクトリ内の全フォントファイル一覧
+            if fonts_dir_resolved.exists():
+                font_files = list(fonts_dir_resolved.glob("*.ttf")) + list(fonts_dir_resolved.glob("*.TTF"))
+                self.logger.debug(f"[Font Debug] フォントディレクトリ内のフォントファイル: {[f.name for f in font_files]}")
+            
             if is_windows:
                 ass_path_str = ass_path_str.replace('\\', '/')
                 ass_path_str = ass_path_str.replace(':', '\\:')
-                # フォントディレクトリを指定
-                fonts_dir = "C\\:/Windows/Fonts"
-                ass_filter = f"ass='{ass_path_str}':fontsdir='{fonts_dir}'"
+                # コロンをエスケープ（C: → C\:）
+                fonts_dir_str = fonts_dir_str.replace(':', '\\:')
+                ass_filter = f"ass='{ass_path_str}':fontsdir='{fonts_dir_str}'"
             else:
-                ass_filter = f"ass='{ass_path_str}'"
+                ass_filter = f"ass='{ass_path_str}':fontsdir='{fonts_dir_str}'"
+
+            # デバッグ: ASSフィルタの内容
+            self.logger.info(f"[Font Debug] ASS filter: {ass_filter}")
+            self.logger.info(f"[Font Debug] fontsdir パラメータ: {fonts_dir_str}")
 
             video_filters.append(ass_filter)
 
@@ -431,4 +458,5 @@ class FFmpegBuilder:
         ])
 
         return cmd
+
 

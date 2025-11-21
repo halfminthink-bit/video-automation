@@ -1393,11 +1393,17 @@ class Phase07Composition(PhaseBase):
         return img
 
     def _load_japanese_font(self, size: int):
-        """日本語フォントを読み込む（明朝体優先）"""
+        """日本語フォントを読み込む（cinecaption226.ttf優先）"""
         from PIL import ImageFont
 
-        # フォントパスのリスト（明朝体を優先）
+        # プロジェクトルートからフォントパスを取得
+        project_root = self.config.project_root
+        cinecaption_font = project_root / "assets" / "fonts" / "cinema" / "cinecaption226.ttf"
+
+        # フォントパスのリスト（cinecaption226.ttfを最優先）
         font_paths = [
+            # プロジェクト内のフォント（最優先）
+            str(cinecaption_font),
             # Windows 明朝体
             "C:/Windows/Fonts/msmincho.ttc",  # MS明朝
             "C:/Windows/Fonts/yumin.ttf",     # 游明朝
@@ -2742,14 +2748,18 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         # 4. ASS字幕
         if ass_path and ass_path.exists():
             ass_path_str = str(ass_path.resolve())
+            # プロジェクト内のフォントディレクトリを優先的に使用
+            project_root = self.config.project_root
+            fonts_dir_path = project_root / "assets" / "fonts" / "cinema"
+            fonts_dir_str = str(fonts_dir_path.resolve()).replace('\\', '/')
+            
             if is_windows:
                 ass_path_str = ass_path_str.replace('\\', '/')
                 ass_path_str = ass_path_str.replace(':', '\\:')
-                # フォントディレクトリを指定
-                fonts_dir = "C\\:/Windows/Fonts"
-                ass_filter = f"ass='{ass_path_str}':fontsdir='{fonts_dir}'"
+                fonts_dir_str = fonts_dir_str.replace(':', '\\:')
+                ass_filter = f"ass='{ass_path_str}':fontsdir='{fonts_dir_str}'"
             else:
-                ass_filter = f"ass='{ass_path_str}'"
+                ass_filter = f"ass='{ass_path_str}':fontsdir='{fonts_dir_str}'"
 
             video_filters.append(ass_filter)
 

@@ -121,7 +121,7 @@ styles:
   none:
     name: "Normal"
     font:
-      family: "Noto Sans JP Bold"
+      family: "cinecaption"
       size: 60
       color: "#FFFFFF"
       stroke_color: "#000000"
@@ -142,7 +142,7 @@ styles:
   normal:
     name: "ImpactNormal"
     font:
-      family: "Noto Sans JP Bold"
+      family: "cinecaption"
       size: 80
       color: "#FF0000"
       stroke_color: "#000000"
@@ -163,7 +163,7 @@ styles:
   mega:
     name: "ImpactMega"
     font:
-      family: "Noto Sans JP Bold"
+      family: "cinecaption"
       size: 120
       color: "#FFFF00"  # 黄色
       stroke_color: "#FF0000"  # 赤の縁取り

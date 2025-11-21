@@ -42,7 +42,6 @@ from ..utils.image_timing_matcher_fixed import ImageTimingMatcherFixed
 from ..utils.image_timing_matcher_llm import ImageTimingMatcherLLM
 from ..generators.background_video_selector import BackgroundVideoSelector
 from ..utils.video_composition.background_processor import BackgroundVideoProcessor
-from ..utils.video_composition.image_processor import ImageProcessor
 from ..utils.video_composition.bgm_processor import BGMProcessor
 from ..utils.video_composition.ffmpeg_builder import FFmpegBuilder
 from ..utils.subtitle_utils.ass_generator import ASSGenerator
@@ -173,10 +172,6 @@ class Phase07CompositionV2(PhaseBase):
         
         # ユーティリティの初期化
         self.bg_processor = BackgroundVideoProcessor(
-            self.config.project_root,
-            self.logger
-        )
-        self.img_processor = ImageProcessor(
             self.config.project_root,
             self.logger
         )
@@ -1450,11 +1445,17 @@ class Phase07CompositionV2(PhaseBase):
         return img
 
     def _load_japanese_font(self, size: int):
-        """日本語フォントを読み込む（明朝体優先）"""
+        """日本語フォントを読み込む（cinecaption226.ttf優先）"""
         from PIL import ImageFont
 
-        # フォントパスのリスト（明朝体を優先）
+        # プロジェクトルートからフォントパスを取得
+        project_root = self.config.project_root
+        cinecaption_font = project_root / "assets" / "fonts" / "cinema" / "cinecaption226.ttf"
+
+        # フォントパスのリスト（cinecaption226.ttfを最優先）
         font_paths = [
+            # プロジェクト内のフォント（最優先）
+            str(cinecaption_font),
             # Windows 明朝体
             "C:/Windows/Fonts/msmincho.ttc",  # MS明朝
             "C:/Windows/Fonts/yumin.ttf",     # 游明朝
@@ -2807,14 +2808,26 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         # 4. ASS字幕
         if ass_path and ass_path.exists():
             ass_path_str = str(ass_path.resolve())
+            # プロジェクト内のフォントディレクトリを優先的に使用
+            project_root = self.config.project_root
+            fonts_dir_path = project_root / "assets" / "fonts" / "cinema"
+            fonts_dir_str = str(fonts_dir_path.resolve()).replace('\\', '/')
+            
+            # デバッグ情報
+            self.logger.info(f"📝 ASS字幕適用: {ass_path.name}")
+            self.logger.info(f"📁 フォントディレクトリ: {fonts_dir_path} (存在: {fonts_dir_path.exists()})")
+            cinecaption_font = fonts_dir_path / "cinecaption226.ttf"
+            self.logger.info(f"🔤 フォントファイル: {cinecaption_font.name} (存在: {cinecaption_font.exists()})")
+            
             if is_windows:
                 ass_path_str = ass_path_str.replace('\\', '/')
                 ass_path_str = ass_path_str.replace(':', '\\:')
-                # フォントディレクトリを指定
-                fonts_dir = "C\\:/Windows/Fonts"
-                ass_filter = f"ass='{ass_path_str}':fontsdir='{fonts_dir}'"
+                fonts_dir_str = fonts_dir_str.replace(':', '\\:')
+                ass_filter = f"ass='{ass_path_str}':fontsdir='{fonts_dir_str}'"
             else:
-                ass_filter = f"ass='{ass_path_str}'"
+                ass_filter = f"ass='{ass_path_str}':fontsdir='{fonts_dir_str}'"
+            
+            self.logger.info(f"📺 FFmpeg ASS filter: {ass_filter}")
 
             video_filters.append(ass_filter)
 
@@ -3064,15 +3077,26 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         # 3. ASS字幕を適用（fontsdir指定）
         if ass_path and ass_path.exists():
             ass_path_str = str(ass_path.resolve()).replace('\\', '/')
+            # プロジェクト内のフォントディレクトリを優先的に使用
+            project_root = self.config.project_root
+            fonts_dir_path = project_root / "assets" / "fonts" / "cinema"
+            fonts_dir_str = str(fonts_dir_path.resolve()).replace('\\', '/')
+            
+            # デバッグ情報
+            self.logger.info(f"📝 ASS字幕適用: {ass_path.name}")
+            self.logger.info(f"📁 フォントディレクトリ: {fonts_dir_path} (存在: {fonts_dir_path.exists()})")
+            cinecaption_font = fonts_dir_path / "cinecaption226.ttf"
+            self.logger.info(f"🔤 フォントファイル: {cinecaption_font.name} (存在: {cinecaption_font.exists()})")
+            
             if is_windows:
                 # コロンをエスケープ（C: → C\:）
                 ass_path_str = ass_path_str.replace(':', '\\:')
-                fonts_dir = "C\\:/Windows/Fonts"
-                ass_filter = f"ass='{ass_path_str}':fontsdir='{fonts_dir}'"
+                fonts_dir_str = fonts_dir_str.replace(':', '\\:')
+                ass_filter = f"ass='{ass_path_str}':fontsdir='{fonts_dir_str}'"
             else:
-                ass_filter = f"ass='{ass_path_str}'"
+                ass_filter = f"ass='{ass_path_str}':fontsdir='{fonts_dir_str}'"
             video_filters.append(ass_filter)
-            self.logger.debug(f"ASS filter: {ass_filter}")
+            self.logger.info(f"📺 FFmpeg ASS filter: {ass_filter}")
 
         if video_filters:
             filter_chain = ','.join(video_filters)
@@ -3795,12 +3819,53 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             raise
     
     def _create_image_concat_file(self, images: List[Path], audio_duration: float) -> Path:
-        """画像のconcatファイルを作成（音声の長さに合わせる）"""
-        return self.img_processor.create_concat_file(
-            images,
-            audio_duration,
-            self.phase_dir
+        """
+        画像のconcatファイルを作成（音声の長さに合わせる）
+        
+        Args:
+            images: 画像ファイルのパスリスト
+            audio_duration: 音声の長さ（秒）
+        
+        Returns:
+            concatファイルのパス
+        """
+        concat_file = self.phase_dir / "image_concat.txt"
+        
+        if not images:
+            raise ValueError("No images provided for concat file")
+        
+        # 各画像の表示時間を計算（均等分割）
+        duration_per_image = audio_duration / len(images)
+        
+        self.logger.info(
+            f"Creating image concat file: {len(images)} images, "
+            f"{duration_per_image:.2f}s per image, total {audio_duration:.2f}s"
         )
+        
+        with open(concat_file, 'w', encoding='utf-8') as f:
+            for i, image_path in enumerate(images):
+                if not image_path.exists():
+                    self.logger.warning(f"Image file not found: {image_path}")
+                    continue
+                
+                # Windowsパス対応
+                image_path_str = str(image_path.resolve()).replace('\\', '/')
+                f.write(f"file '{image_path_str}'\n")
+                
+                # 最後の画像以外はduration指定
+                if i < len(images) - 1:
+                    f.write(f"duration {duration_per_image:.6f}\n")
+        
+        # 最後の画像を再度追加（ffmpeg concat仕様）
+        if images:
+            last_image = images[-1]
+            if last_image.exists():
+                last_image_str = str(last_image.resolve()).replace('\\', '/')
+                with open(concat_file, 'a', encoding='utf-8') as f:
+                    f.write(f"file '{last_image_str}'\n")
+        
+        self.logger.info(f"Image concat file created: {concat_file}")
+        return concat_file
     
     def _create_background_concat_file(
         self, 
@@ -3879,20 +3944,53 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         
         # ASSファイルパスのエスケープ処理（Windows対応）
         ass_path_str = normalize_path(ass_path)
+        # プロジェクト内のフォントディレクトリを優先的に使用
+        project_root = self.config.project_root
+        fonts_dir_path = project_root / "assets" / "fonts" / "cinema"
+        fonts_dir_str = normalize_path(fonts_dir_path)
+        
+        # デバッグ: フォントディレクトリとフォントファイルの存在確認
+        self.logger.info("=" * 60)
+        self.logger.info("🔍 字幕フォント設定デバッグ情報:")
+        self.logger.info(f"  フォントディレクトリ: {fonts_dir_path}")
+        self.logger.info(f"  フォントディレクトリ存在: {fonts_dir_path.exists()}")
+        
+        # フォントファイルの存在確認（.ttfファイルのみ）
+        cinecaption_font = fonts_dir_path / "cinecaption226.ttf"
+        self.logger.info(f"  cinecaption226.ttf: {cinecaption_font}")
+        self.logger.info(f"  cinecaption226.ttf存在: {cinecaption_font.exists()}")
+        
+        # ASSファイルの内容を確認（フォント名部分）
+        try:
+            with open(ass_path, 'r', encoding='utf-8') as f:
+                ass_content = f.read()
+                # フォント名を抽出
+                import re
+                font_matches = re.findall(r'Style:.*?,(.*?),', ass_content)
+                if font_matches:
+                    self.logger.info(f"  ASSファイル内のフォント名: {', '.join(set(font_matches))}")
+        except Exception as e:
+            self.logger.warning(f"  ASSファイル読み込みエラー: {e}")
+        
+        self.logger.info("=" * 60)
+        
         if is_windows:
             # Windowsの場合、コロンをエスケープしてシングルクォートで囲む
             ass_path_str = ass_path_str.replace(':', '\\:')
-            ass_filter = f"ass='{ass_path_str}'"
+            fonts_dir_str = fonts_dir_str.replace(':', '\\:')
+            ass_filter = f"ass='{ass_path_str}':fontsdir='{fonts_dir_str}'"
         else:
-            ass_filter = f"ass='{ass_path_str}'"
+            ass_filter = f"ass='{ass_path_str}':fontsdir='{fonts_dir_str}'"
         
         # 入力・出力パスの正規化
         input_normalized = normalize_path(input_video)
         output_normalized = normalize_path(output_path)
         
         # ffmpegで字幕を焼き込む
+        # デバッグ用にログレベルを上げる（フォント関連の警告を確認するため）
         cmd = [
             'ffmpeg',
+            '-loglevel', 'warning',  # warningレベルでフォント関連の警告を取得
             '-i', input_normalized,
             '-vf', ass_filter,
             '-c:v', 'libx264',
@@ -3904,7 +4002,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         ]
         
         self.logger.info("Running ffmpeg for subtitle burning...")
-        self.logger.debug(f"ASS filter: {ass_filter}")
+        self.logger.info(f"📺 FFmpeg ASS filter: {ass_filter}")
+        self.logger.info(f"📁 FFmpeg fontsdir: {fonts_dir_str}")
         
         try:
             result = subprocess.run(
@@ -3915,11 +4014,33 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 encoding='utf-8',
                 errors='replace'
             )
+            # FFmpegの出力を確認（フォント関連の警告/エラーをチェック）
+            if result.stderr:
+                stderr_lines = result.stderr.split('\n')
+                # フォント関連のメッセージを抽出（より広範囲に）
+                font_warnings = [
+                    line for line in stderr_lines 
+                    if any(keyword in line.lower() for keyword in ['font', 'ass', 'subtitle', 'style', 'cinecaption'])
+                ]
+                if font_warnings:
+                    self.logger.warning("⚠️ FFmpegフォント関連メッセージ:")
+                    for line in font_warnings:
+                        self.logger.warning(f"  {line}")
+                else:
+                    # すべてのstderrを表示（デバッグ用）
+                    if result.stderr.strip():
+                        self.logger.debug(f"FFmpeg stderr: {result.stderr[:500]}")  # 最初の500文字のみ
+                    self.logger.info("✅ FFmpegフォント関連の警告なし（正常）")
+            else:
+                self.logger.info("✅ FFmpegエラー出力なし（正常）")
             self.logger.info(f"Subtitles burned: {output_path}")
         except subprocess.CalledProcessError as e:
             # エラー出力をログに記録
             error_output = e.stderr if isinstance(e.stderr, str) else e.stderr.decode('utf-8', errors='replace')
-            self.logger.error(f"FFmpeg failed: {error_output}")
+            self.logger.error(f"❌ FFmpeg failed: {error_output}")
+            # フォント関連のエラーを強調
+            if 'font' in error_output.lower() or 'ass' in error_output.lower():
+                self.logger.error("⚠️ フォント関連のエラーが検出されました！")
             self.logger.error(f"Command: {' '.join(cmd)}")
             raise
     
@@ -3939,8 +4060,57 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         )
     
     def _get_images_for_sections(self, script: dict) -> List[Path]:
-        """セクションごとの画像を取得"""
-        return self.img_processor.get_images_for_sections(
-            script,
-            self.working_dir
-        )
+        """
+        セクションごとの画像を取得
+        
+        Args:
+            script: 台本データ
+        
+        Returns:
+            画像ファイルのパスリスト（セクション順）
+        """
+        images_dir = self.working_dir / "03_images" / "generated"
+        
+        if not images_dir.exists():
+            raise FileNotFoundError(f"Images directory not found: {images_dir}")
+        
+        # セクションID順に画像を取得
+        images = []
+        sections = script.get('sections', [])
+        
+        for section in sections:
+            section_id = section.get('section_id', 0)
+            
+            # セクションIDに基づいて画像ファイルを検索
+            # ファイル名パターン: section_XX_*.jpg または section_XX_*.png
+            section_images = sorted(
+                list(images_dir.glob(f"section_{section_id:02d}_*.*"))
+            )
+            
+            if not section_images:
+                # フォールバック: section_XX で始まるファイルを検索
+                section_images = sorted(
+                    [f for f in images_dir.glob(f"section_{section_id:02d}*.*")]
+                )
+            
+            if section_images:
+                images.extend(section_images)
+                self.logger.debug(
+                    f"Section {section_id}: Found {len(section_images)} images"
+                )
+            else:
+                self.logger.warning(
+                    f"Section {section_id}: No images found in {images_dir}"
+                )
+        
+        if not images:
+            # フォールバック: すべての画像を取得（ソート）
+            all_images = sorted(images_dir.glob("*.jpg")) + sorted(images_dir.glob("*.png"))
+            if all_images:
+                self.logger.warning(
+                    f"No section-specific images found, using all {len(all_images)} images"
+                )
+                images = all_images
+        
+        self.logger.info(f"Total images found: {len(images)}")
+        return images
