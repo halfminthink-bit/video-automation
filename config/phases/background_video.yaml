@@ -1,0 +1,45 @@
+# config/phases/background_video.yaml
+# 背景動画選択の設定
+
+# 背景動画ライブラリのパス
+background_video_library_path: "assets/background_videos"
+
+# 選択モード
+selection_mode: "random"  # random: ランダム選択, sequential: 順番選択
+
+# 各カテゴリの説明
+categories:
+  opening:
+    description: "オープニング用背景動画"
+    usage: "bgm_suggestion: opening のセクションで使用"
+    speed: 0.5  # 0.5倍速（ゆっくり再生）
+    
+  main:
+    description: "メインパート用背景動画"
+    usage: "bgm_suggestion: main のセクションで使用"
+    speed: 0.5  # 0.5倍速（ゆっくり再生）
+    
+  ending:
+    description: "エンディング用背景動画"
+    usage: "bgm_suggestion: ending のセクションで使用"
+    speed: 1.0  # 通常速度
+
+# ループ設定
+loop:
+  enabled: true       # ループを有効化
+  seamless: true      # シームレスなループを試みる
+  max_loops: 10       # 最大ループ回数
+
+# トランジション設定（未実装）
+transition:
+  enabled: false      # トランジションは後で実装
+  duration: 1.0       # トランジション時間（秒）
+  type: "crossfade"   # crossfade or fade
+
+# 画像レイアウト設定
+image_layout:
+  scale_ratio: 0.75   # 75%縮小
+  size: [1440, 810]   # 1920x1080 の 75%
+  position:
+    x: 240            # 左右の余白
+    y: 27             # 上下の余白

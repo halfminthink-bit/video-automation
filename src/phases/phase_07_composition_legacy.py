@@ -1095,11 +1095,17 @@ class Phase07Composition(PhaseBase):
         return img
 
     def _load_japanese_font(self, size: int):
-        """日本語フォントを読み込む（明朝体優先）"""
+        """日本語フォントを読み込む（cinecaption226.ttf優先）"""
         from PIL import ImageFont
 
-        # フォントパスのリスト（明朝体を優先）
+        # プロジェクトルートからフォントパスを取得
+        project_root = self.config.project_root
+        cinecaption_font = project_root / "assets" / "fonts" / "cinema" / "cinecaption226.ttf"
+
+        # フォントパスのリスト（cinecaption226.ttfを最優先）
         font_paths = [
+            # プロジェクト内のフォント（最優先）
+            str(cinecaption_font),
             # Windows 明朝体
             "C:/Windows/Fonts/msmincho.ttc",  # MS明朝
             "C:/Windows/Fonts/yumin.ttf",     # 游明朝

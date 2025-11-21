@@ -5,6 +5,7 @@
 # ========================================
 performance:
   use_ffmpeg_direct: true       # ffmpeg直接統合を使用（高速化）✅ Phase04/05無効化により有効化
+  use_background_video: true   # 背景動画を使用（assets/background_videosから選択）
   preset: "faster"              # エンコードプリセット (ultrafast/veryfast/faster/fast/medium)
   parallel_processing: true     # 並列処理有効化
   threads: 0                    # 使用スレッド数（0=自動検出）
@@ -68,7 +69,7 @@ bgm:
 
 # 字幕設定
 subtitle:
-  font_family: "Noto-Sans-JP-Bold"  # フォント名
+  font_family: "cinecaption"  # フォント名（PostScript名）
   font_size: 60                     # フォントサイズ（ピクセル）
   color: "white"                    # テキスト色
   background_color: "#000000"       # 背景色
