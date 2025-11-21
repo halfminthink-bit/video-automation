@@ -100,6 +100,7 @@ def run_phase(
     thumbnail_style: Optional[str] = None,
     use_legacy: bool = False,
     use_legacy02: bool = False,
+    use_v2: bool = False,
     text_only: bool = False,
     text_only_image: Optional[str] = None,
     is_batch_mode: bool = False,
@@ -119,6 +120,7 @@ def run_phase(
         thumbnail_style: サムネイルスタイルID
         use_legacy: Phase 7でlegacy (moviepy) 版を使用 (Phase04の動画)
         use_legacy02: Phase 7でlegacy02 (moviepy) 版を使用 (Phase03の画像)
+        use_v2: Phase 6/7でv2版を使用（--use-v2）
         text_only: Phase 8で既存画像にテキストのみ追加
         text_only_image: Phase 8で使用する既存画像のパス
         is_batch_mode: 一括実行モードかどうか
@@ -139,6 +141,7 @@ def run_phase(
     )
 
     # フェーズクラスのマッピング
+    # Phase 6/7でv2を使用する場合は後で上書き
     phase_classes = {
         1: Phase01AutoScript if use_auto_script else Phase01Script,
         2: Phase02Audio,
@@ -151,6 +154,15 @@ def run_phase(
         9: Phase09YouTube,
         10: Phase10Shorts,
     }
+    
+    # v2オプションが指定されている場合、Phase 6/7をv2クラスに置き換え
+    if use_v2:
+        if phase_number == 6:
+            from src.phases.phase_06_subtitles_v2 import Phase06SubtitlesV2
+            phase_classes[6] = Phase06SubtitlesV2
+        elif phase_number == 7:
+            from src.phases.phase_07_composition_v2 import Phase07CompositionV2
+            phase_classes[7] = Phase07CompositionV2
 
     if phase_number not in phase_classes:
         logger.error(f"Invalid phase number: {phase_number}. Must be 1-10.")
@@ -187,9 +199,24 @@ def run_phase(
                 logger=logger,
                 genre=genre
             )
+        elif phase_number == 6:
+            # Phase 6: 字幕生成（--use-v2 オプション対応）
+            phase = phase_class(
+                subject=subject,
+                config=config,
+                logger=logger
+            )
         elif phase_number == 7:
-            # Phase 7: 動画統合（--legacy / --legacy02 オプション対応）
-            if use_legacy02:
+            # Phase 7: 動画統合（--legacy / --legacy02 / --use-v2 オプション対応）
+            if use_v2:
+                # v2版を使用（背景動画 + インパクト字幕対応）
+                phase = phase_class(
+                    subject=subject,
+                    config=config,
+                    logger=logger,
+                    genre=genre
+                )
+            elif use_legacy02:
                 # Legacy02版を使用（Phase03の画像）
                 from src.phases.phase_07_composition_legacy02 import Phase07CompositionLegacy02
                 phase = Phase07CompositionLegacy02(
@@ -692,6 +719,11 @@ Examples:
         action="store_true",
         help="Phase 8: Generate thumbnails with all text layout variations"
     )
+    run_parser.add_argument(
+        "--use-v2",
+        action="store_true",
+        help="Use v2 implementation for Phase 6 (impact subtitles) or Phase 7 (background video + impact subtitles)"
+    )
 
     # 引数をパース
     args = parser.parse_args()
@@ -733,6 +765,7 @@ Examples:
             thumbnail_style=getattr(args, 'thumbnail_style', None),
             use_legacy=args.legacy,
             use_legacy02=getattr(args, 'legacy02', False),
+            use_v2=getattr(args, 'use_v2', False),
             text_only=getattr(args, 'text_only', False),
             text_only_image=getattr(args, 'text_only_image', None),
             is_batch_mode=False,  # 単発実行
