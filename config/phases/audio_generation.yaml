@@ -178,8 +178,8 @@ cache:
 section_title:
   enabled: true
 
-  # 読み上げ速度（通常速度）
-  speed: 1.0
+  # 読み上げ速度（0.8倍速）
+  speed: 0.8
 
   # タイトル後の無音時間（秒）
   silence_after: 2.0

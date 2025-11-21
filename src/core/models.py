@@ -271,6 +271,7 @@ class SubtitleEntry(BaseModel):
     text_line1: str                   # 1行目
     text_line2: str = ""              # 2行目（空の場合あり）
     text_line3: str = ""              # 3行目（空の場合あり）
+    special_type: Optional[str] = None  # 特殊タイプ（"section_title" など）
 
     @field_validator('end_time')
     @classmethod
