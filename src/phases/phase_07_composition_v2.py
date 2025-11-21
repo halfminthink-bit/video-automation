@@ -538,7 +538,46 @@ class Phase07CompositionV2(PhaseBase):
 
         self.logger.info(f"Loaded {len(subtitles)} subtitles")
         return subtitles
-    
+
+    def _detect_section_title_segments(self) -> List[dict]:
+        """
+        subtitle_timing.jsonからセクションタイトル区間を検出
+
+        Returns:
+            セクションタイトル区間のリスト [{'start': float, 'end': float, 'text': str}, ...]
+        """
+        subtitle_file = self.working_dir / "06_subtitles" / "subtitle_timing.json"
+
+        if not subtitle_file.exists():
+            self.logger.warning(f"subtitle_timing.json not found: {subtitle_file}")
+            return []
+
+        try:
+            with open(subtitle_file, 'r', encoding='utf-8') as f:
+                subtitle_data = json.load(f)
+                subtitles = subtitle_data.get('subtitles', [])
+
+            # セクションタイトル区間を検出
+            title_segments = []
+            for subtitle in subtitles:
+                # special_typeが"section_title"の字幕を検出
+                if subtitle.get('special_type') == 'section_title':
+                    title_segments.append({
+                        'start': subtitle['start_time'],
+                        'end': subtitle['end_time'],
+                        'text': subtitle.get('text_line1', '')
+                    })
+
+            self.logger.info(f"Detected {len(title_segments)} section title segments")
+            for seg in title_segments:
+                self.logger.info(f"  {seg['start']:.2f}s - {seg['end']:.2f}s: {seg['text']}")
+
+            return title_segments
+
+        except Exception as e:
+            self.logger.error(f"Failed to detect section title segments: {e}", exc_info=True)
+            return []
+
     def _load_audio_timing(self) -> Optional[dict]:
         """Phase 2の音声タイミングデータを読み込み"""
         audio_timing_path = self.working_dir / "02_audio" / "audio_timing.json"
@@ -3601,7 +3640,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             
             # 5. BGM読み込み
             bgm_data = self._load_bgm()
-            
+
+            # 5.5. セクションタイトル区間を検出
+            title_segments = self._detect_section_title_segments()
+
             # 6. 背景動画を全体の長さに拡張（main動画を使用）
             if bg_selection and bg_selection.get('segments'):
                 # 最初のセグメント（main動画）を取得
@@ -3631,6 +3673,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 images=images,
                 background_videos=bg_selection['segments'],
                 bgm_data=bgm_data,
+                title_segments=title_segments,
                 output_path=temp_video
             )
             
@@ -3700,10 +3743,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         images: List[Path],
         background_videos: List[dict],
         bgm_data: Optional[dict],
-        output_path: Path
+        title_segments: Optional[List[dict]] = None,
+        output_path: Path = None
     ) -> None:
         """
-        背景動画 + 画像75%縮小 + 黒バー
+        背景動画 + 画像75%縮小 + 黒バー + セクションタイトル演出
         
         新しい処理フロー:
         1. 背景動画を事前処理（リサイズ・ループ・トリミング）
@@ -3758,16 +3802,55 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     seen_files.add(file_path)
             
             self.logger.info(f"Added {len(seen_files)} BGM files")
-        
+
+        # 効果音ファイルを追加
+        sfx_inputs = []
+        if title_segments is None:
+            title_segments = []
+
+        section_title_config = self.phase_config.get('section_title', {})
+        sfx_config = section_title_config.get('sound_effect', {})
+
+        if sfx_config.get('enabled', True) and title_segments:
+            sfx_path = self.config.project_root / sfx_config.get('file', 'assets/sfx/impact_title.mp3')
+
+            if sfx_path.exists():
+                for seg in title_segments:
+                    sfx_inputs.append({
+                        'file': sfx_path,
+                        'start_time': seg['start'],
+                        'volume': sfx_config.get('volume', 0.5),
+                        'fade_in': sfx_config.get('fade_in', 0.05),
+                        'fade_out': sfx_config.get('fade_out', 0.1)
+                    })
+
+                # 効果音ファイルを入力として追加（重複なし）
+                seen_sfx_files = set()
+                for sfx in sfx_inputs:
+                    if str(sfx['file']) not in seen_sfx_files:
+                        cmd.extend(['-i', str(sfx['file'])])
+                        seen_sfx_files.add(str(sfx['file']))
+
+                self.logger.info(f"Added {len(sfx_inputs)} sound effects")
+            else:
+                self.logger.warning(f"Sound effect file not found: {sfx_path}")
+
         # BGMフィルターを作成
         bgm_filter = ""
         bgm_map = []
+        bgm_volume_multiplier = section_title_config.get('bgm_volume_multiplier', 0.7)
+
         if bgm_data:
             bgm_filter, bgm_map = self._create_bgm_filter_for_background(
-                bgm_data, audio_path, num_bg_videos=0  # 背景動画は事前処理済み
+                bgm_data=bgm_data,
+                audio_path=audio_path,
+                num_bg_videos=0,  # 背景動画は事前処理済み
+                sfx_inputs=sfx_inputs,
+                title_segments=title_segments,
+                bgm_volume_multiplier=bgm_volume_multiplier
             )
         
-        # 4. シンプルなフィルター
+        # 4. シンプルなフィルター + 黒オーバーレイ
         filter_complex = (
             # 背景: そのまま使用（事前処理済み）
             '[0:v]copy[bg];'
@@ -3776,8 +3859,40 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             # オーバーレイ（固定位置: 240, 27）
             '[bg][img]overlay=240:27[composed];'
             # 黒バー追加（下部216px）
-            '[composed]pad=1920:1080:0:0:black[video]'
+            '[composed]pad=1920:1080:0:0:black[padded];'
         )
+
+        # 黒オーバーレイを追加（セクションタイトル区間のみ）
+        overlay_config = section_title_config.get('overlay', {})
+        overlay_enabled = section_title_config.get('enabled', True)
+
+        if overlay_enabled and title_segments and overlay_config:
+            opacity = overlay_config.get('opacity', 0.9)
+
+            # 黒オーバーレイのenable条件を生成
+            enable_conditions = []
+            for seg in title_segments:
+                enable_conditions.append(f"between(t,{seg['start']},{seg['end']})")
+
+            if enable_conditions:
+                enable_expr = "+".join(enable_conditions)
+
+                # 黒オーバーレイを追加
+                overlay_filter = (
+                    f"color=black:s=1920x1080:d={audio_duration}:r=30[black];"
+                    f"[black]format=rgba,colorchannelmixer=aa={opacity}[overlay];"
+                    f"[padded][overlay]overlay=enable='{enable_expr}'[video]"
+                )
+                filter_complex += overlay_filter
+
+                self.logger.info(f"Section title overlay opacity: {opacity}")
+                self.logger.info(f"Overlay enabled for {len(title_segments)} title segments")
+            else:
+                # オーバーレイなし
+                filter_complex += '[padded]copy[video]'
+        else:
+            # オーバーレイなし
+            filter_complex += '[padded]copy[video]'
         
         cmd.extend([
             '-filter_complex', filter_complex + bgm_filter,
