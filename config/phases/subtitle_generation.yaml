@@ -3,9 +3,9 @@
 # 字幕の最大行数
 max_lines: 2
 
-# 1行あたりの最大文字数（高齢者向け：大きめフォント）
-# 2行×18文字 = 最大36文字
-max_chars_per_line: 18
+# 1行あたりの最大文字数
+# 2行×20文字 = 最大40文字
+max_chars_per_line: 20
 
 # 1つの字幕に含める最大単語数（ElevenLabs タイムスタンプ使用時）
 # 2行表示を考慮して増やす
@@ -113,22 +113,69 @@ whisper:
   # small, medium, large: より高精度だが処理時間が長い
   model: "base"
 
-# フォント設定（Phase 8で使用）
-font:
-  family: "Noto Sans JP Bold"
-  size: 60  # ピクセル
-  color: "#FFFFFF"  # 白
-  background_color: "#000000"  # 黒
-  background_opacity: 0.7
-  position: "bottom"  # 画面下部
-  margin_bottom: 80  # 下からのマージン（px）
+# ========================================
+# 字幕スタイル設定（impact_level対応）
+# ========================================
+styles:
+  # デフォルトスタイル（impact_level: none）
+  none:
+    name: "Normal"
+    font:
+      family: "Noto Sans JP Bold"
+      size: 60
+      color: "#FFFFFF"
+      stroke_color: "#000000"
+      stroke_width: 2
+      shadow_enabled: true
+      shadow_offset: [2, 2]
+      shadow_color: "#000000"
+      shadow_opacity: 0.8
+    position:
+      vertical: "bottom"
+      horizontal: "center"
+      margin_bottom: 80
+      alignment: 2  # ASS alignment (bottom center)
+      margin_v: 70
+    animations: []
   
-  # 縁取り設定
-  stroke_color: "#000000"
-  stroke_width: 2
+  # 通常インパクト（impact_level: normal）
+  normal:
+    name: "ImpactNormal"
+    font:
+      family: "Noto Sans JP Bold"
+      size: 80
+      color: "#FF0000"
+      stroke_color: "#000000"
+      stroke_width: 3
+      shadow_enabled: true
+      shadow_offset: [2, 2]
+      shadow_color: "#000000"
+      shadow_opacity: 0.8
+    position:
+      vertical: "bottom"
+      horizontal: "center"
+      margin_bottom: 80
+      alignment: 2
+      margin_v: 70
+    animations: []
   
-  # シャドウ設定
-  shadow_enabled: true
-  shadow_offset: [2, 2]
-  shadow_color: "#000000"
-  shadow_opacity: 0.8
+  # 特大インパクト（impact_level: mega）
+  mega:
+    name: "ImpactMega"
+    font:
+      family: "Noto Sans JP Bold"
+      size: 120
+      color: "#FFFF00"  # 黄色
+      stroke_color: "#FF0000"  # 赤の縁取り
+      stroke_width: 4
+      shadow_enabled: true
+      shadow_offset: [3, 3]
+      shadow_color: "#000000"
+      shadow_opacity: 0.9
+    position:
+      vertical: "center"  # 画面中央
+      horizontal: "center"
+      margin_bottom: 0
+      alignment: 5  # ASS alignment (center)
+      margin_v: 0
+    animations: []
