@@ -507,7 +507,29 @@ class Phase07Composition(PhaseBase):
 
         self.logger.info(f"Loaded {len(subtitles)} subtitles")
         return subtitles
-    
+
+    def _load_subtitle_timing(self) -> Optional[dict]:
+        """
+        🆕 subtitle_timing.json を読み込み（impact_level情報を含む）
+
+        Returns:
+            subtitle_timing.json の内容、またはNone
+        """
+        subtitle_timing_path = self.working_dir / "06_subtitles" / "subtitle_timing.json"
+
+        if not subtitle_timing_path.exists():
+            self.logger.warning("subtitle_timing.json not found")
+            return None
+
+        try:
+            with open(subtitle_timing_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            self.logger.info(f"Loaded subtitle_timing.json with {len(data.get('subtitles', []))} entries")
+            return data
+        except Exception as e:
+            self.logger.error(f"Failed to load subtitle_timing.json: {e}")
+            return None
+
     def _load_audio_timing(self) -> Optional[dict]:
         """Phase 2の音声タイミングデータを読み込み"""
         audio_timing_path = self.working_dir / "02_audio" / "audio_timing.json"
@@ -573,21 +595,45 @@ class Phase07Composition(PhaseBase):
         # セクションを探す
         for section in sections:
             if section.get('section_id') == section_id:
-                # 🔥 重要: durationフィールドを直接使用（優先）
-                duration = section.get('duration')
+                # 🆕 優先1: total_durationフィールド（セクション全体の長さ）
+                total_duration = section.get('total_duration')
+                if total_duration is not None:
+                    self.logger.info(f"Section {section_id} duration from total_duration: {total_duration:.2f}s")
+                    return total_duration
 
+                # 🆕 優先2: narration_timing内のchar_end_times（新しい形式）
+                narration_timing = section.get('narration_timing', {})
+                if narration_timing:
+                    char_end_times = narration_timing.get('char_end_times', [])
+                    if char_end_times:
+                        # narration_timing内の相対時刻なので、start_timeを加算
+                        narration_start = narration_timing.get('start_time', 0.0)
+                        duration = narration_start + char_end_times[-1]
+                        self.logger.info(f"Section {section_id} duration from narration_timing: {duration:.2f}s")
+                        return duration
+                    
+                    # narration_timing内のend_timeを使用
+                    narration_end = narration_timing.get('end_time')
+                    narration_start = narration_timing.get('start_time', 0.0)
+                    if narration_end is not None:
+                        duration = narration_end
+                        self.logger.info(f"Section {section_id} duration from narration_timing.end_time: {duration:.2f}s")
+                        return duration
+
+                # フォールバック1: トップレベルのdurationフィールド
+                duration = section.get('duration')
                 if duration is not None:
                     self.logger.info(f"Section {section_id} duration from audio_timing: {duration:.2f}s")
                     return duration
 
-                # フォールバック1: char_end_timesの最後の値
+                # フォールバック2: トップレベルのchar_end_times（古い形式）
                 char_end_times = section.get('char_end_times', [])
                 if char_end_times:
                     duration = char_end_times[-1]
                     self.logger.info(f"Section {section_id} duration from char_end_times: {duration:.2f}s")
                     return duration
 
-                # フォールバック2: character_end_times_seconds（古い形式）
+                # フォールバック3: character_end_times_seconds（古い形式）
                 char_end_times = section.get('character_end_times_seconds', [])
                 if char_end_times:
                     duration = char_end_times[-1]
@@ -1568,15 +1614,51 @@ class Phase07Composition(PhaseBase):
             if isinstance(audio_timing, list):
                 for timing_section in audio_timing:
                     section_id = timing_section.get('section_id')
+                    if not section_id:
+                        continue
+                    
+                    # 🆕 優先1: total_duration
+                    total_duration = timing_section.get('total_duration')
+                    if total_duration is not None:
+                        section_durations[section_id] = total_duration
+                        continue
+                    
+                    # 🆕 優先2: narration_timing内のend_time
+                    narration_timing = timing_section.get('narration_timing', {})
+                    if narration_timing:
+                        narration_end = narration_timing.get('end_time')
+                        if narration_end is not None:
+                            section_durations[section_id] = narration_end
+                            continue
+                    
+                    # フォールバック: トップレベルのchar_end_times
                     char_end_times = timing_section.get('char_end_times', [])
-                    if section_id and char_end_times:
+                    if char_end_times:
                         section_durations[section_id] = char_end_times[-1]
             elif isinstance(audio_timing, dict):
                 sections = audio_timing.get('sections', [audio_timing])
                 for timing_section in sections:
                     section_id = timing_section.get('section_id')
+                    if not section_id:
+                        continue
+                    
+                    # 🆕 優先1: total_duration
+                    total_duration = timing_section.get('total_duration')
+                    if total_duration is not None:
+                        section_durations[section_id] = total_duration
+                        continue
+                    
+                    # 🆕 優先2: narration_timing内のend_time
+                    narration_timing = timing_section.get('narration_timing', {})
+                    if narration_timing:
+                        narration_end = narration_timing.get('end_time')
+                        if narration_end is not None:
+                            section_durations[section_id] = narration_end
+                            continue
+                    
+                    # フォールバック: トップレベルのchar_end_times
                     char_end_times = timing_section.get('char_end_times', [])
-                    if section_id and char_end_times:
+                    if char_end_times:
                         section_durations[section_id] = char_end_times[-1]
 
             # セクションごとに画像をグループ化
@@ -2026,13 +2108,41 @@ class Phase07Composition(PhaseBase):
             # リスト形式の場合（各要素がセクション）
             for timing_section in audio_timing:
                 section_id = timing_section.get('section_id')
-                # 正しいキー名: char_end_times
+                if not section_id:
+                    continue
+                
+                # 🆕 優先1: total_duration（セクション全体の長さ）
+                total_duration = timing_section.get('total_duration')
+                if total_duration is not None:
+                    section_durations[section_id] = total_duration
+                    self.logger.debug(f"Section {section_id}: {total_duration:.2f}s (from total_duration)")
+                    continue
+                
+                # 🆕 優先2: narration_timing内のend_time（新しい形式）
+                narration_timing = timing_section.get('narration_timing', {})
+                if narration_timing:
+                    narration_end = narration_timing.get('end_time')
+                    if narration_end is not None:
+                        section_durations[section_id] = narration_end
+                        self.logger.debug(f"Section {section_id}: {narration_end:.2f}s (from narration_timing.end_time)")
+                        continue
+                    
+                    # narration_timing内のchar_end_times
+                    char_end_times = narration_timing.get('char_end_times', [])
+                    if char_end_times:
+                        narration_start = narration_timing.get('start_time', 0.0)
+                        duration = narration_start + char_end_times[-1]
+                        section_durations[section_id] = duration
+                        self.logger.debug(f"Section {section_id}: {duration:.2f}s (from narration_timing.char_end_times)")
+                        continue
+                
+                # フォールバック: トップレベルのchar_end_times（古い形式）
                 char_end_times = timing_section.get('char_end_times', [])
-                if section_id and char_end_times:
+                if char_end_times:
                     section_durations[section_id] = char_end_times[-1]
                     self.logger.debug(
                         f"Section {section_id}: {char_end_times[-1]:.2f}s "
-                        f"({len(char_end_times)} chars)"
+                        f"({len(char_end_times)} chars, from top-level char_end_times)"
                     )
         elif isinstance(audio_timing, dict):
             # 辞書形式の場合（sectionsキーを含む可能性）
@@ -2043,12 +2153,32 @@ class Phase07Composition(PhaseBase):
 
             for timing_section in sections:
                 section_id = timing_section.get('section_id')
+                if not section_id:
+                    continue
+                
+                # 🆕 優先1: total_duration
+                total_duration = timing_section.get('total_duration')
+                if total_duration is not None:
+                    section_durations[section_id] = total_duration
+                    self.logger.debug(f"Section {section_id}: {total_duration:.2f}s (from total_duration)")
+                    continue
+                
+                # 🆕 優先2: narration_timing内のend_time
+                narration_timing = timing_section.get('narration_timing', {})
+                if narration_timing:
+                    narration_end = narration_timing.get('end_time')
+                    if narration_end is not None:
+                        section_durations[section_id] = narration_end
+                        self.logger.debug(f"Section {section_id}: {narration_end:.2f}s (from narration_timing.end_time)")
+                        continue
+                
+                # フォールバック: トップレベルのchar_end_times
                 char_end_times = timing_section.get('char_end_times', [])
-                if section_id and char_end_times:
+                if char_end_times:
                     section_durations[section_id] = char_end_times[-1]
                     self.logger.debug(
                         f"Section {section_id}: {char_end_times[-1]:.2f}s "
-                        f"({len(char_end_times)} chars)"
+                        f"({len(char_end_times)} chars, from top-level char_end_times)"
                     )
         else:
             self.logger.error(f"❌ Unexpected audio_timing format: {type(audio_timing)}")
@@ -2531,6 +2661,10 @@ class Phase07Composition(PhaseBase):
         1. タイミングの微調整を削除（オリジナルのタイミングを維持）
         2. 各字幕のデバッグ情報を出力
         3. セクション境界の字幕を特別に処理（ログ）
+
+        🆕 セクションタイトル対応:
+        - subtitle_timing.json から impact_level を読み込み
+        - section_title の場合は SectionTitle スタイルを適用
         """
         subtitles = self._load_subtitles()
 
@@ -2540,6 +2674,9 @@ class Phase07Composition(PhaseBase):
             with open(ass_path, 'w', encoding='utf-8') as f:
                 f.write(self._get_ass_header_fixed())
             return ass_path
+
+        # 🆕 subtitle_timing.json を読み込んでimpact_level情報を取得
+        subtitle_timing_data = self._load_subtitle_timing()
 
         # ASSヘッダー
         ass_content = self._get_ass_header_fixed()
@@ -2563,6 +2700,14 @@ class Phase07Composition(PhaseBase):
             pass
 
         self.logger.info(f"ASS字幕生成: {len(subtitles)}個のエントリ")
+
+        # 🆕 subtitle_timing_data から impact_level マップを作成
+        impact_level_map = {}
+        if subtitle_timing_data:
+            for sub_data in subtitle_timing_data.get('subtitles', []):
+                index = sub_data.get('index')
+                if index:
+                    impact_level_map[index] = sub_data.get('impact_level', 'none')
 
         for subtitle in subtitles:
             # オリジナルのタイミングをそのまま使用
@@ -2598,8 +2743,15 @@ class Phase07Composition(PhaseBase):
 
             subtitle_text = '\\N'.join(text_parts)
 
+            # 🆕 impact_level に基づいてスタイルを選択
+            impact_level = impact_level_map.get(subtitle.index, 'none')
+            if impact_level == 'section_title':
+                style_name = 'SectionTitle'
+            else:
+                style_name = 'Default'
+
             # ASSイベント行を追加
-            ass_content += f"Dialogue: 0,{start_time_str},{end_time_str},Default,,0,0,0,,{subtitle_text}\n"
+            ass_content += f"Dialogue: 0,{start_time_str},{end_time_str},{style_name},,0,0,0,,{subtitle_text}\n"
 
         # ファイルに保存
         ass_path = self.phase_dir / "subtitles.ass"
@@ -2616,12 +2768,18 @@ class Phase07Composition(PhaseBase):
     def _get_ass_header_fixed(self) -> str:
         """
         ASS字幕のヘッダー（2行字幕の位置調整版）
+
+        🆕 セクションタイトル対応:
+        - SectionTitle スタイルを追加（赤文字、中央配置、大きめ）
         """
         video_width = 1920
         video_height = 1080
 
-        # フォントサイズ
+        # 通常字幕のフォントサイズ
         font_size = 48
+
+        # 🆕 セクションタイトルのフォントサイズ
+        title_font_size = 100
 
         # 黒バーの高さ: 216px
         # 黒バーの開始位置: 1080 - 216 = 864px
@@ -2633,6 +2791,9 @@ class Phase07Composition(PhaseBase):
         # 黒バー中央（972px）に字幕中央を配置するには：
         # MarginV = 1080 - 972 - 38 ≒ 70 （さらに約15px下げる）
         margin_v = 70  # 83→70 に変更（さらに下方向へ）
+
+        # 🆕 セクションタイトルは画面中央に配置
+        title_margin_v = 0
 
         return f"""[Script Info]
 Title: Generated Subtitles
@@ -2646,6 +2807,7 @@ ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Default,MS Mincho,{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,3,2,2,10,10,{margin_v},128
+Style: SectionTitle,MS Mincho,{title_font_size},&H000000FF,&H000000FF,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,4,4,5,10,10,{title_margin_v},128
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text

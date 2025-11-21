@@ -632,11 +632,26 @@ class SubtitleGenerator:
         temp_subtitles = []
 
         for section in audio_timing_data:
-            text = section.get("text", "")
-            characters = section.get("characters", [])
-            char_start_times = section.get("char_start_times", [])
-            char_end_times = section.get("char_end_times", [])
             offset = section.get("offset", 0.0)
+            
+            # 🆕 narration_timingから文字とタイミング情報を取得
+            narration_timing = section.get("narration_timing", {})
+            if not narration_timing:
+                self.logger.warning(f"Section {section.get('section_id')} has no narration_timing")
+                continue
+            
+            text = narration_timing.get("text", section.get("text", ""))
+            characters = narration_timing.get("characters", [])
+            char_start_times = narration_timing.get("char_start_times", [])
+            char_end_times = narration_timing.get("char_end_times", [])
+            
+            # 🆕 タイミング情報の開始時刻をoffsetに加算
+            narration_start = narration_timing.get("start_time", 0.0)
+            if char_start_times:
+                # 相対時刻を絶対時刻に変換（offset + narration_startを加算）
+                char_start_times = [offset + narration_start + t for t in char_start_times]
+            if char_end_times:
+                char_end_times = [offset + narration_start + t for t in char_end_times]
 
             if not characters or len(characters) != len(char_start_times):
                 self.logger.warning(f"Section {section.get('section_id')} has invalid timing data")
@@ -667,12 +682,13 @@ class SubtitleGenerator:
                 boundaries = self.splitter._detect_character_boundaries(subsection_chars)
 
                 # ステップ2: 句読点で大まかに分割
+                # 🆕 offsetは既にchar_start_times/char_end_timesに加算済みなので、0を渡す
                 chunks = self._split_by_punctuation(
                     subsection_chars,
                     punctuation_positions,
                     subsection_start_times,
                     subsection_end_times,
-                    offset
+                    0.0  # 既に絶対時刻に変換済み
                 )
 
                 # 各チャンクを処理

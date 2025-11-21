@@ -494,6 +494,11 @@ class Phase02Audio(PhaseBase):
         各セクションのテキストを最適化し、前後のセクションを
         文脈として渡すことで自然なイントネーションを実現。
 
+        🆕 セクションタイトル機能:
+        - 各セクションの冒頭でタイトルを0.5倍速で読み上げ
+        - タイトル後に2秒の無音を挿入
+        - タイミング情報に title_timing, silence_after_title を追加
+
         Args:
             script: 台本
             generator: 音声生成器（generate_with_timestampsメソッド対応）
@@ -532,6 +537,12 @@ class Phase02Audio(PhaseBase):
         context_config = self.phase_config.get("context_awareness", {})
         use_previous = context_config.get("use_previous_text", True)
         use_next = context_config.get("use_next_text", True)
+
+        # 🆕 セクションタイトル設定を読み込み
+        section_title_config = self.phase_config.get("section_title", {})
+        section_title_enabled = section_title_config.get("enabled", True)
+        title_speed = section_title_config.get("speed", 0.5)
+        title_silence_after = section_title_config.get("silence_after", 2.0)
 
         segments = []
         timing_data = []
@@ -599,11 +610,60 @@ class Phase02Audio(PhaseBase):
                 f"has_next={next_text is not None}"
             )
 
+            # 🆕 タイトル音声とナレーション音声を別々に生成
+            title_audio_data = None
+            title_duration = 0.0
+            title_alignment = {}
+
             # 音声ファイルパス
             audio_path = sections_dir / f"section_{section.section_id:02d}.mp3"
+            title_audio_path = sections_dir / f"section_{section.section_id:02d}_title.mp3"
+            narration_audio_path = sections_dir / f"section_{section.section_id:02d}_narration.mp3"
 
             # タイムスタンプ付きで音声生成（文脈対応）
             try:
+                # 🆕 1. タイトル音声を生成（0.5倍速）
+                if section_title_enabled and section.title:
+                    self.logger.info(f"Generating title audio: {section.title}")
+
+                    # 元の速度を保存
+                    original_speed = generator.speed
+
+                    # 速度を変更
+                    generator.speed = title_speed
+
+                    try:
+                        title_result = generator.generate_with_timestamps(
+                            text=section.title,
+                            previous_text=None,
+                            next_text=None
+                        )
+
+                        # タイトル音声データをデコード
+                        title_audio_data = base64.b64decode(title_result['audio_base64'])
+
+                        # タイトル音声を一時ファイルに保存
+                        title_audio_path.parent.mkdir(parents=True, exist_ok=True)
+                        with open(title_audio_path, 'wb') as f:
+                            f.write(title_audio_data)
+
+                        # タイトルのタイミング情報を取得
+                        title_alignment = title_result.get('alignment', {})
+                        title_char_end_times = title_alignment.get('character_end_times_seconds', [])
+
+                        if title_char_end_times:
+                            title_duration = title_char_end_times[-1]
+                        else:
+                            # フォールバック
+                            title_duration = generator._get_audio_duration(title_audio_path)
+
+                        self.logger.info(f"✓ Title audio generated ({title_duration:.2f}s)")
+
+                    finally:
+                        # 速度を元に戻す
+                        generator.speed = original_speed
+
+                # 🆕 2. 本文音声を生成（通常速度）
                 result = generator.generate_with_timestamps(
                     text=text_to_generate,
                     previous_text=previous_text,
@@ -611,62 +671,124 @@ class Phase02Audio(PhaseBase):
                 )
 
                 # Base64エンコードされた音声データをデコード
-                audio_data = base64.b64decode(result['audio_base64'])
+                narration_audio_data = base64.b64decode(result['audio_base64'])
 
-                # ファイルに保存
-                audio_path.parent.mkdir(parents=True, exist_ok=True)
-                with open(audio_path, 'wb') as f:
-                    f.write(audio_data)
+                # ナレーション音声を一時ファイルに保存
+                narration_audio_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(narration_audio_path, 'wb') as f:
+                    f.write(narration_audio_data)
 
                 # タイミング情報を取得
-                alignment = result.get('alignment', {})
+                narration_alignment = result.get('alignment', {})
 
                 # 音声の長さを取得（タイムスタンプから計算）
-                char_end_times = alignment.get('character_end_times_seconds', [])
+                char_end_times = narration_alignment.get('character_end_times_seconds', [])
                 if char_end_times:
                     # 最後の文字の終了時間が音声の長さ
-                    duration = char_end_times[-1]
-                    self.logger.debug(f"Duration from timestamps: {duration:.2f}s")
+                    narration_duration = char_end_times[-1]
+                    self.logger.debug(f"Narration duration from timestamps: {narration_duration:.2f}s")
                 else:
                     # フォールバック: ffprobeを使用
                     try:
-                        duration = generator._get_audio_duration(audio_path)
-                        self.logger.debug(f"Duration from ffprobe: {duration:.2f}s")
+                        narration_duration = generator._get_audio_duration(narration_audio_path)
+                        self.logger.debug(f"Narration duration from ffprobe: {narration_duration:.2f}s")
                     except Exception as e:
                         # ffprobeも失敗した場合は推定値を使用
                         self.logger.warning(f"Could not get duration from ffprobe: {e}")
                         # 文字数から推定（1文字あたり約0.2秒と仮定）
-                        duration = len(section.narration) * 0.2
-                        self.logger.warning(f"Using estimated duration: {duration:.2f}s")
+                        narration_duration = len(section.narration) * 0.2
+                        self.logger.warning(f"Using estimated narration duration: {narration_duration:.2f}s")
+
+                # 🆕 3. 音声を結合（タイトル + 無音 + ナレーション）
+                if section_title_enabled and title_audio_data:
+                    # AudioProcessorを使用して結合（Python 3.13対応）
+                    audio_processor = AudioProcessor(logger=self.logger)
+                    
+                    # タイトルとナレーションを結合（間に無音を挿入）
+                    audio_files = [Path(title_audio_path), Path(narration_audio_path)]
+                    total_duration = audio_processor.combine_audio_files(
+                        audio_paths=audio_files,
+                        output_path=Path(audio_path),
+                        silence_duration=title_silence_after
+                    )
+
+                    self.logger.info(
+                        f"✓ Combined audio: title({title_duration:.1f}s) + "
+                        f"silence({title_silence_after:.1f}s) + "
+                        f"narration({narration_duration:.1f}s) = {total_duration:.1f}s"
+                    )
+                else:
+                    # タイトルなしの場合は、ナレーションのみ
+                    import shutil
+                    shutil.copy(narration_audio_path, audio_path)
+                    total_duration = narration_duration
+
+                # 🆕 4. タイミング情報を構築
                 timing_info = {
                     'section_id': section.section_id,
+                    'section_title': section.title,  # 🆕 タイトル追加
                     'text': section.narration,  # 元のテキスト（後方互換性のため）
                     'tts_text': text_to_generate,  # 音声用テキスト
                     'display_text': display_text,  # 字幕用テキスト
                     'audio_path': str(audio_path),
-                    'characters': alignment.get('characters', []),
-                    'char_start_times': alignment.get('character_start_times_seconds', []),
-                    'char_end_times': alignment.get('character_end_times_seconds', []),
                     'offset': cumulative_offset,
-                    'duration': duration
+                    'total_duration': total_duration
                 }
+
+                # 🆕 タイトルのタイミング情報を追加
+                if section_title_enabled and title_audio_data:
+                    timing_info['title_timing'] = {
+                        'text': section.title,
+                        'start_time': 0.0,  # セクション内の相対時間
+                        'end_time': title_duration,
+                        'speed': title_speed,
+                        'special_type': 'section_title',
+                        'characters': title_alignment.get('characters', []),
+                        'char_start_times': title_alignment.get('character_start_times_seconds', []),
+                        'char_end_times': title_alignment.get('character_end_times_seconds', [])
+                    }
+
+                    # 🆕 無音のタイミング情報を追加
+                    timing_info['silence_after_title'] = {
+                        'start_time': title_duration,
+                        'end_time': title_duration + title_silence_after,
+                        'duration': title_silence_after
+                    }
+
+                    # 🆕 ナレーションのタイミング情報（オフセット調整済み）
+                    narration_start = title_duration + title_silence_after
+                    timing_info['narration_timing'] = {
+                        'text': section.narration,
+                        'start_time': narration_start,
+                        'end_time': narration_start + narration_duration,
+                        'characters': narration_alignment.get('characters', []),
+                        'char_start_times': narration_alignment.get('character_start_times_seconds', []),
+                        'char_end_times': narration_alignment.get('character_end_times_seconds', [])
+                    }
+                else:
+                    # タイトルなしの場合は、従来通り
+                    timing_info['characters'] = narration_alignment.get('characters', [])
+                    timing_info['char_start_times'] = narration_alignment.get('character_start_times_seconds', [])
+                    timing_info['char_end_times'] = narration_alignment.get('character_end_times_seconds', [])
+                    timing_info['duration'] = narration_duration
+
                 timing_data.append(timing_info)
 
                 # セグメント情報を記録
                 segment = AudioSegment(
                     section_id=section.section_id,
                     audio_path=str(audio_path),
-                    duration=duration
+                    duration=total_duration
                 )
                 segments.append(segment)
 
                 self.logger.info(
                     f"✓ Section {i}/{total_sections} generated with timestamps "
-                    f"({duration:.1f}s, {len(alignment.get('characters', []))} chars)"
+                    f"(total: {total_duration:.1f}s)"
                 )
 
                 # 累積オフセットを更新
-                cumulative_offset += duration + silence_duration
+                cumulative_offset += total_duration + silence_duration
 
             except Exception as e:
                 self.logger.error(

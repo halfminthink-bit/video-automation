@@ -159,23 +159,87 @@ styles:
       margin_v: 70
     animations: []
   
-  # 特大インパクト（impact_level: mega）
-  mega:
-    name: "ImpactMega"
+  # シャドウ設定
+  shadow_enabled: true
+  shadow_offset: [2, 2]
+  shadow_color: "#000000"
+  shadow_opacity: 0.8
+
+# ========================================
+# インパクトレベル別スタイル設定
+# ========================================
+styles:
+  # 通常字幕（インパクトなし）
+  none:
+    name: "Default"
     font:
-      family: "cinecaption"
-      size: 120
-      color: "#FFFF00"  # 黄色
-      stroke_color: "#FF0000"  # 赤の縁取り
-      stroke_width: 4
+      family: "cinecaption226"
+      size: 60
+      color: "#FFFFFF"          # 白
+      stroke_color: "#000000"
+      stroke_width: 2
+      shadow_enabled: true
+      shadow_offset: [2, 2]
+      shadow_color: "#000000"
+      shadow_opacity: 0.8
+    position:
+      vertical: "bottom"
+      horizontal: "center"
+      margin_bottom: 120
+      alignment: 2              # ASS: 下部中央揃え
+      margin_v: 120
+    animations: []
+
+  # 通常の強調（文中のインパクト）
+  normal:
+    name: "Normal"
+    font:
+      family: "cinecaption226"
+      size: 70
+      color: "#FF4444"          # 赤
+      stroke_color: "#000000"
+      stroke_width: 3
       shadow_enabled: true
       shadow_offset: [3, 3]
       shadow_color: "#000000"
       shadow_opacity: 0.9
     position:
-      vertical: "center"  # 画面中央
+      vertical: "bottom"
+      horizontal: "center"
+      margin_bottom: 120
+      alignment: 2
+      margin_v: 120
+    animations:
+      - type: "fade_in"
+        duration_ms: 300
+      - type: "scale"
+        duration_ms: 400
+        scale_from: 105
+        scale_to: 100
+
+  # セクションタイトル専用スタイル（最も豪華）
+  section_title:
+    name: "SectionTitle"
+    font:
+      family: "cinecaption226"
+      size: 100
+      color: "#FF0000"          # 赤
+      stroke_color: "#000000"
+      stroke_width: 4
+      shadow_enabled: true
+      shadow_offset: [4, 4]
+      shadow_color: "#000000"
+      shadow_opacity: 0.9
+    position:
+      vertical: "center"        # 画面中央
       horizontal: "center"
       margin_bottom: 0
-      alignment: 5  # ASS alignment (center)
+      alignment: 5              # ASS: 中央揃え
       margin_v: 0
-    animations: []
+    animations:
+      - type: "fade_in"
+        duration_ms: 400
+      - type: "zoom_in"
+        duration_ms: 500
+        scale_from: 110
+        scale_to: 100
