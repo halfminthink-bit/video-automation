@@ -99,7 +99,7 @@ progress:
 
 # 画像タイミング設定
 image_timing:
-  mode: "llm"      # "equal_split" (均等分割), "keyword_match" (キーワードマッチング), or "llm" (LLM駆動)
+  mode: "equal_split"      # "equal_split" (均等分割), "keyword_match" (キーワードマッチング), or "llm" (LLM駆動)
   
   # LLM駆動型画像配置設定
   llm:

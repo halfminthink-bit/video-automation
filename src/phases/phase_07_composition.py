@@ -595,21 +595,45 @@ class Phase07Composition(PhaseBase):
         # セクションを探す
         for section in sections:
             if section.get('section_id') == section_id:
-                # 🔥 重要: durationフィールドを直接使用（優先）
-                duration = section.get('duration')
+                # 🆕 優先1: total_durationフィールド（セクション全体の長さ）
+                total_duration = section.get('total_duration')
+                if total_duration is not None:
+                    self.logger.info(f"Section {section_id} duration from total_duration: {total_duration:.2f}s")
+                    return total_duration
 
+                # 🆕 優先2: narration_timing内のchar_end_times（新しい形式）
+                narration_timing = section.get('narration_timing', {})
+                if narration_timing:
+                    char_end_times = narration_timing.get('char_end_times', [])
+                    if char_end_times:
+                        # narration_timing内の相対時刻なので、start_timeを加算
+                        narration_start = narration_timing.get('start_time', 0.0)
+                        duration = narration_start + char_end_times[-1]
+                        self.logger.info(f"Section {section_id} duration from narration_timing: {duration:.2f}s")
+                        return duration
+                    
+                    # narration_timing内のend_timeを使用
+                    narration_end = narration_timing.get('end_time')
+                    narration_start = narration_timing.get('start_time', 0.0)
+                    if narration_end is not None:
+                        duration = narration_end
+                        self.logger.info(f"Section {section_id} duration from narration_timing.end_time: {duration:.2f}s")
+                        return duration
+
+                # フォールバック1: トップレベルのdurationフィールド
+                duration = section.get('duration')
                 if duration is not None:
                     self.logger.info(f"Section {section_id} duration from audio_timing: {duration:.2f}s")
                     return duration
 
-                # フォールバック1: char_end_timesの最後の値
+                # フォールバック2: トップレベルのchar_end_times（古い形式）
                 char_end_times = section.get('char_end_times', [])
                 if char_end_times:
                     duration = char_end_times[-1]
                     self.logger.info(f"Section {section_id} duration from char_end_times: {duration:.2f}s")
                     return duration
 
-                # フォールバック2: character_end_times_seconds（古い形式）
+                # フォールバック3: character_end_times_seconds（古い形式）
                 char_end_times = section.get('character_end_times_seconds', [])
                 if char_end_times:
                     duration = char_end_times[-1]
@@ -1584,15 +1608,51 @@ class Phase07Composition(PhaseBase):
             if isinstance(audio_timing, list):
                 for timing_section in audio_timing:
                     section_id = timing_section.get('section_id')
+                    if not section_id:
+                        continue
+                    
+                    # 🆕 優先1: total_duration
+                    total_duration = timing_section.get('total_duration')
+                    if total_duration is not None:
+                        section_durations[section_id] = total_duration
+                        continue
+                    
+                    # 🆕 優先2: narration_timing内のend_time
+                    narration_timing = timing_section.get('narration_timing', {})
+                    if narration_timing:
+                        narration_end = narration_timing.get('end_time')
+                        if narration_end is not None:
+                            section_durations[section_id] = narration_end
+                            continue
+                    
+                    # フォールバック: トップレベルのchar_end_times
                     char_end_times = timing_section.get('char_end_times', [])
-                    if section_id and char_end_times:
+                    if char_end_times:
                         section_durations[section_id] = char_end_times[-1]
             elif isinstance(audio_timing, dict):
                 sections = audio_timing.get('sections', [audio_timing])
                 for timing_section in sections:
                     section_id = timing_section.get('section_id')
+                    if not section_id:
+                        continue
+                    
+                    # 🆕 優先1: total_duration
+                    total_duration = timing_section.get('total_duration')
+                    if total_duration is not None:
+                        section_durations[section_id] = total_duration
+                        continue
+                    
+                    # 🆕 優先2: narration_timing内のend_time
+                    narration_timing = timing_section.get('narration_timing', {})
+                    if narration_timing:
+                        narration_end = narration_timing.get('end_time')
+                        if narration_end is not None:
+                            section_durations[section_id] = narration_end
+                            continue
+                    
+                    # フォールバック: トップレベルのchar_end_times
                     char_end_times = timing_section.get('char_end_times', [])
-                    if section_id and char_end_times:
+                    if char_end_times:
                         section_durations[section_id] = char_end_times[-1]
 
             # セクションごとに画像をグループ化
@@ -2042,13 +2102,41 @@ class Phase07Composition(PhaseBase):
             # リスト形式の場合（各要素がセクション）
             for timing_section in audio_timing:
                 section_id = timing_section.get('section_id')
-                # 正しいキー名: char_end_times
+                if not section_id:
+                    continue
+                
+                # 🆕 優先1: total_duration（セクション全体の長さ）
+                total_duration = timing_section.get('total_duration')
+                if total_duration is not None:
+                    section_durations[section_id] = total_duration
+                    self.logger.debug(f"Section {section_id}: {total_duration:.2f}s (from total_duration)")
+                    continue
+                
+                # 🆕 優先2: narration_timing内のend_time（新しい形式）
+                narration_timing = timing_section.get('narration_timing', {})
+                if narration_timing:
+                    narration_end = narration_timing.get('end_time')
+                    if narration_end is not None:
+                        section_durations[section_id] = narration_end
+                        self.logger.debug(f"Section {section_id}: {narration_end:.2f}s (from narration_timing.end_time)")
+                        continue
+                    
+                    # narration_timing内のchar_end_times
+                    char_end_times = narration_timing.get('char_end_times', [])
+                    if char_end_times:
+                        narration_start = narration_timing.get('start_time', 0.0)
+                        duration = narration_start + char_end_times[-1]
+                        section_durations[section_id] = duration
+                        self.logger.debug(f"Section {section_id}: {duration:.2f}s (from narration_timing.char_end_times)")
+                        continue
+                
+                # フォールバック: トップレベルのchar_end_times（古い形式）
                 char_end_times = timing_section.get('char_end_times', [])
-                if section_id and char_end_times:
+                if char_end_times:
                     section_durations[section_id] = char_end_times[-1]
                     self.logger.debug(
                         f"Section {section_id}: {char_end_times[-1]:.2f}s "
-                        f"({len(char_end_times)} chars)"
+                        f"({len(char_end_times)} chars, from top-level char_end_times)"
                     )
         elif isinstance(audio_timing, dict):
             # 辞書形式の場合（sectionsキーを含む可能性）
@@ -2059,12 +2147,32 @@ class Phase07Composition(PhaseBase):
 
             for timing_section in sections:
                 section_id = timing_section.get('section_id')
+                if not section_id:
+                    continue
+                
+                # 🆕 優先1: total_duration
+                total_duration = timing_section.get('total_duration')
+                if total_duration is not None:
+                    section_durations[section_id] = total_duration
+                    self.logger.debug(f"Section {section_id}: {total_duration:.2f}s (from total_duration)")
+                    continue
+                
+                # 🆕 優先2: narration_timing内のend_time
+                narration_timing = timing_section.get('narration_timing', {})
+                if narration_timing:
+                    narration_end = narration_timing.get('end_time')
+                    if narration_end is not None:
+                        section_durations[section_id] = narration_end
+                        self.logger.debug(f"Section {section_id}: {narration_end:.2f}s (from narration_timing.end_time)")
+                        continue
+                
+                # フォールバック: トップレベルのchar_end_times
                 char_end_times = timing_section.get('char_end_times', [])
-                if section_id and char_end_times:
+                if char_end_times:
                     section_durations[section_id] = char_end_times[-1]
                     self.logger.debug(
                         f"Section {section_id}: {char_end_times[-1]:.2f}s "
-                        f"({len(char_end_times)} chars)"
+                        f"({len(char_end_times)} chars, from top-level char_end_times)"
                     )
         else:
             self.logger.error(f"❌ Unexpected audio_timing format: {type(audio_timing)}")

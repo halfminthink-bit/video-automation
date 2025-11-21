@@ -63,7 +63,7 @@ kokoro:
   voice: "jf_alpha"
 
   # 速度（0.5-2.0）
-  speed: 1.4
+  speed: 1.1
 
   # 出力フォーマット
   response_format: "mp3"  # mp3, wav, opus, flac
@@ -178,8 +178,8 @@ cache:
 section_title:
   enabled: true
 
-  # 読み上げ速度（通常の半分の速度で重厚感を演出）
-  speed: 0.5
+  # 読み上げ速度（通常速度）
+  speed: 1.0
 
   # タイトル後の無音時間（秒）
   silence_after: 2.0

@@ -701,27 +701,16 @@ class Phase02Audio(PhaseBase):
 
                 # 🆕 3. 音声を結合（タイトル + 無音 + ナレーション）
                 if section_title_enabled and title_audio_data:
-                    # pydubを使用して結合
-                    from pydub import AudioSegment as PydubSegment
-                    from pydub.silence import detect_silence
-
-                    # タイトル音声を読み込み
-                    title_audio = PydubSegment.from_mp3(title_audio_path)
-
-                    # 無音を生成（2秒）
-                    silence = PydubSegment.silent(duration=int(title_silence_after * 1000))
-
-                    # ナレーション音声を読み込み
-                    narration_audio = PydubSegment.from_mp3(narration_audio_path)
-
-                    # 結合
-                    combined_audio = title_audio + silence + narration_audio
-
-                    # 結合音声を保存
-                    combined_audio.export(audio_path, format="mp3")
-
-                    # 合計時間を計算
-                    total_duration = title_duration + title_silence_after + narration_duration
+                    # AudioProcessorを使用して結合（Python 3.13対応）
+                    audio_processor = AudioProcessor(logger=self.logger)
+                    
+                    # タイトルとナレーションを結合（間に無音を挿入）
+                    audio_files = [Path(title_audio_path), Path(narration_audio_path)]
+                    total_duration = audio_processor.combine_audio_files(
+                        audio_paths=audio_files,
+                        output_path=Path(audio_path),
+                        silence_duration=title_silence_after
+                    )
 
                     self.logger.info(
                         f"✓ Combined audio: title({title_duration:.1f}s) + "
