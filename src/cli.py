@@ -33,6 +33,7 @@ from src.phases.phase_01_script import Phase01Script
 from src.phases.phase_01_auto_script import Phase01AutoScript
 from src.phases.phase_02_audio import Phase02Audio
 from src.phases.phase_03_images import Phase03Images
+from src.phases.phase_04_image_processing import Phase04ImageProcessing
 from src.phases.phase_04_animation import Phase04Animation
 from src.phases.phase_05_bgm import Phase05BGM
 from src.phases.phase_06_subtitles import Phase06Subtitles
@@ -146,7 +147,7 @@ def run_phase(
         1: Phase01AutoScript if use_auto_script else Phase01Script,
         2: Phase02Audio,
         3: Phase03Images,
-        4: Phase04Animation,
+        4: Phase04ImageProcessing,  # 新規実装: 画像加工処理
         5: Phase05BGM,
         6: Phase06Subtitles,
         7: Phase07Composition,
@@ -193,6 +194,14 @@ def run_phase(
                 audio_var=audio_var
             )
         elif phase_number == 3:
+            phase = phase_class(
+                subject=subject,
+                config=config,
+                logger=logger,
+                genre=genre
+            )
+        elif phase_number == 4:
+            # Phase 4: 画像加工処理（ジャンルを指定）
             phase = phase_class(
                 subject=subject,
                 config=config,
