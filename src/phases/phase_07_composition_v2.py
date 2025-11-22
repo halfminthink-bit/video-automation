@@ -1671,15 +1671,50 @@ class Phase07CompositionV2(PhaseBase):
             script = self._load_script()
             audio_timing = self._load_audio_timing()
 
-            # classified.jsonから全画像を取得
-            classified_path = self.working_dir / "03_images" / "classified.json"
-            if not classified_path.exists():
-                raise FileNotFoundError(f"classified.json not found: {classified_path}")
+            # 1. 優先: processed_images.jsonから加工済み画像を取得
+            processed_json = self.working_dir / "04_processed" / "processed_images.json"
+            all_images = []
+            classified_data = None
+            
+            if processed_json.exists():
+                try:
+                    self.logger.info(f"Loading processed images from {processed_json}")
+                    with open(processed_json, 'r', encoding='utf-8') as f:
+                        processed_data = json.load(f)
+                    
+                    processed_images = processed_data.get('images', [])
+                    
+                    # processed_images.jsonから画像パスを取得
+                    for img_data in processed_images:
+                        processed_path = Path(img_data.get('processed_file_path', ''))
+                        if processed_path.exists():
+                            all_images.append({
+                                'file_path': str(processed_path),
+                                'section_id': img_data.get('section_id'),
+                                'image_id': img_data.get('image_id'),
+                                'keywords': img_data.get('keywords', []),
+                                'depth_map_path': img_data.get('depth_map_path')  # 将来の2.5D実装用
+                            })
+                            self.logger.debug(f"  Using processed image: {processed_path.name}")
+                    
+                    if all_images:
+                        self.logger.info(f"✅ Loaded {len(all_images)} processed images")
+                except Exception as e:
+                    self.logger.warning(f"Failed to load processed_images.json: {e}, falling back to classified.json")
+                    all_images = []
+            
+            # 2. フォールバック: classified.jsonから元画像を取得
+            if not all_images:
+                classified_path = self.working_dir / "03_images" / "classified.json"
+                if not classified_path.exists():
+                    raise FileNotFoundError(f"Neither processed_images.json nor classified.json found")
 
-            with open(classified_path, 'r', encoding='utf-8') as f:
-                classified_data = json.load(f)
+                self.logger.info(f"Loading images from {classified_path}")
+                with open(classified_path, 'r', encoding='utf-8') as f:
+                    classified_data = json.load(f)
 
-            all_images = classified_data.get('images', [])
+                all_images = classified_data.get('images', [])
+                self.logger.info(f"✅ Loaded {len(all_images)} images from classified.json")
 
             # セクションIDと時間のマッピングを作成
             section_durations = {}
@@ -1736,12 +1771,18 @@ class Phase07CompositionV2(PhaseBase):
                 if not file_path.exists():
                     continue
 
-                # ファイル名からセクション番号を抽出
-                match = re.search(r'section_(\d+)', file_path.name)
-                if match:
-                    section_num = int(match.group(1))
-                    if section_num in section_images:
-                        section_images[section_num].append(file_path)
+                # section_idまたはファイル名からセクション番号を抽出
+                section_num = img.get('section_id')
+                if not section_num:
+                    # フォールバック: ファイル名から抽出
+                    match = re.search(r'section_(\d+)', file_path.name)
+                    if match:
+                        section_num = int(match.group(1))
+                    else:
+                        continue
+                
+                if section_num in section_images:
+                    section_images[section_num].append(file_path)
 
             # 各セクション内でソート
             for section_num in section_images.keys():
@@ -1984,30 +2025,48 @@ class Phase07CompositionV2(PhaseBase):
                 duration = timing['duration']
                 output_segment = temp_dir / f"segment_{i:03d}.mp4"
 
+                # 設定からパラメータを取得
+                visual_effects_config = self.phase_config.get("visual_effects", {})
+                layout_type = visual_effects_config.get("layout", "cinematic_blur")
+                zoom_speed = visual_effects_config.get("zoom_speed", 0.0005)
+                blur_strength = visual_effects_config.get("blur_strength", 100)
+                gradient_height = visual_effects_config.get("gradient_height", 0.35)
+                max_zoom = visual_effects_config.get("max_zoom", 1.15)
+                
                 # zoompanのパラメータ計算
                 fps = 30
                 total_frames = int(duration * fps)
-                zoom_increment = 0.15 / total_frames if total_frames > 0 else 0.001
+                zoom_range = max_zoom - 1.0  # 例: 1.15 - 1.0 = 0.15
+                zoom_increment = (zoom_range / total_frames) if total_frames > 0 else zoom_speed
 
                 # シネマティックフィルタチェーン
-                # 1. [bg] 背景層: スケール+クロップ → ブラー → 暗くする
-                # 2. [fg] 前景層: スケール+パッド → ゆっくりズーム
-                # 3. [video] 背景+前景を合成
-                # 4. [gradient] 画面下部にグラデーション生成
-                # 5. [out] 最終合成
-                filter_complex = (
-                    # 背景層: 画面全体にフィット（クロップ）してブラー+暗くする
-                    "[0:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,boxblur=100:5,eq=brightness=-0.3[bg];"
-                    # 前景層: アスペクト比維持してパッド、ゆっくりズーム
-                    f"[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,"
-                    f"zoompan=z='min(zoom+{zoom_increment:.6f},1.15)':d={total_frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1920x1080:fps={fps}[fg];"
-                    # 背景+前景を合成
-                    "[bg][fg]overlay=(W-w)/2:(H-h)/2[video];"
-                    # グラデーション生成（画面下部30%に透明→黒）
-                    "color=black@0:s=1920x1080,geq=lum='if(lt(Y,ih*0.7),0,255*(Y-ih*0.7)/(ih*0.3))':cb=128:cr=128,format=rgba[gradient];"
-                    # 最終合成
-                    "[video][gradient]overlay=0:0:format=auto,format=yuv420p[out]"
-                )
+                if layout_type == "cinematic_blur":
+                    # 1. [bg] 背景層: スケール+クロップ → ブラー → 暗くする
+                    # 2. [fg] 前景層: スケール+パッド → ゆっくりズーム
+                    # 3. [video] 背景+前景を合成
+                    # 4. [gradient] 画面下部にグラデーション生成
+                    # 5. [out] 最終合成
+                    filter_complex = (
+                        # 背景層: 画面全体にフィット（クロップ）してブラー+暗くする
+                        f"[0:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,boxblur={blur_strength}:5,eq=brightness=-0.3[bg];"
+                        # 前景層: アスペクト比維持してパッド、ゆっくりズーム
+                        f"[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,"
+                        f"zoompan=z='min(zoom+{zoom_increment:.6f},{max_zoom})':d={total_frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1920x1080:fps={fps}[fg];"
+                        # 背景+前景を合成
+                        "[bg][fg]overlay=(W-w)/2:(H-h)/2[video];"
+                        # グラデーション生成（画面下部に透明→黒）
+                        f"color=black@0:s=1920x1080,geq=lum='if(lt(Y,ih*{1.0-gradient_height}),0,255*(Y-ih*{1.0-gradient_height})/(ih*{gradient_height}))':cb=128:cr=128,format=rgba[gradient];"
+                            # 最終合成
+                        "[video][gradient]overlay=0:0:format=auto,format=yuv420p[out]"
+                    )
+                else:
+                    # フォールバック: 従来のレイアウト（二分割レイアウト）
+                    filter_complex = (
+                        # シンプルなリサイズ+パディング
+                        "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,"
+                        f"zoompan=z='min(zoom+{zoom_increment:.6f},{max_zoom})':d={total_frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1920x1080:fps={fps},"
+                        "drawbox=y=864:color=black:width=1920:height=216:t=fill[out]"
+                    )
 
                 cmd = [
                     'ffmpeg', '-y',
@@ -4393,7 +4452,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     
     def _get_images_for_sections(self, script: dict) -> List[Path]:
         """
-        セクションごとの画像を取得
+        セクションごとの画像を取得（processed_images.json を優先）
         
         Args:
             script: 台本データ
@@ -4401,6 +4460,71 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         Returns:
             画像ファイルのパスリスト（セクション順）
         """
+        # 1. 優先: processed_images.json から加工済み画像を取得
+        processed_json = self.working_dir / "04_processed" / "processed_images.json"
+        
+        if processed_json.exists():
+            try:
+                with open(processed_json, 'r', encoding='utf-8') as f:
+                    processed_data = json.load(f)
+                
+                processed_images = processed_data.get('images', [])
+                
+                if processed_images:
+                    self.logger.info(f"Loading processed images from {processed_json}")
+                    
+                    # セクションID順にソート
+                    sections = script.get('sections', [])
+                    section_ids = [s.get('section_id', 0) for s in sections]
+                    
+                    # セクションID順に画像を抽出
+                    images = []
+                    for section_id in section_ids:
+                        # 該当セクションの加工済み画像を検索
+                        section_processed = [
+                            img for img in processed_images
+                            if img.get('section_id') == section_id
+                        ]
+                        
+                        if section_processed:
+                            # 最初の1枚を使用（将来的に複数対応可能）
+                            processed_path = Path(section_processed[0].get('processed_file_path', ''))
+                            if processed_path.exists():
+                                images.append(processed_path)
+                                self.logger.debug(
+                                    f"Section {section_id}: Using processed image: {processed_path.name}"
+                                )
+                            else:
+                                self.logger.warning(
+                                    f"Section {section_id}: Processed image not found: {processed_path}"
+                                )
+                                # 元画像へのフォールバック
+                                original_path = Path(section_processed[0].get('original_file_path', ''))
+                                if original_path.exists():
+                                    images.append(original_path)
+                                    self.logger.debug(
+                                        f"Section {section_id}: Using original image as fallback: {original_path.name}"
+                                    )
+                    
+                    if images:
+                        self.logger.info(f"✓ Loaded {len(images)} processed images")
+                        # 深度マップ情報も保持（将来の2.5D実装用）
+                        depth_maps = [
+                            Path(img.get('depth_map_path', ''))
+                            for img in processed_images
+                            if img.get('depth_map_path')
+                        ]
+                        if depth_maps:
+                            self.logger.debug(f"  Found {len(depth_maps)} depth maps (for future 2.5D implementation)")
+                        return images
+                    else:
+                        self.logger.warning("No valid processed images found, falling back to generated images")
+            
+            except Exception as e:
+                self.logger.warning(f"Failed to load processed_images.json: {e}, falling back to generated images")
+        
+        # 2. フォールバック: 従来の方式（03_images/generated から読み込む）
+        self.logger.info("Using fallback: loading images from 03_images/generated")
         images_dir = self.working_dir / "03_images" / "generated"
         
         if not images_dir.exists():
@@ -4414,7 +4538,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             section_id = section.get('section_id', 0)
             
             # セクションIDに基づいて画像ファイルを検索
-            # ファイル名パターン: section_XX_*.jpg または section_XX_*.png
             section_images = sorted(
                 list(images_dir.glob(f"section_{section_id:02d}_*.*"))
             )
