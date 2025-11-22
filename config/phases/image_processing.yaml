@@ -1,0 +1,87 @@
+# Phase 4: シネマティック画像加工設定
+
+# ========================================
+# ジャンル別設定
+# ========================================
+
+# 偉人伝系 (ijin)
+ijin:
+  filters:
+    brightness: 0.05              # 明度調整 (0.0-1.0)
+    contrast: 1.15                # コントラスト (1.0がデフォルト)
+    saturation: 0.9               # 彩度 (0.0-1.0, 1.0がデフォルト)
+    temperature: 0.1              # 色温度 (正: 暖色、負: 寒色)
+    vignette_strength: 0.3        # ビネット強度 (0.0-1.0)
+    grain_intensity: 0.05         # フィルムグレイン強度 (0.0-1.0)
+    # 高度化パラメータ
+    split_tone: true              # ティール＆オレンジ効果を有効化
+    split_tone_strength: 0.3      # ティール＆オレンジの強度 (0.0-1.0)
+    use_s_curve: true             # S字トーンカーブを使用
+    bloom_strength: 0.15          # グロー効果の強度 (0.0-1.0)
+  
+  depth_map:
+    enabled: true
+    model_type: "LiheYoung/depth-anything-small-hf"
+
+# 都市伝説系 (urban)
+urban:
+  filters:
+    brightness: -0.1              # 少し暗く（不気味さ）
+    contrast: 1.2                 # コントラスト高め
+    saturation: 0.7               # 彩度低め（青白く）
+    temperature: -0.15            # 青寄り（監視カメラ風）
+    vignette_strength: 0.5        # ビネット強め
+    grain_intensity: 0.15         # ノイズ強め（不気味さ）
+    # 高度化パラメータ
+    split_tone: true              # ティール＆オレンジ効果を有効化
+    split_tone_strength: 0.2      # ティール＆オレンジの強度（控えめ）
+    use_s_curve: true             # S字トーンカーブを使用
+    bloom_strength: 0.05          # グロー効果の強度（弱め、不気味さを保つ）
+  
+  depth_map:
+    enabled: true
+    model_type: "LiheYoung/depth-anything-small-hf"
+
+# ========================================
+# 深度推定設定
+# ========================================
+depth_estimation:
+  # 使用するモデル
+  default_model: "LiheYoung/depth-anything-small-hf"
+  
+  # 代替モデル（デフォルトが失敗した場合）
+  fallback_model: "Intel/dpt-large"
+  
+  # GPU使用設定（自動検出）
+  use_gpu: true                   # CUDAが利用可能な場合は使用
+  
+  # 出力設定
+  output_format: "PNG"            # PNG形式で保存
+  normalize: true                 # 深度マップを0-255に正規化
+
+# ========================================
+# 画像処理設定
+# ========================================
+processing:
+  # 処理モード
+  parallel: false                 # 並列処理（将来の拡張用）
+  
+  # 品質設定
+  output_quality: 95              # JPEG品質（0-100、PNGの場合は無視）
+  
+  # エラーハンドリング
+  continue_on_error: true         # 1枚失敗しても続行
+  max_retries: 2                  # リトライ回数
+
+# ========================================
+# 出力設定
+# ========================================
+output:
+  # 出力ディレクトリ構造
+  processed_dir: "processed"      # 加工後の画像ディレクトリ
+  depth_dir: "depth"              # 深度マップディレクトリ
+  
+  # ファイル名パターン
+  processed_suffix: "_processed"  # 加工後の画像ファイル名に追加するサフィックス
+  depth_suffix: "_depth"          # 深度マップファイル名に追加するサフィックス
+

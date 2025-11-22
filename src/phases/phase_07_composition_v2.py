@@ -6,6 +6,7 @@ Phase 1-6で生成した全ての素材を統合し、完成動画を生成す�
 import json
 import platform
 import re
+import subprocess
 import time
 import yaml
 from pathlib import Path
@@ -1685,16 +1686,48 @@ class Phase07CompositionV2(PhaseBase):
             if isinstance(audio_timing, list):
                 for timing_section in audio_timing:
                     section_id = timing_section.get('section_id')
-                    char_end_times = timing_section.get('char_end_times', [])
-                    if section_id and char_end_times:
-                        section_durations[section_id] = char_end_times[-1]
+                    if section_id:
+                        # total_durationを優先的に使用
+                        total_duration = timing_section.get('total_duration')
+                        if total_duration:
+                            section_durations[section_id] = total_duration
+                        else:
+                            # フォールバック: narration_timingのend_timeを使用
+                            narration_timing = timing_section.get('narration_timing', {})
+                            end_time = narration_timing.get('end_time')
+                            if end_time:
+                                section_durations[section_id] = end_time
+                            else:
+                                # さらにフォールバック: char_end_timesの最後の値
+                                char_end_times = timing_section.get('char_end_times', [])
+                                if char_end_times:
+                                    section_durations[section_id] = char_end_times[-1]
             elif isinstance(audio_timing, dict):
                 sections = audio_timing.get('sections', [audio_timing])
                 for timing_section in sections:
                     section_id = timing_section.get('section_id')
-                    char_end_times = timing_section.get('char_end_times', [])
-                    if section_id and char_end_times:
-                        section_durations[section_id] = char_end_times[-1]
+                    if section_id:
+                        # total_durationを優先的に使用
+                        total_duration = timing_section.get('total_duration')
+                        if total_duration:
+                            section_durations[section_id] = total_duration
+                        else:
+                            # フォールバック: narration_timingのend_timeを使用
+                            narration_timing = timing_section.get('narration_timing', {})
+                            end_time = narration_timing.get('end_time')
+                            if end_time:
+                                section_durations[section_id] = end_time
+                            else:
+                                # さらにフォールバック: char_end_timesの最後の値
+                                char_end_times = timing_section.get('char_end_times', [])
+                                if char_end_times:
+                                    section_durations[section_id] = char_end_times[-1]
+            
+            # デバッグ: セクション情報をログ出力
+            if section_durations:
+                self.logger.info(f"✅ Loaded {len(section_durations)} section durations: {section_durations}")
+            else:
+                self.logger.warning("⚠️ No section durations found in audio_timing.json")
 
             # セクションごとに画像をグループ化
             section_images = {sid: [] for sid in section_durations.keys()}
@@ -1907,19 +1940,82 @@ class Phase07CompositionV2(PhaseBase):
 
             self.logger.info(f"Total images to process: {len(image_timings)}")
 
-            # 3. 各画像を動画セグメントに変換
-            self.logger.info("Creating video segments from images...")
+            # 3. 各画像を動画セグメントに変換（シネマティックスタイル）
+            self.logger.info("Creating cinematic video segments from images...")
+            
+            # 画像が0枚の場合、黒画面ビデオを生成
+            if len(image_timings) == 0:
+                self.logger.warning("⚠️ No images found. Creating black screen video instead.")
+                output_segment = temp_dir / "segment_000.mp4"
+                
+                # 黒画面ビデオを生成（音声の長さ分）
+                cmd = [
+                    'ffmpeg', '-y',
+                    '-f', 'lavfi',
+                    '-i', f'color=c=black:s=1920x1080:d={actual_audio_duration:.6f}',
+                    '-c:v', 'libx264',
+                    '-preset', 'ultrafast',
+                    '-crf', '0',
+                    '-pix_fmt', 'yuv420p',
+                    '-r', '30',
+                    str(output_segment)
+                ]
+                
+                try:
+                    result = subprocess.run(
+                        cmd,
+                        check=True,
+                        capture_output=True,
+                        text=False,
+                        encoding=None
+                    )
+                    segment_files.append(output_segment)
+                    self.logger.info(f"✅ Created black screen video segment ({actual_audio_duration:.3f}s)")
+                except subprocess.CalledProcessError as e:
+                    try:
+                        stderr_msg = e.stderr.decode('utf-8', errors='ignore') if e.stderr else ''
+                    except:
+                        stderr_msg = '<decode failed>'
+                    self.logger.error(f"Failed to create black screen segment: {stderr_msg}")
+                    raise
+            
             for i, timing in enumerate(image_timings):
                 img_path = timing['path']
                 duration = timing['duration']
                 output_segment = temp_dir / f"segment_{i:03d}.mp4"
+
+                # zoompanのパラメータ計算
+                fps = 30
+                total_frames = int(duration * fps)
+                zoom_increment = 0.15 / total_frames if total_frames > 0 else 0.001
+
+                # シネマティックフィルタチェーン
+                # 1. [bg] 背景層: スケール+クロップ → ブラー → 暗くする
+                # 2. [fg] 前景層: スケール+パッド → ゆっくりズーム
+                # 3. [video] 背景+前景を合成
+                # 4. [gradient] 画面下部にグラデーション生成
+                # 5. [out] 最終合成
+                filter_complex = (
+                    # 背景層: 画面全体にフィット（クロップ）してブラー+暗くする
+                    "[0:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,boxblur=100:5,eq=brightness=-0.3[bg];"
+                    # 前景層: アスペクト比維持してパッド、ゆっくりズーム
+                    f"[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,"
+                    f"zoompan=z='min(zoom+{zoom_increment:.6f},1.15)':d={total_frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1920x1080:fps={fps}[fg];"
+                    # 背景+前景を合成
+                    "[bg][fg]overlay=(W-w)/2:(H-h)/2[video];"
+                    # グラデーション生成（画面下部30%に透明→黒）
+                    "color=black@0:s=1920x1080,geq=lum='if(lt(Y,ih*0.7),0,255*(Y-ih*0.7)/(ih*0.3))':cb=128:cr=128,format=rgba[gradient];"
+                    # 最終合成
+                    "[video][gradient]overlay=0:0:format=auto,format=yuv420p[out]"
+                )
 
                 cmd = [
                     'ffmpeg', '-y',
                     '-loop', '1',
                     '-i', str(img_path),
                     '-t', f"{duration:.6f}",
-                    '-vf', 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2',
+                    '-filter_complex', filter_complex,
+                    '-map', '[out]',
                     '-c:v', 'libx264',
                     '-preset', 'ultrafast',  # 速度重視
                     '-crf', '0',  # ロスレス
@@ -1949,6 +2045,9 @@ class Phase07CompositionV2(PhaseBase):
                     raise
 
             # 4. concat用のファイルリスト作成
+            if len(segment_files) == 0:
+                raise ValueError("No video segments created. Cannot proceed with video composition.")
+            
             concat_list = temp_dir / "concat.txt"
             with open(concat_list, 'w', encoding='utf-8') as f:
                 for segment in segment_files:
@@ -2807,8 +2906,8 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,MS Mincho,{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,3,2,2,10,10,{margin_v},128
-Style: SectionTitle,MS Mincho,{section_title_font_size},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,5,3,5,10,10,{section_title_margin_v},128
+Style: Default,CineCaption226,{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,3,2,2,10,10,{margin_v},128
+Style: SectionTitle,CineCaption226,{section_title_font_size},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,5,3,5,10,10,{section_title_margin_v},128
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -3106,7 +3205,7 @@ Timer: 100.0000
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,MS Mincho,{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,1,2,10,10,{margin_v},128
+Style: Default,CineCaption226,{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,1,2,10,10,{margin_v},128
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -3311,7 +3410,7 @@ PlayDepth: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,MS Mincho,45,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,3,2,2,10,10,120,1
+Style: Default,CineCaption226,45,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,3,2,2,10,10,120,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -3526,7 +3625,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         
         # force_styleの定義（Legacy02完全準拠）
         force_style = (
-            "FontName=MS Mincho,"       # Legacy02と同じMS明朝
+            "FontName=CineCaption226,"  # Cinemaフォント
             "FontSize=45,"              # Legacy02準拠: サイズ45
             "PrimaryColour=&HFFFFFF,"   # 白色
             "OutlineColour=&H00000000," # 黒縁取り

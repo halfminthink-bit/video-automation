@@ -20,6 +20,11 @@ google-auth-httplib2>=0.1.1
 moviepy>=1.0.3
 opencv-python>=4.8.0
 pillow>=10.0.0
+numpy>=1.24.0
+
+# Image Processing (Phase 4)
+transformers>=4.35.0  # 深度推定用
+torch>=2.0.0          # 深度推定用（CPU版は torch>=2.0.0+cpu も可）
 
 # Audio Processing
 openai-whisper>=20231117   # 音声認識とタイミング情報取得用
