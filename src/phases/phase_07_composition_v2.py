@@ -47,6 +47,9 @@ from ..utils.video_composition.bgm_processor import BGMProcessor
 from ..utils.video_composition.ffmpeg_builder import FFmpegBuilder
 from ..utils.subtitle_utils.ass_generator import ASSGenerator
 
+from PIL import Image
+import numpy as np
+
 
 class Phase07CompositionV2(PhaseBase):
     """
@@ -1634,6 +1637,62 @@ class Phase07CompositionV2(PhaseBase):
             self.logger.error(f"Video composition failed: {e}", exc_info=True)
             raise
 
+    def _create_gradient_image(self, width: int = 1920, height: int = 1080, gradient_ratio: float = 0.35) -> Path:
+        """
+        グラデーション画像を生成（Pillow使用）
+        
+        上部が透明で、下部が黒になるグラデーション画像を作成します。
+        キャッシュ機能付きで、同じパラメータの場合は再利用します。
+        
+        Args:
+            width: 画像幅
+            height: 画像高さ
+            gradient_ratio: グラデーションの高さ比率（0.0-1.0）
+        
+        Returns:
+            生成されたグラデーション画像のパス
+        """
+        # キャッシュディレクトリ
+        cache_dir = self.working_dir / "04_processed" / ".gradient_cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        
+        # キャッシュファイル名（パラメータに基づく）
+        cache_filename = f"gradient_{width}x{height}_ratio{gradient_ratio:.2f}.png"
+        cache_path = cache_dir / cache_filename
+        
+        # キャッシュが存在する場合は再利用
+        if cache_path.exists():
+            self.logger.debug(f"Using cached gradient image: {cache_path.name}")
+            return cache_path
+        
+        # グラデーション画像を生成
+        self.logger.debug(f"Creating gradient image: {width}x{height}, ratio={gradient_ratio:.2f}")
+        
+        # RGBA画像を作成（完全に透明から開始）
+        img = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+        
+        # グラデーションの開始位置と終了位置
+        gradient_height = int(height * gradient_ratio)
+        start_y = height - gradient_height
+        
+        # ピクセルデータを取得
+        pixels = img.load()
+        
+        # 下部からグラデーションを描画
+        for y in range(start_y, height):
+            # アルファ値の計算（0 = 完全透明、255 = 完全不透明）
+            alpha = int(255 * (y - start_y) / gradient_height)
+            
+            # 黒色（R=0, G=0, B=0）にアルファを適用
+            for x in range(width):
+                pixels[x, y] = (0, 0, 0, alpha)
+        
+        # 画像を保存
+        img.save(cache_path, 'PNG')
+        self.logger.debug(f"Saved gradient image: {cache_path}")
+        
+        return cache_path
+
     def _create_segment_videos_then_concat(self, audio_path: Path, bgm_data: Optional[dict]) -> Path:
         """
         セグメントごとに動画を作成してから連結（方法2: タイミング同期の問題を解決）
@@ -1981,7 +2040,22 @@ class Phase07CompositionV2(PhaseBase):
 
             self.logger.info(f"Total images to process: {len(image_timings)}")
 
-            # 3. 各画像を動画セグメントに変換（シネマティックスタイル）
+            # 3. グラデーション画像を事前生成（全セグメントで再利用）
+            visual_effects_config = self.phase_config.get("visual_effects", {})
+            layout_type = visual_effects_config.get("layout", "cinematic_blur")
+            gradient_height = visual_effects_config.get("gradient_height", 0.35)
+            
+            gradient_path = None
+            if layout_type == "cinematic_blur":
+                self.logger.info("Creating gradient image (cached for reuse)...")
+                gradient_path = self._create_gradient_image(
+                    width=1920,
+                    height=1080,
+                    gradient_ratio=gradient_height
+                )
+                self.logger.debug(f"Gradient image ready: {gradient_path.name}")
+
+            # 4. 各画像を動画セグメントに変換（シネマティックスタイル）
             self.logger.info("Creating cinematic video segments from images...")
             
             # 画像が0枚の場合、黒画面ビデオを生成
@@ -2026,11 +2100,7 @@ class Phase07CompositionV2(PhaseBase):
                 output_segment = temp_dir / f"segment_{i:03d}.mp4"
 
                 # 設定からパラメータを取得
-                visual_effects_config = self.phase_config.get("visual_effects", {})
-                layout_type = visual_effects_config.get("layout", "cinematic_blur")
                 zoom_speed = visual_effects_config.get("zoom_speed", 0.0005)
-                blur_strength = visual_effects_config.get("blur_strength", 100)
-                gradient_height = visual_effects_config.get("gradient_height", 0.35)
                 max_zoom = visual_effects_config.get("max_zoom", 1.15)
                 
                 # zoompanのパラメータ計算
@@ -2039,25 +2109,25 @@ class Phase07CompositionV2(PhaseBase):
                 zoom_range = max_zoom - 1.0  # 例: 1.15 - 1.0 = 0.15
                 zoom_increment = (zoom_range / total_frames) if total_frames > 0 else zoom_speed
 
-                # シネマティックフィルタチェーン
+                # シネマティックフィルタチェーン（高速化版）
                 if layout_type == "cinematic_blur":
-                    # 1. [bg] 背景層: スケール+クロップ → ブラー → 暗くする
+                    # 1. [bg] 背景層: スケールダウン/アップによる擬似ブラー + 暗くする
                     # 2. [fg] 前景層: スケール+パッド → ゆっくりズーム
                     # 3. [video] 背景+前景を合成
-                    # 4. [gradient] 画面下部にグラデーション生成
+                    # 4. [gradient] グラデーション画像（事前生成済み）を合成
                     # 5. [out] 最終合成
                     filter_complex = (
-                        # 背景層: 画面全体にフィット（クロップ）してブラー+暗くする
-                        f"[0:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,boxblur={blur_strength}:5,eq=brightness=-0.3[bg];"
+                        # 背景層: スケールダウン/アップによる擬似ブラー（boxblurより高速）
+                        # 192x108に縮小→1920x1080に拡大することでボカシ効果を実現
+                        f"[0:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,"
+                        f"scale=192:108,scale=1920:1080:flags=bicubic,eq=brightness=-0.3[bg];"
                         # 前景層: アスペクト比維持してパッド、ゆっくりズーム
                         f"[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,"
                         f"zoompan=z='min(zoom+{zoom_increment:.6f},{max_zoom})':d={total_frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1920x1080:fps={fps}[fg];"
                         # 背景+前景を合成
                         "[bg][fg]overlay=(W-w)/2:(H-h)/2[video];"
-                        # グラデーション生成（画面下部に透明→黒）
-                        f"color=black@0:s=1920x1080,geq=lum='if(lt(Y,ih*{1.0-gradient_height}),0,255*(Y-ih*{1.0-gradient_height})/(ih*{gradient_height}))':cb=128:cr=128,format=rgba[gradient];"
-                            # 最終合成
-                        "[video][gradient]overlay=0:0:format=auto,format=yuv420p[out]"
+                        # グラデーション画像を合成（事前生成済みのPNGを使用）
+                        "[video][1:v]overlay=0:0:format=auto,format=yuv420p[out]"
                     )
                 else:
                     # フォールバック: 従来のレイアウト（二分割レイアウト）
@@ -2068,20 +2138,39 @@ class Phase07CompositionV2(PhaseBase):
                         "drawbox=y=864:color=black:width=1920:height=216:t=fill[out]"
                     )
 
-                cmd = [
-                    'ffmpeg', '-y',
-                    '-loop', '1',
-                    '-i', str(img_path),
-                    '-t', f"{duration:.6f}",
-                    '-filter_complex', filter_complex,
-                    '-map', '[out]',
-                    '-c:v', 'libx264',
-                    '-preset', 'ultrafast',  # 速度重視
-                    '-crf', '0',  # ロスレス
-                    '-pix_fmt', 'yuv420p',
-                    '-r', '30',  # FPS統一
-                    str(output_segment)
-                ]
+                # FFmpegコマンド構築
+                if layout_type == "cinematic_blur":
+                    # グラデーション画像を入力として追加
+                    cmd = [
+                        'ffmpeg', '-y',
+                        '-loop', '1', '-i', str(img_path),      # [0] メイン画像
+                        '-loop', '1', '-i', str(gradient_path), # [1] グラデーション画像
+                        '-t', f"{duration:.6f}",
+                        '-filter_complex', filter_complex,
+                        '-map', '[out]',
+                        '-c:v', 'libx264',
+                        '-preset', 'ultrafast',  # 速度重視
+                        '-crf', '0',  # ロスレス
+                        '-pix_fmt', 'yuv420p',
+                        '-r', '30',  # FPS統一
+                        str(output_segment)
+                    ]
+                else:
+                    # フォールバック: グラデーションなし
+                    cmd = [
+                        'ffmpeg', '-y',
+                        '-loop', '1',
+                        '-i', str(img_path),
+                        '-t', f"{duration:.6f}",
+                        '-filter_complex', filter_complex,
+                        '-map', '[out]',
+                        '-c:v', 'libx264',
+                        '-preset', 'ultrafast',  # 速度重視
+                        '-crf', '0',  # ロスレス
+                        '-pix_fmt', 'yuv420p',
+                        '-r', '30',  # FPS統一
+                        str(output_segment)
+                    ]
 
                 try:
                     result = subprocess.run(
