@@ -346,16 +346,17 @@ class FFmpegBuilder:
         audio_path: Path,
         ass_path: Path,
         output_path: Path,
-        bgm_data: Optional[dict]
+        bgm_data: Optional[dict],
+        gradient_path: Optional[Path] = None
     ) -> List[str]:
         """
-        最適化されたFFmpegコマンド（セグメント規格化版）
+        最適化されたFFmpegコマンド（グラデーション独立レイヤー版）
 
         変更点:
         1. setpts=PTS-STARTPTSフィルタを追加（タイミング同期改善）
         2. -shortest を削除（音声の長さに正確に合わせる）
         3. フォントディレクトリを明示的に指定
-        4. グラデーション処理を削除（各セグメントに既に適用済み）
+        4. グラデーションを独立したレイヤーとして最終合成時に適用（固定レイヤー）
         """
         threads = self._get_threads()
         is_windows = platform.system() == 'Windows'
@@ -369,8 +370,14 @@ class FFmpegBuilder:
             '-i', self._normalize_path(concat_file),
         ]
 
+        # グラデーション入力（concatの次、独立レイヤーとして）
+        gradient_input_idx = 1
+        if gradient_path and gradient_path.exists():
+            cmd.extend(['-loop', '1', '-i', self._normalize_path(gradient_path)])
+            self.logger.info(f"🎨 Adding gradient as independent layer: {gradient_path.name}")
+
         # 音声入力
-        audio_input_idx = 1
+        audio_input_idx = gradient_input_idx + (1 if (gradient_path and gradient_path.exists()) else 0)
         cmd.extend(['-i', self._normalize_path(audio_path)])
 
         # BGM入力
@@ -386,11 +393,18 @@ class FFmpegBuilder:
         # ビデオフィルタ構築（filter_complex使用）
         video_filter_parts = []
 
-        # 1. concat動画の処理（グラデーションは各セグメントに既に適用済み）
+        # 1. concat動画の処理
         video_filter_parts.append("[0:v]setpts=PTS-STARTPTS[v_concat]")
 
-        # 2. スケーリング
-        video_filter_parts.append("[v_concat]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2[v_scaled]")
+        # 2. グラデーションオーバーレイ（独立レイヤー、固定位置）
+        if gradient_path and gradient_path.exists():
+            video_filter_parts.append(f"[v_concat][{gradient_input_idx}:v]overlay=0:0:format=auto[v_grad]")
+            current_video = "[v_grad]"
+        else:
+            current_video = "[v_concat]"
+
+        # 3. スケーリング
+        video_filter_parts.append(f"{current_video}scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2[v_scaled]")
         current_video = "[v_scaled]"
 
         # 4. ASS字幕
