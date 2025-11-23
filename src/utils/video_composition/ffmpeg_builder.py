@@ -99,8 +99,8 @@ class FFmpegBuilder:
         # ビデオフィルタを構築
         video_filters = []
 
-        # 1. 黒バーを追加（下部216px）
-        video_filters.append("drawbox=y=ih-216:color=black@1.0:width=iw:height=216:t=fill")
+        # 1. 黒バーを削除（Phase 04/07 v2で導入したグラデーション座布団が既に適用されているため不要）
+        # video_filters.append("drawbox=y=ih-216:color=black@1.0:width=iw:height=216:t=fill")
 
         # 2. 字幕フィルタ（srt_pathがNoneでない場合のみ追加）
         # Pass 1では字幕なし、Pass 2で別途追加
@@ -197,8 +197,8 @@ class FFmpegBuilder:
         video_filters.append("scale=1920:1080:force_original_aspect_ratio=decrease")
         video_filters.append("pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black")
 
-        # 2. 黒バーを追加（下部216px、y=864）
-        video_filters.append("drawbox=y=864:color=black:width=1920:height=216:t=fill")
+        # 2. 黒バーを削除（Phase 04/07 v2で導入したグラデーション座布団が既に適用されているため不要）
+        # video_filters.append("drawbox=y=864:color=black:width=1920:height=216:t=fill")
 
         # 3. ASS字幕を焼き込み
         # Windowsパスのエスケープ処理
@@ -286,8 +286,8 @@ class FFmpegBuilder:
         # 1. スケーリングとパディング
         video_filters.append("scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2")
 
-        # 2. 黒バーを追加（下部216px）
-        video_filters.append("drawbox=y=ih-216:color=black@1.0:width=iw:height=216:t=fill")
+        # 2. 黒バーを削除（Phase 04/07 v2で導入したグラデーション座布団が既に適用されているため不要）
+        # video_filters.append("drawbox=y=ih-216:color=black@1.0:width=iw:height=216:t=fill")
 
         # 3. ASS字幕を適用（fontsdir指定）
         if ass_path and ass_path.exists():
@@ -387,8 +387,8 @@ class FFmpegBuilder:
         # 2. スケーリング
         video_filters.append("scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2")
 
-        # 3. 黒バー
-        video_filters.append("drawbox=y=ih-216:color=black@1.0:width=iw:height=216:t=fill")
+        # 3. 黒バーを削除（Phase 04/07 v2で導入したグラデーション座布団が既に適用されているため不要）
+        # video_filters.append("drawbox=y=ih-216:color=black@1.0:width=iw:height=216:t=fill")
 
         # 4. ASS字幕
         if ass_path and ass_path.exists():

@@ -67,7 +67,12 @@ class BGMProcessor:
             self.logger.warning(f"Failed to get audio duration: {e}")
             return 10.0  # デフォルト値
     
-    def build_audio_filter(self, bgm_segments: List[dict]) -> str:
+    def build_audio_filter(
+        self, 
+        bgm_segments: List[dict], 
+        narration_input: int = 1,
+        bgm_input_start: int = 2
+    ) -> str:
         """
         BGMミックス用のffmpegフィルター生成（セグメントごとの音量対応）
 
@@ -81,6 +86,8 @@ class BGMProcessor:
         
         Args:
             bgm_segments: BGMセグメント情報のリスト
+            narration_input: ナレーション音声の入力インデックス（デフォルト: 1）
+            bgm_input_start: BGMの開始入力インデックス（デフォルト: 2）
         
         Returns:
             FFmpegフィルター文字列
@@ -90,14 +97,15 @@ class BGMProcessor:
         self.logger.info("=" * 60)
         self.logger.info("Building audio filter:")
         self.logger.info(f"  BGM segments: {len(bgm_segments)}")
+        self.logger.info(f"  Narration input: {narration_input}, BGM start: {bgm_input_start}")
 
-        # ナレーション（入力1）
-        filters.append("[1:a]volume=1.0[narration]")
+        # ナレーション
+        filters.append(f"[{narration_input}:a]volume=1.0[narration]")
 
         # 各BGMセグメントを処理
         bgm_outputs = []
         for i, segment in enumerate(bgm_segments):
-            input_idx = i + 2  # BGMは入力2から
+            input_idx = bgm_input_start + i  # BGMの入力インデックス
             start_time = segment.get('start_time', 0)
             duration = segment.get('duration', 0)
             fade_in = segment.get('fade_in', self.bgm_fade_in)
