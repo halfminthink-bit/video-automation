@@ -346,31 +346,43 @@ class FFmpegBuilder:
         audio_path: Path,
         ass_path: Path,
         output_path: Path,
-        bgm_data: Optional[dict]
+        bgm_data: Optional[dict],
+        gradient_path: Optional[Path] = None
     ) -> List[str]:
         """
-        最適化されたFFmpegコマンド
+        最適化されたFFmpegコマンド（グラデーション対応）
 
         変更点:
         1. setpts=PTS-STARTPTSフィルタを追加（タイミング同期改善）
         2. -shortest を削除（音声の長さに正確に合わせる）
         3. フォントディレクトリを明示的に指定
+        4. グラデーションを最終合成時に適用（一番上のレイヤー）
         """
         threads = self._get_threads()
         is_windows = platform.system() == 'Windows'
 
-        # 基本コマンド
+        # 基本コマンド（concat demuxer使用）
         cmd = [
             'ffmpeg',
             '-y',
             '-f', 'concat',
             '-safe', '0',
             '-i', self._normalize_path(concat_file),
-            '-i', self._normalize_path(audio_path),
         ]
+
+        # グラデーション入力（concatの次）
+        gradient_input_idx = 1
+        if gradient_path and gradient_path.exists():
+            cmd.extend(['-loop', '1', '-i', self._normalize_path(gradient_path)])
+            self.logger.info(f"🎨 Adding gradient overlay: {gradient_path.name}")
+
+        # 音声入力
+        audio_input_idx = gradient_input_idx + (1 if (gradient_path and gradient_path.exists()) else 0)
+        cmd.extend(['-i', self._normalize_path(audio_path)])
 
         # BGM入力
         bgm_segments = []
+        bgm_input_start = audio_input_idx + 1
         if bgm_data and bgm_data.get("segments"):
             bgm_segments = bgm_data.get("segments", [])
             for segment in bgm_segments:
@@ -378,17 +390,22 @@ class FFmpegBuilder:
                 if bgm_path and Path(bgm_path).exists():
                     cmd.extend(['-i', self._normalize_path(Path(bgm_path))])
 
-        # ビデオフィルタ構築
-        video_filters = []
+        # ビデオフィルタ構築（filter_complex使用）
+        video_filter_parts = []
 
-        # 1. タイミング同期
-        video_filters.append("setpts=PTS-STARTPTS")
+        # 1. concat動画の処理
+        video_filter_parts.append("[0:v]setpts=PTS-STARTPTS[v_concat]")
 
-        # 2. スケーリング
-        video_filters.append("scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2")
+        # 2. グラデーションオーバーレイ（一番上のレイヤー）
+        if gradient_path and gradient_path.exists():
+            video_filter_parts.append(f"[v_concat][{gradient_input_idx}:v]overlay=0:0:format=auto[v_grad]")
+            current_video = "[v_grad]"
+        else:
+            current_video = "[v_concat]"
 
-        # 3. 黒バーを削除（Phase 04/07 v2で導入したグラデーション座布団が既に適用されているため不要）
-        # video_filters.append("drawbox=y=ih-216:color=black@1.0:width=iw:height=216:t=fill")
+        # 3. スケーリング
+        video_filter_parts.append(f"{current_video}scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2[v_scaled]")
+        current_video = "[v_scaled]"
 
         # 4. ASS字幕
         if ass_path and ass_path.exists():
@@ -425,18 +442,30 @@ class FFmpegBuilder:
             self.logger.info(f"[Font Debug] ASS filter: {ass_filter}")
             self.logger.info(f"[Font Debug] fontsdir パラメータ: {fonts_dir_str}")
 
-            video_filters.append(ass_filter)
+            video_filter_parts.append(f"{current_video}{ass_filter}[v_final]")
+        else:
+            video_filter_parts.append(f"{current_video}copy[v_final]")
 
-        # フィルタチェーン適用
-        cmd.extend(['-vf', ','.join(video_filters)])
+        # フィルタチェーン適用（filter_complex）
+        video_filter = ";".join(video_filter_parts)
+        cmd.extend(['-filter_complex', video_filter])
 
         # オーディオ処理
         if bgm_segments and self.bgm_processor:
-            audio_filter = self.bgm_processor.build_audio_filter(bgm_segments)
-            cmd.extend(['-filter_complex', audio_filter])
-            cmd.extend(['-map', '0:v', '-map', '[audio]'])
+            # 既存のfilter_complexに追加
+            narration_input = audio_input_idx
+            audio_filter = self.bgm_processor.build_audio_filter(
+                bgm_segments,
+                narration_input=narration_input,
+                bgm_input_start=bgm_input_start
+            )
+            # ビデオフィルタとオーディオフィルタを結合
+            combined_filter = video_filter + ";" + audio_filter
+            # filter_complexの値を置き換え（cmd[-1]がfilter_complexの値）
+            cmd[-1] = combined_filter
+            cmd.extend(['-map', '[v_final]', '-map', '[audio]'])
         else:
-            cmd.extend(['-map', '0:v', '-map', '1:a'])
+            cmd.extend(['-map', '[v_final]', '-map', f'{audio_input_idx}:a'])
 
         # 音声の長さを取得して正確に設定
         if self.bgm_processor:
