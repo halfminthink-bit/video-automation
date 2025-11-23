@@ -101,6 +101,14 @@ progress:
 # 画像タイミング設定
 image_timing:
   mode: "equal_split"      # "equal_split" (均等分割), "keyword_match" (キーワードマッチング), or "llm" (LLM駆動)
+
+# シネマティック・レイアウト設定
+visual_effects:
+  layout: "cinematic_blur"  # "cinematic_blur" (シネマティックブラー) または "legacy" (従来の二分割レイアウト)
+  zoom_speed: 0.0003        # ズーム速度 (1フレームあたりのズーム量) - さらにゆっくりにして安定感を出す
+  blur_strength: 100        # 背景ブラー強度 (boxblurの半径)
+  gradient_height: 0.35     # グラデーションの高さ割合 (画面下部の35%にグラデーション)
+  max_zoom: 1.15            # 最大ズーム倍率 (1.15 = 15%拡大)
   
   # LLM駆動型画像配置設定
   llm:
@@ -127,7 +135,7 @@ image_timing:
 # セクションタイトル演出設定
 # ========================================
 section_title:
-  enabled: true
+  enabled: false  # オーバーレイ演出を無効化（Phase 04で作ったシネマティックな画作りを活かすため）
 
   # 黒オーバーレイ設定
   overlay:

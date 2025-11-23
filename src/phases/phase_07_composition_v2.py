@@ -5,6 +5,7 @@ Phase 1-6で生成した全ての素材を統合し、完成動画を生成す�
 
 import json
 import platform
+import random
 import re
 import subprocess
 import time
@@ -45,7 +46,11 @@ from ..generators.background_video_selector import BackgroundVideoSelector
 from ..utils.video_composition.background_processor import BackgroundVideoProcessor
 from ..utils.video_composition.bgm_processor import BGMProcessor
 from ..utils.video_composition.ffmpeg_builder import FFmpegBuilder
+from ..utils.video_composition.depth_animator import DepthAnimator
 from ..utils.subtitle_utils.ass_generator import ASSGenerator
+
+from PIL import Image
+import numpy as np
 
 
 class Phase07CompositionV2(PhaseBase):
@@ -446,6 +451,33 @@ class Phase07CompositionV2(PhaseBase):
         self.logger.info("Executing legacy Phase07Composition.execute_phase()")
         return legacy_phase.execute_phase()
 
+    def _resolve_image_path(self, path_str: Optional[str]) -> Optional[Path]:
+        """パスを絶対パス・相対パス・ファイル名から柔軟に解決"""
+        if not path_str: return None
+        
+        # 1. そのままチェック
+        path = Path(path_str)
+        if path.exists(): return path
+        
+        # 2. プロジェクトルートからの相対パス
+        try:
+            parts = Path(path_str).parts
+            if 'data' in parts:
+                idx = parts.index('data')
+                rel = Path(*parts[idx:])
+                abs_path = self.config.project_root / rel
+                if abs_path.exists(): return abs_path
+        except: pass
+        
+        # 3. ファイル名検索
+        filename = Path(path_str).name
+        search_dir = self.working_dir / "04_processed" / "processed"
+        if search_dir.exists():
+            found = list(search_dir.glob(f"**/{filename}"))
+            if found: return found[0]
+            
+        return None
+    
     def _load_script(self) -> dict:
         """台本データを読み込み"""
         script_path = self.working_dir / "01_script" / "script.json"
@@ -1627,12 +1659,653 @@ class Phase07CompositionV2(PhaseBase):
             self.logger.info(f"Video duration: {audio_duration:.2f}s")
             return composition
 
-        except subprocess.CalledProcessError as e:
-            self.logger.error(f"ffmpeg failed: {e.stderr}")
+        except subprocess.CalledProcessError:
+            # エラーはcheck=Trueで検出される（エラー内容は見ない）
+            self.logger.error(f"ffmpeg failed")
             raise
         except Exception as e:
             self.logger.error(f"Video composition failed: {e}", exc_info=True)
             raise
+
+    def _create_gradient_image(self, width: int = 1920, height: int = 1080, gradient_ratio: float = 0.35) -> Path:
+        """
+        グラデーション画像を生成（Pillow使用）
+        
+        上部が透明で、下部が黒になるグラデーション画像を作成します。
+        キャッシュ機能付きで、同じパラメータの場合は再利用します。
+        
+        Args:
+            width: 画像幅
+            height: 画像高さ
+            gradient_ratio: グラデーションの高さ比率（0.0-1.0）
+        
+        Returns:
+            生成されたグラデーション画像のパス
+        """
+        # キャッシュディレクトリ
+        cache_dir = self.working_dir / "04_processed" / ".gradient_cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        
+        # キャッシュファイル名（パラメータに基づく）
+        cache_filename = f"gradient_{width}x{height}_ratio{gradient_ratio:.2f}.png"
+        cache_path = cache_dir / cache_filename
+        
+        # キャッシュが存在する場合は再利用
+        if cache_path.exists():
+            self.logger.debug(f"Using cached gradient image: {cache_path.name}")
+            return cache_path
+        
+        # グラデーション画像を生成
+        self.logger.debug(f"Creating gradient image: {width}x{height}, ratio={gradient_ratio:.2f}")
+        
+        # RGBA画像を作成（完全に透明から開始）
+        img = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+        
+        # グラデーションの開始位置と終了位置
+        gradient_height = int(height * gradient_ratio)
+        start_y = height - gradient_height
+        
+        # ピクセルデータを取得
+        pixels = img.load()
+        
+        # 下部からグラデーションを描画
+        for y in range(start_y, height):
+            # アルファ値の計算（0 = 完全透明、255 = 完全不透明）
+            alpha = int(255 * (y - start_y) / gradient_height)
+            
+            # 黒色（R=0, G=0, B=0）にアルファを適用
+            for x in range(width):
+                pixels[x, y] = (0, 0, 0, alpha)
+        
+        # 画像を保存
+        img.save(cache_path, 'PNG')
+        self.logger.debug(f"Saved gradient image: {cache_path}")
+        
+        return cache_path
+
+    def _run_ffmpeg_safe(self, cmd: List[str], timeout: int = 600) -> bool:
+        """
+        安全なFFmpeg実行ヘルパー（デッドロック防止・タイムアウト付き）
+        """
+        try:
+            # stdin, stdout, stderr 全てを DEVNULL にしてブロッキングを防ぐ
+            subprocess.run(
+                cmd,
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL,
+                timeout=timeout
+            )
+            return True
+        except subprocess.TimeoutExpired:
+            self.logger.error(f"❌ FFmpeg timed out after {timeout}s")
+            return False
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"❌ FFmpeg execution failed with code {e.returncode}")
+            return False
+
+    def _apply_gradient_to_video(self, video_path: Path, gradient_path: Path) -> bool:
+        """動画にグラデーションを上書き合成（デバッグ強化版）"""
+        
+        # 🔥 デバッグ: ファイル存在確認
+        if not video_path.exists():
+            self.logger.error(f"❌ Video not found: {video_path}")
+            return False
+        
+        if not gradient_path.exists():
+            self.logger.error(f"❌ Gradient not found: {gradient_path}")
+            return False
+        
+        self.logger.info(f"  📦 Video: {video_path.name} ({video_path.stat().st_size / 1024:.1f}KB)")
+        self.logger.info(f"  🎨 Gradient: {gradient_path.name}")
+        
+        temp_path = video_path.with_name(f"temp_{video_path.name}")
+        
+        try:
+            video_path.rename(temp_path)
+            self.logger.debug(f"  ✓ Renamed to temp: {temp_path.name}")
+        except OSError as e:
+            self.logger.error(f"❌ Failed to rename: {e}")
+            return False
+
+        cmd = [
+            'ffmpeg', '-y',
+            '-i', str(temp_path),
+            '-loop', '1', '-i', str(gradient_path),
+            '-filter_complex', "[0:v][1:v]overlay=0:0:format=auto,format=yuv420p[out]",
+            '-map', '[out]',
+            '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '18',
+            '-pix_fmt', 'yuv420p', '-r', '30',
+            str(video_path)
+        ]
+        
+        # 🔥 コマンドをログ出力
+        self.logger.debug(f"  Running: {' '.join(cmd)}")
+        
+        # 🔥 エラー出力をキャプチャ
+        try:
+            result = subprocess.run(
+                cmd,
+                check=True,
+                capture_output=True,  # ← stdout/stderrをキャプチャ
+                text=True,
+                timeout=120
+            )
+            
+            # 成功
+            if temp_path.exists(): 
+                temp_path.unlink()
+            self.logger.info("  ✅ Gradient applied successfully")
+            return True
+            
+        except subprocess.TimeoutExpired:
+            self.logger.error("❌ Gradient overlay timed out (120s)")
+            # 元に戻す
+            if temp_path.exists():
+                if video_path.exists(): video_path.unlink()
+                temp_path.rename(video_path)
+            return False
+            
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"❌ FFmpeg failed: {e.returncode}")
+            self.logger.error(f"STDERR: {e.stderr}")  # ← エラー詳細を出力
+            # 元に戻す
+            if temp_path.exists():
+                if video_path.exists(): video_path.unlink()
+                temp_path.rename(video_path)
+            return False
+
+    def _create_zoompan_segment(
+        self, 
+        img_path: Path, 
+        gradient_path: Optional[Path],  # ← Optionalに変更
+        duration: float, 
+        output_path: Path, 
+        seed: int
+    ):
+        """4Kズーム処理（グラデーションなし）"""
+        
+        random.seed(seed)
+        move_type = random.choice(["zoom_in", "zoom_out", "pan_right", "pan_left"])
+        
+        fps = 30
+        frames = int(duration * fps)
+        zoom_speed = 0.0003
+        
+        # 4K処理用フィルタ
+        scale_4k = "scale=3840:2160:force_original_aspect_ratio=increase,crop=3840:2160"
+        
+        if move_type == "zoom_in":
+            z_expr = f"z='min(zoom+{zoom_speed},{1.15})'"
+            pos = "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+        elif move_type == "zoom_out":
+            z_expr = f"z='if(eq(on,0),{1.15},max(zoom-{zoom_speed},1.0))'"
+            pos = "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+        elif move_type == "pan_right":
+            x_expr = f"x='(iw-iw/zoom)*(on/{frames})'"
+            z_expr = "z='1.1'"
+            pos = f"{x_expr}:y='ih/2-(ih/zoom/2)'"
+        else: # pan_left
+            x_expr = f"x='(iw-iw/zoom)*(1-on/{frames})'"
+            z_expr = "z='1.1'"
+            pos = f"{x_expr}:y='ih/2-(ih/zoom/2)'"
+
+        filter_complex = (
+            # 背景: 軽量擬似ブラー (1920 -> 192 -> 1920)
+            f"[0:v]scale=192:108,scale=1920:1080:flags=bicubic,eq=brightness=-0.3[bg];"
+            # 前景: 4Kアップスケール -> Zoompan -> 1080pダウンコンバート
+            f"[0:v]{scale_4k},zoompan={z_expr}:d={frames}:{pos}:s=3840x2160:fps={fps},scale=1920:1080[fg];"
+            # 合成
+            "[bg][fg]overlay=(W-w)/2:(H-h)/2,format=yuv420p[out]"
+            # ← gradientオーバーレイを削除
+        )
+
+        cmd = [
+            'ffmpeg', '-y',
+            '-loop', '1', '-i', str(img_path),
+            # ← gradient入力を削除
+            '-t', f"{duration:.6f}",
+            '-filter_complex', filter_complex,
+            '-map', '[out]',
+            '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '18',
+            '-pix_fmt', 'yuv420p', '-r', '30',
+            str(output_path)
+        ]
+
+        if not self._run_ffmpeg_safe(cmd, timeout=300):
+            raise RuntimeError(f"Failed to create zoom segment: {img_path.name}")
+
+    def _create_concat_file_with_duration(
+        self, 
+        segment_files: List[Path], 
+        image_timings: List[dict],
+        output_path: Path
+    ) -> Path:
+        """
+        FFmpeg concat用ファイル生成（duration付き）
+        
+        concat demuxerの仕様:
+        - 各ファイルの後にdurationを指定
+        - 最後のファイルはdurationなし
+        - 最後のファイルを再度追加（重要！）
+        """
+        concat_lines = []
+        
+        for i, (seg_file, timing) in enumerate(zip(segment_files, image_timings)):
+            # パス正規化
+            path_str = str(seg_file.resolve()).replace('\\', '/').replace("'", "'\\''")
+            concat_lines.append(f"file '{path_str}'")
+            
+            # 最後以外はduration指定
+            if i < len(segment_files) - 1:
+                duration = timing['duration']
+                concat_lines.append(f"duration {duration:.6f}")
+            
+            self.logger.debug(
+                f"  Concat entry {i+1}: {seg_file.name} "
+                f"(duration: {timing['duration']:.3f}s)"
+            )
+        
+        # 🔥 重要: 最後のファイルを再度追加（ffmpeg concat仕様）
+        if segment_files:
+            last_file = segment_files[-1]
+            path_str = str(last_file.resolve()).replace('\\', '/').replace("'", "'\\''")
+            concat_lines.append(f"file '{path_str}'")
+            self.logger.debug(f"  Added final frame: {last_file.name} (no duration)")
+        
+        # ファイルに書き込み
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(concat_lines))
+        
+        # 🔥 デバッグ: concat.txtの内容を出力
+        self.logger.info("=" * 60)
+        self.logger.info(f"📄 concat.txt content ({len(concat_lines)} lines):")
+        for i, line in enumerate(concat_lines[:10]):  # 最初の10行
+            self.logger.info(f"  {i+1:2d}: {line}")
+        if len(concat_lines) > 10:
+            self.logger.info(f"  ... ({len(concat_lines) - 10} more lines)")
+        self.logger.info("=" * 60)
+        
+        return output_path
+
+    def _verify_segment_duration(self, segment_path: Path, expected_duration: float) -> bool:
+        """
+        セグメント動画の長さを検証
+        """
+        try:
+            cmd = [
+                'ffprobe',
+                '-v', 'error',
+                '-show_entries', 'format=duration',
+                '-of', 'default=noprint_wrappers=1:nokey=1',
+                str(segment_path)
+            ]
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            
+            actual_duration = float(result.stdout.strip())
+            diff = abs(actual_duration - expected_duration)
+            
+            if diff > 0.1:  # 0.1秒以上のズレ
+                self.logger.warning(
+                    f"⚠️ Duration mismatch: {segment_path.name}\n"
+                    f"  Expected: {expected_duration:.3f}s\n"
+                    f"  Actual:   {actual_duration:.3f}s\n"
+                    f"  Diff:     {diff:.3f}s"
+                )
+                return False
+            
+            self.logger.debug(
+                f"  ✓ Duration OK: {actual_duration:.3f}s "
+                f"(expected: {expected_duration:.3f}s)"
+            )
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"❌ Failed to verify duration: {e}")
+            return False
+
+    def _verify_ass_subtitles(self, ass_path: Path, subtitle_timing: dict) -> None:
+        """
+        ASS字幕の検証とデバッグ出力
+        """
+        self.logger.info("=" * 60)
+        self.logger.info("📝 ASS Subtitle Verification:")
+        
+        with open(ass_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        
+        dialogue_lines = [l for l in lines if l.startswith('Dialogue:')]
+        
+        self.logger.info(f"  Total dialogue entries: {len(dialogue_lines)}")
+        self.logger.info(f"  Expected subtitles: {len(subtitle_timing.get('subtitles', []))}")
+        
+        # 最初の5個と最後の5個を表示
+        preview_lines = dialogue_lines[:5] + dialogue_lines[-5:]
+        
+        for i, line in enumerate(preview_lines):
+            parts = line.split(',', 9)
+            if len(parts) >= 10:
+                start = parts[1]
+                end = parts[2]
+                text = parts[9].strip()[:40]
+                self.logger.info(f"  {i+1:2d}. {start} → {end}: {text}...")
+        
+        self.logger.info("=" * 60)
+
+    def _calculate_image_timings(self, audio_path: Path, script: dict, audio_timing: dict) -> List[dict]:
+        """
+        画像タイミングを計算（LLM、キーワードマッチング、均等分割の3モード対応）
+        
+        Args:
+            audio_path: 音声ファイルのパス
+            script: 台本データ
+            audio_timing: 音声タイミングデータ
+            
+        Returns:
+            画像タイミングのリスト [{'path': Path, 'duration': float, 'depth_map_path': Optional[str]}, ...]
+        """
+        # 1. processed_images.jsonから画像を取得
+        processed_json = self.working_dir / "04_processed" / "processed_images.json"
+        all_images = []
+        classified_data = None
+        
+        if processed_json.exists():
+            try:
+                self.logger.info(f"Loading processed images from {processed_json}")
+                with open(processed_json, 'r', encoding='utf-8') as f:
+                    processed_data = json.load(f)
+                
+                processed_images = processed_data.get('images', [])
+                
+                for img_data in processed_images:
+                    processed_path_str = img_data.get('processed_file_path', '')
+                    processed_path = self._resolve_image_path(processed_path_str)
+                    
+                    if processed_path and processed_path.exists():
+                        depth_map_path_str = img_data.get('depth_map_path', '')
+                        depth_map_path = None
+                        if depth_map_path_str:
+                            depth_map_path = self._resolve_image_path(depth_map_path_str)
+                            if depth_map_path and not depth_map_path.exists():
+                                depth_map_path = None
+                        
+                        all_images.append({
+                            'file_path': str(processed_path),
+                            'section_id': img_data.get('section_id'),
+                            'image_id': img_data.get('image_id'),
+                            'keywords': img_data.get('keywords', []),
+                            'depth_map_path': str(depth_map_path) if depth_map_path else None
+                        })
+                        self.logger.debug(f"  Using processed image: {processed_path.name}")
+                
+                if all_images:
+                    self.logger.info(f"✅ Loaded {len(all_images)} processed images")
+            except Exception as e:
+                self.logger.warning(f"Failed to load processed_images.json: {e}, falling back to classified.json")
+                all_images = []
+        
+        # 2. フォールバック: classified.jsonから元画像を取得
+        if not all_images:
+            classified_path = self.working_dir / "03_images" / "classified.json"
+            if not classified_path.exists():
+                raise FileNotFoundError(f"Neither processed_images.json nor classified.json found")
+            
+            self.logger.info(f"Loading images from {classified_path}")
+            with open(classified_path, 'r', encoding='utf-8') as f:
+                classified_data = json.load(f)
+            
+            all_images = classified_data.get('images', [])
+            self.logger.info(f"✅ Loaded {len(all_images)} images from classified.json")
+        
+        # 3. セクションIDと時間のマッピングを作成
+        section_durations = {}
+        if isinstance(audio_timing, list):
+            for timing_section in audio_timing:
+                section_id = timing_section.get('section_id')
+                if section_id:
+                    total_duration = timing_section.get('total_duration')
+                    if total_duration:
+                        section_durations[section_id] = total_duration
+                    else:
+                        narration_timing = timing_section.get('narration_timing', {})
+                        end_time = narration_timing.get('end_time')
+                        if end_time:
+                            section_durations[section_id] = end_time
+                        else:
+                            char_end_times = timing_section.get('char_end_times', [])
+                            if char_end_times:
+                                section_durations[section_id] = char_end_times[-1]
+        elif isinstance(audio_timing, dict):
+            sections = audio_timing.get('sections', [audio_timing])
+            for timing_section in sections:
+                section_id = timing_section.get('section_id')
+                if section_id:
+                    total_duration = timing_section.get('total_duration')
+                    if total_duration:
+                        section_durations[section_id] = total_duration
+                    else:
+                        narration_timing = timing_section.get('narration_timing', {})
+                        end_time = narration_timing.get('end_time')
+                        if end_time:
+                            section_durations[section_id] = end_time
+                        else:
+                            char_end_times = timing_section.get('char_end_times', [])
+                            if char_end_times:
+                                section_durations[section_id] = char_end_times[-1]
+        
+        if section_durations:
+            self.logger.info(f"✅ Loaded {len(section_durations)} section durations: {section_durations}")
+        
+        # 4. セクションごとに画像をグループ化
+        section_images = {sid: [] for sid in section_durations.keys()}
+        image_info_map = {}
+        
+        for img in all_images:
+            file_path = Path(img.get('file_path', ''))
+            if not file_path.exists():
+                continue
+            
+            section_num = img.get('section_id')
+            if not section_num:
+                match = re.search(r'section_(\d+)', file_path.name)
+                if match:
+                    section_num = int(match.group(1))
+                else:
+                    continue
+            
+            image_info_map[str(file_path)] = {
+                'section_id': section_num,
+                'depth_map_path': img.get('depth_map_path')
+            }
+            
+            if section_num in section_images:
+                section_images[section_num].append(file_path)
+        
+        # 各セクション内でソート
+        for section_num in section_images.keys():
+            section_images[section_num].sort(key=lambda p: p.name)
+        
+        # 5. 画像タイミング計算
+        image_timings = []
+        sorted_section_ids = sorted(section_images.keys())
+        actual_audio_duration = self._get_audio_duration(audio_path)
+        self.logger.info(f"Actual audio duration: {actual_audio_duration:.3f}s")
+        
+        # 画像タイミングモードを確認
+        image_timing_config = self.phase_config.get("image_timing", {})
+        timing_mode = image_timing_config.get("mode", "equal_split")
+        
+        if timing_mode == "llm":
+            # LLM駆動型画像配置モード
+            self.logger.info("🤖 Using LLM-driven image timing mode")
+            try:
+                subtitle_timing_path = self.working_dir / "06_subtitles" / "subtitle_timing.json"
+                if subtitle_timing_path.exists():
+                    with open(subtitle_timing_path, 'r', encoding='utf-8') as f:
+                        subtitle_timing_data = json.load(f)
+                    subtitle_timing = subtitle_timing_data.get('subtitles', [])
+                    
+                    try:
+                        api_key = self.config.get_api_key("CLAUDE_API_KEY")
+                    except Exception:
+                        import os
+                        api_key = os.getenv("CLAUDE_API_KEY")
+                        if not api_key:
+                            raise ValueError("CLAUDE_API_KEY not found in config or environment")
+                    
+                    llm_config = image_timing_config.get("llm", {})
+                    matcher = ImageTimingMatcherLLM(
+                        working_dir=self.working_dir,
+                        api_key=api_key,
+                        model=llm_config.get("model", "claude-3-haiku-20240307"),
+                        cache_dir=llm_config.get("cache_dir"),
+                        min_duration=llm_config.get("min_display_duration", 3.0),
+                        max_duration=llm_config.get("max_display_duration", 15.0),
+                        gap_threshold=llm_config.get("gap_threshold", 2.0),
+                        logger=self.logger
+                    )
+                    
+                    all_image_clips = []
+                    for section_id in sorted_section_ids:
+                        image_clips = matcher.match_images_to_subtitles(
+                            script_data=script,
+                            classified_images=classified_data,
+                            subtitle_timing=subtitle_timing,
+                            section_id=section_id
+                        )
+                        all_image_clips.extend(image_clips)
+                    
+                    all_image_clips.sort(key=lambda clip: clip['start_time'])
+                    
+                    for clip in all_image_clips:
+                        image_path = Path(clip['image_path'])
+                        if image_path.exists():
+                            img_info = image_info_map.get(str(image_path), {})
+                            image_timings.append({
+                                'path': image_path,
+                                'duration': clip['end_time'] - clip['start_time'],
+                                'start_time': clip['start_time'],
+                                'end_time': clip['end_time'],
+                                'section_id': img_info.get('section_id'),
+                                'depth_map_path': img_info.get('depth_map_path')
+                            })
+                    
+                    self.logger.info(f"✅ Generated {len(image_timings)} image clips with LLM matching")
+                else:
+                    raise FileNotFoundError(f"subtitle_timing.json not found: {subtitle_timing_path}")
+            except Exception as e:
+                self.logger.warning(f"LLM matching failed: {e}. Falling back to keyword match mode.")
+                timing_mode = "keyword_match"
+        
+        if timing_mode == "keyword_match":
+            # キーワードマッチングモード
+            self.logger.info("🎯 Using keyword-based image timing mode")
+            try:
+                subtitle_timing_path = self.working_dir / "06_subtitles" / "subtitle_timing.json"
+                if subtitle_timing_path.exists():
+                    with open(subtitle_timing_path, 'r', encoding='utf-8') as f:
+                        subtitle_timing_data = json.load(f)
+                    subtitle_timing = subtitle_timing_data.get('subtitles', [])
+                    
+                    keyword_match_config = image_timing_config.get("keyword_match", {})
+                    matcher = ImageTimingMatcherFixed(
+                        working_dir=self.working_dir,
+                        min_duration=keyword_match_config.get("min_display_duration", 3.0),
+                        max_duration=keyword_match_config.get("max_display_duration", 15.0),
+                        section_boundary_switch=keyword_match_config.get("section_boundary_switch", True),
+                        exact_match_weight=keyword_match_config.get("priority", {}).get("exact_match_weight", 10.0),
+                        partial_match_weight=keyword_match_config.get("priority", {}).get("partial_match_weight", 5.0),
+                        same_section_weight=keyword_match_config.get("priority", {}).get("same_section_weight", 3.0),
+                        keyword_length_weight=keyword_match_config.get("priority", {}).get("keyword_length_weight", 1.0),
+                        logger=self.logger
+                    )
+                    
+                    all_image_clips = []
+                    for section_id in sorted_section_ids:
+                        image_clips = matcher.match_images_to_subtitles(
+                            script_data=script,
+                            classified_images=classified_data,
+                            subtitle_timing=subtitle_timing,
+                            section_id=section_id
+                        )
+                        all_image_clips.extend(image_clips)
+                    
+                    all_image_clips.sort(key=lambda clip: clip['start_time'])
+                    
+                    for clip in all_image_clips:
+                        image_path = Path(clip['image_path'])
+                        if image_path.exists():
+                            img_info = image_info_map.get(str(image_path), {})
+                            image_timings.append({
+                                'path': image_path,
+                                'duration': clip['end_time'] - clip['start_time'],
+                                'start_time': clip['start_time'],
+                                'end_time': clip['end_time'],
+                                'section_id': img_info.get('section_id'),
+                                'depth_map_path': img_info.get('depth_map_path')
+                            })
+                    
+                    self.logger.info(f"✅ Generated {len(image_timings)} image clips with keyword matching")
+                else:
+                    raise FileNotFoundError(f"subtitle_timing.json not found: {subtitle_timing_path}")
+            except Exception as e:
+                self.logger.warning(f"Keyword matching failed: {e}. Falling back to equal split mode.")
+                timing_mode = "equal_split"
+        
+        if timing_mode == "equal_split":
+            # 均等分割モード（従来の方法）
+            self.logger.info("📊 Using equal split image timing mode")
+            
+            section_1_2_duration = 0
+            for section_id in sorted_section_ids[:-1]:
+                section_1_2_duration += section_durations.get(section_id, 0)
+            
+            if len(sorted_section_ids) >= 3:
+                remaining_duration = actual_audio_duration - section_1_2_duration
+                self.logger.info(
+                    f"Section 1+2 duration: {section_1_2_duration:.3f}s, "
+                    f"Section 3 needs: {remaining_duration:.3f}s"
+                )
+            
+            for section_id in sorted_section_ids:
+                images = section_images[section_id]
+                images_count = len(images)
+                
+                if images_count == 0:
+                    continue
+                
+                if section_id == sorted_section_ids[-1] and len(sorted_section_ids) >= 3:
+                    section_duration = remaining_duration
+                else:
+                    section_duration = section_durations.get(section_id, 0)
+                
+                if section_duration == 0:
+                    continue
+                
+                duration_per_image = section_duration / images_count
+                
+                self.logger.info(
+                    f"Section {section_id}: {images_count} images × {duration_per_image:.3f}s = {section_duration:.3f}s"
+                )
+                
+                for image_path in images:
+                    img_info = image_info_map.get(str(image_path), {})
+                    image_timings.append({
+                        'path': image_path,
+                        'duration': duration_per_image,
+                        'section_id': img_info.get('section_id'),
+                        'depth_map_path': img_info.get('depth_map_path')
+                    })
+        
+        self.logger.info(f"Total images to process: {len(image_timings)}")
+        return image_timings
 
     def _create_segment_videos_then_concat(self, audio_path: Path, bgm_data: Optional[dict]) -> Path:
         """
@@ -1671,15 +2344,62 @@ class Phase07CompositionV2(PhaseBase):
             script = self._load_script()
             audio_timing = self._load_audio_timing()
 
-            # classified.jsonから全画像を取得
-            classified_path = self.working_dir / "03_images" / "classified.json"
-            if not classified_path.exists():
-                raise FileNotFoundError(f"classified.json not found: {classified_path}")
+            # 1. 優先: processed_images.jsonから加工済み画像を取得
+            processed_json = self.working_dir / "04_processed" / "processed_images.json"
+            all_images = []
+            classified_data = None
+            
+            if processed_json.exists():
+                try:
+                    self.logger.info(f"Loading processed images from {processed_json}")
+                    with open(processed_json, 'r', encoding='utf-8') as f:
+                        processed_data = json.load(f)
+                    
+                    processed_images = processed_data.get('images', [])
+                    
+                    # processed_images.jsonから画像パスを取得
+                    for img_data in processed_images:
+                        processed_path_str = img_data.get('processed_file_path', '')
+                        processed_path = self._resolve_image_path(processed_path_str)
+                        
+                        if processed_path and processed_path.exists():
+                            # depth_map_pathも同様に解決
+                            depth_map_path_str = img_data.get('depth_map_path', '')
+                            depth_map_path = None
+                            if depth_map_path_str:
+                                depth_map_path = self._resolve_image_path(depth_map_path_str)
+                                if depth_map_path and not depth_map_path.exists():
+                                    depth_map_path = None
+                            
+                            all_images.append({
+                                'file_path': str(processed_path),
+                                'section_id': img_data.get('section_id'),
+                                'image_id': img_data.get('image_id'),
+                                'keywords': img_data.get('keywords', []),
+                                'depth_map_path': str(depth_map_path) if depth_map_path else None
+                            })
+                            self.logger.debug(f"  Using processed image: {processed_path.name}")
+                        else:
+                            self.logger.warning(f"  Could not resolve processed image path: {processed_path_str}")
+                    
+                    if all_images:
+                        self.logger.info(f"✅ Loaded {len(all_images)} processed images")
+                except Exception as e:
+                    self.logger.warning(f"Failed to load processed_images.json: {e}, falling back to classified.json")
+                    all_images = []
+            
+            # 2. フォールバック: classified.jsonから元画像を取得
+            if not all_images:
+                classified_path = self.working_dir / "03_images" / "classified.json"
+                if not classified_path.exists():
+                    raise FileNotFoundError(f"Neither processed_images.json nor classified.json found")
 
-            with open(classified_path, 'r', encoding='utf-8') as f:
-                classified_data = json.load(f)
+                self.logger.info(f"Loading images from {classified_path}")
+                with open(classified_path, 'r', encoding='utf-8') as f:
+                    classified_data = json.load(f)
 
-            all_images = classified_data.get('images', [])
+                all_images = classified_data.get('images', [])
+                self.logger.info(f"✅ Loaded {len(all_images)} images from classified.json")
 
             # セクションIDと時間のマッピングを作成
             section_durations = {}
@@ -1729,19 +2449,34 @@ class Phase07CompositionV2(PhaseBase):
             else:
                 self.logger.warning("⚠️ No section durations found in audio_timing.json")
 
-            # セクションごとに画像をグループ化
+            # セクションごとに画像をグループ化（画像情報も保持）
             section_images = {sid: [] for sid in section_durations.keys()}
+            # 画像パスから画像情報を逆引きするためのマップ（2.5Dパララックス用）
+            image_info_map = {}
+            
             for img in all_images:
                 file_path = Path(img.get('file_path', ''))
                 if not file_path.exists():
                     continue
 
-                # ファイル名からセクション番号を抽出
-                match = re.search(r'section_(\d+)', file_path.name)
-                if match:
-                    section_num = int(match.group(1))
-                    if section_num in section_images:
-                        section_images[section_num].append(file_path)
+                # section_idまたはファイル名からセクション番号を抽出
+                section_num = img.get('section_id')
+                if not section_num:
+                    # フォールバック: ファイル名から抽出
+                    match = re.search(r'section_(\d+)', file_path.name)
+                    if match:
+                        section_num = int(match.group(1))
+                    else:
+                        continue
+                
+                # 画像情報をマップに保存（2.5Dパララックス用）
+                image_info_map[str(file_path)] = {
+                    'section_id': section_num,
+                    'depth_map_path': img.get('depth_map_path')
+                }
+                
+                if section_num in section_images:
+                    section_images[section_num].append(file_path)
 
             # 各セクション内でソート
             for section_num in section_images.keys():
@@ -1815,11 +2550,15 @@ class Phase07CompositionV2(PhaseBase):
                             duration = end_time - start_time
                             
                             if image_path.exists():
+                                # 画像情報を取得（2.5Dパララックス用）
+                                img_info = image_info_map.get(str(image_path), {})
                                 image_timings.append({
                                     'path': image_path,
                                     'duration': duration,
                                     'start_time': start_time,
-                                    'end_time': end_time
+                                    'end_time': end_time,
+                                    'section_id': img_info.get('section_id'),
+                                    'depth_map_path': img_info.get('depth_map_path')
                                 })
                         
                         self.logger.info(f"✅ Generated {len(image_timings)} image clips with LLM matching")
@@ -1877,11 +2616,15 @@ class Phase07CompositionV2(PhaseBase):
                             duration = end_time - start_time
                             
                             if image_path.exists():
+                                # 画像情報を取得（2.5Dパララックス用）
+                                img_info = image_info_map.get(str(image_path), {})
                                 image_timings.append({
                                     'path': image_path,
                                     'duration': duration,
                                     'start_time': start_time,
-                                    'end_time': end_time
+                                    'end_time': end_time,
+                                    'section_id': img_info.get('section_id'),
+                                    'depth_map_path': img_info.get('depth_map_path')
                                 })
                         
                         self.logger.info(f"✅ Generated {len(image_timings)} image clips with keyword matching")
@@ -1933,14 +2676,18 @@ class Phase07CompositionV2(PhaseBase):
                     )
 
                     for image_path in images:
+                        # 画像情報を取得（2.5Dパララックス用）
+                        img_info = image_info_map.get(str(image_path), {})
                         image_timings.append({
                             'path': image_path,
-                            'duration': duration_per_image
+                            'duration': duration_per_image,
+                            'section_id': img_info.get('section_id'),
+                            'depth_map_path': img_info.get('depth_map_path')
                         })
 
             self.logger.info(f"Total images to process: {len(image_timings)}")
 
-            # 3. 各画像を動画セグメントに変換（シネマティックスタイル）
+            # 3. 各画像を動画セグメントに変換（グラデーションなし）
             self.logger.info("Creating cinematic video segments from images...")
             
             # 画像が0枚の場合、黒画面ビデオを生成
@@ -1961,140 +2708,154 @@ class Phase07CompositionV2(PhaseBase):
                     str(output_segment)
                 ]
                 
-                try:
-                    result = subprocess.run(
-                        cmd,
-                        check=True,
-                        capture_output=True,
-                        text=False,
-                        encoding=None
-                    )
+                if self._run_ffmpeg_safe(cmd, timeout=60):
                     segment_files.append(output_segment)
                     self.logger.info(f"✅ Created black screen video segment ({actual_audio_duration:.3f}s)")
-                except subprocess.CalledProcessError as e:
-                    try:
-                        stderr_msg = e.stderr.decode('utf-8', errors='ignore') if e.stderr else ''
-                    except:
-                        stderr_msg = '<decode failed>'
-                    self.logger.error(f"Failed to create black screen segment: {stderr_msg}")
-                    raise
+                else:
+                    raise RuntimeError("Failed to create black screen segment")
+            
+            # DepthAnimatorを初期化（2.5Dパララックス用）
+            depth_animator = DepthAnimator(logger=self.logger)
             
             for i, timing in enumerate(image_timings):
                 img_path = timing['path']
                 duration = timing['duration']
                 output_segment = temp_dir / f"segment_{i:03d}.mp4"
+                
+                # 最初の画像（i == 0）かつ深度マップが存在する場合は2.5Dパララックスを使用
+                depth_map_path_str = timing.get('depth_map_path')
+                
+                if i == 0 and depth_map_path_str:
+                    depth_path = self._resolve_image_path(depth_map_path_str)
+                    if depth_path and depth_path.exists():
+                        self.logger.info(f"🎬 Using 2.5D parallax (dolly zoom) for first image: {img_path.name}")
+                        success = depth_animator.create_animation(
+                            image_path=Path(img_path),
+                            depth_path=depth_path,
+                            duration=duration,
+                            output_path=output_segment,
+                            movement_type="dolly_zoom"
+                        )
+                        if success:
+                            segment_files.append(output_segment)
+                            self.logger.info(f"✅ Created 2.5D parallax segment: {output_segment.name}")
+                            # 2.5D処理が成功した場合は次の画像へ
+                            continue
+                        else:
+                            self.logger.warning(f"⚠️ 2.5D parallax failed, falling back to FFmpeg zoompan")
+                            # フォールバック: 通常のFFmpeg処理に続行
 
-                # zoompanのパラメータ計算
-                fps = 30
-                total_frames = int(duration * fps)
-                zoom_increment = 0.15 / total_frames if total_frames > 0 else 0.001
-
-                # シネマティックフィルタチェーン
-                # 1. [bg] 背景層: スケール+クロップ → ブラー → 暗くする
-                # 2. [fg] 前景層: スケール+パッド → ゆっくりズーム
-                # 3. [video] 背景+前景を合成
-                # 4. [gradient] 画面下部にグラデーション生成
-                # 5. [out] 最終合成
-                filter_complex = (
-                    # 背景層: 画面全体にフィット（クロップ）してブラー+暗くする
-                    "[0:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,boxblur=100:5,eq=brightness=-0.3[bg];"
-                    # 前景層: アスペクト比維持してパッド、ゆっくりズーム
-                    f"[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,"
-                    f"zoompan=z='min(zoom+{zoom_increment:.6f},1.15)':d={total_frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1920x1080:fps={fps}[fg];"
-                    # 背景+前景を合成
-                    "[bg][fg]overlay=(W-w)/2:(H-h)/2[video];"
-                    # グラデーション生成（画面下部30%に透明→黒）
-                    "color=black@0:s=1920x1080,geq=lum='if(lt(Y,ih*0.7),0,255*(Y-ih*0.7)/(ih*0.3))':cb=128:cr=128,format=rgba[gradient];"
-                    # 最終合成
-                    "[video][gradient]overlay=0:0:format=auto,format=yuv420p[out]"
+                # --- [B] 本編 (4K Cinematic Zoom) ---
+                self.logger.info(f"[{i+1}/{len(image_timings)}] Generating 4K cinematic zoom...")
+                self._create_zoompan_segment(
+                    img_path=img_path,
+                    gradient_path=None,  # ← グラデーションなし
+                    duration=duration,
+                    output_path=output_segment,
+                    seed=i
                 )
+                
+                # 🔥 セグメント検証
+                self._verify_segment_duration(output_segment, duration)
+                segment_files.append(output_segment)
 
-                cmd = [
-                    'ffmpeg', '-y',
-                    '-loop', '1',
-                    '-i', str(img_path),
-                    '-t', f"{duration:.6f}",
-                    '-filter_complex', filter_complex,
-                    '-map', '[out]',
-                    '-c:v', 'libx264',
-                    '-preset', 'ultrafast',  # 速度重視
-                    '-crf', '0',  # ロスレス
-                    '-pix_fmt', 'yuv420p',
-                    '-r', '30',  # FPS統一
-                    str(output_segment)
-                ]
-
-                try:
-                    result = subprocess.run(
-                        cmd,
-                        check=True,
-                        capture_output=True,
-                        text=False,  # バイナリモードで取得
-                        encoding=None  # エンコーディングを指定しない
-                    )
-                    segment_files.append(output_segment)
-                    if (i + 1) % 3 == 0 or i == len(image_timings) - 1:
-                        self.logger.info(f"  Created {i + 1}/{len(image_timings)} segments")
-                except subprocess.CalledProcessError as e:
-                    # エラーメッセージをUTF-8でデコード（失敗時は無視）
-                    try:
-                        stderr_msg = e.stderr.decode('utf-8', errors='ignore') if e.stderr else ''
-                    except:
-                        stderr_msg = '<decode failed>'
-                    self.logger.error(f"Failed to create segment {i}: {stderr_msg}")
-                    raise
-
-            # 4. concat用のファイルリスト作成
+            # 4. concat用のファイルリスト作成（duration付き）
             if len(segment_files) == 0:
                 raise ValueError("No video segments created. Cannot proceed with video composition.")
             
             concat_list = temp_dir / "concat.txt"
-            with open(concat_list, 'w', encoding='utf-8') as f:
-                for segment in segment_files:
-                    # パスを正規化（Windowsの場合は/区切りに）
-                    path_str = str(segment.resolve())
-                    if platform.system() == 'Windows':
-                        path_str = path_str.replace('\\', '/')
-                    f.write(f"file '{path_str}'\n")
+            self._create_concat_file_with_duration(
+                segment_files, 
+                image_timings, 
+                concat_list
+            )
 
-            self.logger.info(f"Created concat file with {len(segment_files)} segments")
+            # 5. グラデーション画像生成（最終合成時に使用）
+            visual_effects_config = self.phase_config.get("visual_effects", {})
+            layout_type = visual_effects_config.get("layout", "cinematic_blur")
+            gradient_height = visual_effects_config.get("gradient_height", 0.35)
+            
+            gradient_path = None
+            if layout_type == "cinematic_blur":
+                self.logger.info("Creating gradient image...")
+                gradient_path = self._create_gradient_image(
+                    width=1920,
+                    height=1080,
+                    gradient_ratio=gradient_height
+                )
+                self.logger.debug(f"Gradient image ready: {gradient_path.name}")
 
-            # 5. ASS字幕を生成
+            # 6. ASS字幕を生成
             self.logger.info("Creating ASS subtitles...")
             ass_path = self._create_ass_subtitles_fixed()
+            
+            # 🔥 字幕検証
+            subtitle_timing_path = self.working_dir / "06_subtitles" / "subtitle_timing.json"
+            if subtitle_timing_path.exists():
+                with open(subtitle_timing_path, 'r', encoding='utf-8') as f:
+                    subtitle_timing = json.load(f)
+                self._verify_ass_subtitles(ass_path, subtitle_timing)
 
-            # 6. 最終動画を生成（concat + 字幕 + 音声）
+            # 7. 最終動画を生成（concat filter + グラデーション + 字幕 + 音声）
             output_dir = Path(self.config.get("paths", {}).get("output_dir", "data/output"))
             output_dir = output_dir / "videos"
             output_dir.mkdir(parents=True, exist_ok=True)
             final_output = output_dir / f"{self.subject}.mp4"
 
-            self.logger.info("Combining segments with audio and subtitles...")
+            # 音声の長さを取得
+            actual_audio_duration = self.bgm_processor.get_audio_duration(audio_path)
 
-            cmd = [
-                'ffmpeg', '-y',
-                '-f', 'concat',
-                '-safe', '0',
-                '-i', str(concat_list),
-                '-i', str(audio_path)
-            ]
+            self.logger.info("Combining segments with audio and subtitles (using concat filter)...")
 
-            # BGM入力
-            bgm_input_indices = []
+            # 🔥 重要: 全セグメントを個別入力として追加（concat filter使用）
+            cmd = ['ffmpeg', '-y']
+            
+            # セグメント入力（0から始まる）
+            for seg in segment_files:
+                cmd.extend(['-i', str(seg)])
+            
+            num_segments = len(segment_files)
+            
+            # グラデーション入力（セグメント数の位置）
+            gradient_input_idx = num_segments
+            has_gradient = layout_type == "cinematic_blur" and gradient_path and gradient_path.exists()
+            if has_gradient:
+                cmd.extend(['-loop', '1', '-i', str(gradient_path)])
+            
+            # 音声入力（セグメント数 + グラデーション(0 or 1) の位置）
+            audio_input_idx = num_segments + (1 if has_gradient else 0)
+            cmd.extend(['-i', str(audio_path)])
+
+            # BGM入力（音声の次から）
+            bgm_input_start = audio_input_idx + 1
+            bgm_inputs = []
             if bgm_data and bgm_data.get("segments"):
                 for segment in bgm_data["segments"]:
                     bgm_path = segment.get("file_path")
                     if bgm_path and Path(bgm_path).exists():
                         cmd.extend(['-i', str(bgm_path)])
-                        bgm_input_indices.append(len(cmd) // 2 - 1)
+                        bgm_inputs.append(bgm_path)
 
-            # フィルタ構築
-            ass_path_str = str(ass_path).replace('\\', '/').replace(':', '\\:')
-            video_filter = f"drawbox=y=ih-216:color=black@1.0:width=iw:height=216:t=fill,ass='{ass_path_str}'"
-            cmd.extend(['-vf', video_filter])
-
+            # 🔥 フィルタ構築（concat filter使用）
+            # Step 1: 全セグメントをconcat
+            concat_inputs = ''.join([f'[{i}:v]' for i in range(num_segments)])
+            concat_filter = f"{concat_inputs}concat=n={num_segments}:v=1:a=0[v_concat]"
+            
+            # Step 2: グラデーションをオーバーレイ
+            if layout_type == "cinematic_blur" and gradient_path and gradient_path.exists():
+                gradient_filter = f"[v_concat][{gradient_input_idx}:v]overlay=0:0:format=auto[v_grad]"
+            else:
+                gradient_filter = "[v_concat]copy[v_grad]"
+            
+            # Step 3: 字幕を焼き込み
+            ass_path_str = str(ass_path.resolve()).replace('\\', '/').replace(':', '\\:')
+            subtitle_filter = f"[v_grad]ass='{ass_path_str}'[v_final]"
+            
+            # 組み合わせ
+            video_filter = f"{concat_filter};{gradient_filter};{subtitle_filter}"
+            
             # オーディオ処理
-            if bgm_input_indices:
+            if bgm_data and bgm_data.get("segments"):
                 # BGM情報のデバッグ出力
                 self.logger.info("=" * 60)
                 self.logger.info("BGM Configuration:")
@@ -2115,11 +2876,17 @@ class Phase07CompositionV2(PhaseBase):
                         )
                 self.logger.info("=" * 60)
 
-                audio_filter = self._build_audio_filter(bgm_data["segments"])
-                cmd.extend(['-filter_complex', audio_filter])
-                cmd.extend(['-map', '0:v', '-map', '[audio]'])
+                audio_filter = self.bgm_processor.build_audio_filter(
+                    bgm_data["segments"], 
+                    narration_input=audio_input_idx,
+                    bgm_input_start=bgm_input_start
+                )
+                filter_complex = video_filter + ";" + audio_filter
+                cmd.extend(['-filter_complex', filter_complex])
+                cmd.extend(['-map', '[v_final]', '-map', '[audio]'])
             else:
-                cmd.extend(['-map', '0:v', '-map', '1:a'])
+                cmd.extend(['-filter_complex', video_filter])
+                cmd.extend(['-map', '[v_final]', '-map', f'{audio_input_idx}:a'])
 
             # エンコード設定
             cmd.extend([
@@ -2133,50 +2900,23 @@ class Phase07CompositionV2(PhaseBase):
                 str(final_output)
             ])
 
-            # FFmpegを実行
-            self.logger.info("Running final ffmpeg command...")
+            # 🔥 デバッグログ
             self.logger.info("=" * 60)
-            self.logger.info("FFmpeg command preview:")
-
-            # コマンドを見やすく表示
-            for j, arg in enumerate(cmd):
-                if j == 0:
-                    self.logger.info(f"  {arg}")
-                elif arg.startswith('-'):
-                    self.logger.info(f"  {arg} \\")
-                else:
-                    self.logger.info(f"    {arg} \\")
-
+            self.logger.info("🎬 Final FFmpeg Command (concat filter):")
+            self.logger.info(f"  Segments: {num_segments} (inputs [0] - [{num_segments-1}])")
+            if layout_type == "cinematic_blur" and gradient_path and gradient_path.exists():
+                self.logger.info(f"  Gradient input: [{gradient_input_idx}]")
+            self.logger.info(f"  Audio input: [{audio_input_idx}]")
+            if bgm_inputs:
+                self.logger.info(f"  BGM inputs: [{bgm_input_start}] - [{bgm_input_start + len(bgm_inputs) - 1}]")
+            self.logger.info(f"  Concat filter: {concat_filter}")
             self.logger.info("=" * 60)
 
-            try:
-                result = subprocess.run(
-                    cmd,
-                    check=True,
-                    capture_output=True,
-                    text=False,  # バイナリモードで取得
-                    encoding=None  # エンコーディングを指定しない
-                )
+            self.logger.info("🏁 Running final render...")
+            if self._run_ffmpeg_safe(cmd, timeout=1800):  # 30分タイムアウト
                 self.logger.info(f"✅ Video generation completed: {final_output}")
-
-                # 必要に応じてログ出力（UTF-8でデコード）
-                if result.stdout:
-                    try:
-                        stdout = result.stdout.decode('utf-8', errors='ignore')
-                        if stdout.strip():
-                            self.logger.debug(f"FFmpeg output: {stdout}")
-                    except:
-                        pass  # デコードできない場合は無視
-
-            except subprocess.CalledProcessError as e:
-                self.logger.error(f"❌ ffmpeg failed with code {e.returncode}")
-                # エラーメッセージをUTF-8でデコード（失敗時は無視）
-                try:
-                    stderr_msg = e.stderr.decode('utf-8', errors='ignore') if e.stderr else ''
-                    self.logger.error(f"STDERR:\n{stderr_msg}")
-                except:
-                    self.logger.error("STDERR: <decode failed>")
-                raise
+            else:
+                raise RuntimeError("Final render failed")
 
             return final_output
 
@@ -3012,8 +3752,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         # 2. スケーリング
         video_filters.append("scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2")
 
-        # 3. 黒バー
-        video_filters.append("drawbox=y=ih-216:color=black@1.0:width=iw:height=216:t=fill")
+        # 3. 黒バーを削除（Phase 04/07 v2で導入したグラデーション座布団が既に適用されているため不要）
+        # video_filters.append("drawbox=y=ih-216:color=black@1.0:width=iw:height=216:t=fill")
 
         # 4. ASS字幕
         if ass_path and ass_path.exists():
@@ -3154,10 +3894,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         # 実行
         try:
-            result = __import__('subprocess').run(cmd, capture_output=True, text=True, check=True)
+            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             self.logger.info(f"✅ 動画生成完了: {output_path}")
-        except __import__('subprocess').CalledProcessError as e:
-            self.logger.error(f"FFmpeg失敗: {e.stderr}")
+        except subprocess.CalledProcessError:
+            # エラーはcheck=Trueで検出される（エラー内容は見ない）
+            self.logger.error(f"FFmpeg失敗")
             raise
 
         # 6. 検証
@@ -3179,7 +3920,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             ]
 
             try:
-                result = __import__('subprocess').run(duration_cmd, capture_output=True, text=True, check=True)
+                # 動画の長さ取得は出力が小さいため、PIPEで安全に取得
+                result = subprocess.run(
+                    duration_cmd,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    bufsize=1  # バッファサイズを小さくしてデッドロック防止
+                )
                 duration = float(result.stdout.strip())
                 self.logger.info(f"✓ 動画の長さ: {duration:.2f}秒")
             except Exception:
@@ -3281,8 +4029,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         # 1. スケーリングとパディング
         video_filters.append("scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2")
 
-        # 2. 黒バーを追加（下部216px）
-        video_filters.append("drawbox=y=ih-216:color=black@1.0:width=iw:height=216:t=fill")
+        # 2. 黒バーを削除（Phase 04/07 v2で導入したグラデーション座布団が既に適用されているため不要）
+        # video_filters.append("drawbox=y=ih-216:color=black@1.0:width=iw:height=216:t=fill")
 
         # 3. ASS字幕を適用（fontsdir指定）
         if ass_path and ass_path.exists():
@@ -3530,8 +4278,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         video_filters.append("scale=1920:1080:force_original_aspect_ratio=decrease")
         video_filters.append("pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black")
 
-        # 2. 黒バーを追加（下部216px、y=864）
-        video_filters.append("drawbox=y=864:color=black:width=1920:height=216:t=fill")
+        # 2. 黒バーを削除（Phase 04/07 v2で導入したグラデーション座布団が既に適用されているため不要）
+        # video_filters.append("drawbox=y=864:color=black:width=1920:height=216:t=fill")
 
         # 3. ASS字幕を焼き込み
         # Windowsパスのエスケープ処理
@@ -3653,12 +4401,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         
         try:
             # 字幕ファイルのディレクトリで実行（相対パス解決のため）
-            result = subprocess.run(
+            subprocess.run(
                 cmd,
                 check=True,
-                capture_output=True,
-                text=True,
-                encoding='utf-8',
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
                 cwd=str(srt_dir)  # 作業ディレクトリを字幕ディレクトリに設定
             )
             
@@ -3666,8 +4413,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             
         except subprocess.CalledProcessError as e:
             self.logger.error(f"❌ ffmpeg Pass 2 failed with code {e.returncode}")
-            self.logger.error(f"STDOUT:\n{e.stdout}")
-            self.logger.error(f"STDERR:\n{e.stderr}")
+            # エラー出力はDEVNULLで取得できないため、コマンドのみ表示
             
             # コマンドをログ
             cmd_str = ' '.join(f'"{c}"' if ' ' in str(c) else str(c) for c in cmd)
@@ -3694,7 +4440,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             str(thumbnail_path)
         ]
 
-        subprocess.run(cmd, check=True, capture_output=True)
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.logger.info(f"Thumbnail generated: {thumbnail_path}")
         return thumbnail_path
 
@@ -4072,19 +4818,20 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if enable_conditions:
                 enable_expr = "+".join(enable_conditions)
 
-                # 黒オーバーレイを追加
-                overlay_filter = (
-                    f"color=black:s=1920x1080:d={audio_duration}:r=30[black];"
-                    f"[black]format=rgba,colorchannelmixer=aa={opacity}[overlay];"
-                    f"[padded][overlay]overlay=enable='{enable_expr}'[video]"
-                )
-                filter_complex += overlay_filter
+                # 黒オーバーレイを無効化（Phase 04で作ったシネマティックな画作りを活かすため）
+                # overlay_filter = (
+                #     f"color=black:s=1920x1080:d={audio_duration}:r=30[black];"
+                #     f"[black]format=rgba,colorchannelmixer=aa={opacity}[overlay];"
+                #     f"[padded][overlay]overlay=enable='{enable_expr}'[video]"
+                # )
+                # filter_complex += overlay_filter
 
-                self.logger.info(f"✅ [DEBUG] Section title overlay applied:")
-                self.logger.info(f"  Opacity: {opacity} (90% = 0.9)")
+                # オーバーレイなし（画像本来の色をクリアに見せる）
+                filter_complex += '[padded]copy[video]'
+
+                self.logger.info("🚫 Section title overlay disabled to preserve image quality")
                 self.logger.info(f"  Title segments: {len(title_segments)}")
-                self.logger.info(f"  Enable expression: {enable_expr}")
-                self.logger.info(f"  Overlay filter: {overlay_filter}")
+                self.logger.info("  Overlay filter: DISABLED (preserving Phase 04 cinematic look)")
             else:
                 # オーバーレイなし
                 self.logger.warning("⚠️ [DEBUG] No enable conditions generated, overlay not applied")
@@ -4124,17 +4871,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         self.logger.debug(f"Command: {' '.join(cmd)}")
         
         try:
-            result = subprocess.run(
+            subprocess.run(
                 cmd, 
-                check=True, 
-                capture_output=True,
-                text=True,
-                encoding='utf-8',
-                errors='replace'
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
             )
             self.logger.info(f"Video with background created: {output_path}")
-        except subprocess.CalledProcessError as e:
-            self.logger.error(f"FFmpeg failed: {e.stderr}")
+        except subprocess.CalledProcessError:
+            self.logger.error(f"FFmpeg failed to create video with background")
             self.logger.error(f"Command: {' '.join(cmd)}")
             raise
     
@@ -4338,41 +5083,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         self.logger.info(f"📁 FFmpeg fontsdir: {fonts_dir_str}")
         
         try:
-            result = subprocess.run(
+            subprocess.run(
                 cmd,
                 check=True,
-                capture_output=True,
-                text=True,
-                encoding='utf-8',
-                errors='replace'
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
             )
-            # FFmpegの出力を確認（フォント関連の警告/エラーをチェック）
-            if result.stderr:
-                stderr_lines = result.stderr.split('\n')
-                # フォント関連のメッセージを抽出（より広範囲に）
-                font_warnings = [
-                    line for line in stderr_lines 
-                    if any(keyword in line.lower() for keyword in ['font', 'ass', 'subtitle', 'style', 'cinecaption'])
-                ]
-                if font_warnings:
-                    self.logger.warning("⚠️ FFmpegフォント関連メッセージ:")
-                    for line in font_warnings:
-                        self.logger.warning(f"  {line}")
-                else:
-                    # すべてのstderrを表示（デバッグ用）
-                    if result.stderr.strip():
-                        self.logger.debug(f"FFmpeg stderr: {result.stderr[:500]}")  # 最初の500文字のみ
-                    self.logger.info("✅ FFmpegフォント関連の警告なし（正常）")
-            else:
-                self.logger.info("✅ FFmpegエラー出力なし（正常）")
-            self.logger.info(f"Subtitles burned: {output_path}")
-        except subprocess.CalledProcessError as e:
-            # エラー出力をログに記録
-            error_output = e.stderr if isinstance(e.stderr, str) else e.stderr.decode('utf-8', errors='replace')
-            self.logger.error(f"❌ FFmpeg failed: {error_output}")
-            # フォント関連のエラーを強調
-            if 'font' in error_output.lower() or 'ass' in error_output.lower():
-                self.logger.error("⚠️ フォント関連のエラーが検出されました！")
+            # エラーはcheck=Trueで検出されるため、出力確認は不要
+            self.logger.info(f"✅ Subtitles burned: {output_path}")
+        except subprocess.CalledProcessError:
+            # エラーはcheck=Trueで検出される（エラー内容は見ない）
+            self.logger.error(f"❌ FFmpeg failed to burn subtitles")
             self.logger.error(f"Command: {' '.join(cmd)}")
             raise
     
@@ -4393,7 +5114,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     
     def _get_images_for_sections(self, script: dict) -> List[Path]:
         """
-        セクションごとの画像を取得
+        セクションごとの画像を取得（processed_images.json を優先）
         
         Args:
             script: 台本データ
@@ -4401,6 +5122,73 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         Returns:
             画像ファイルのパスリスト（セクション順）
         """
+        # 1. 優先: processed_images.json から加工済み画像を取得
+        processed_json = self.working_dir / "04_processed" / "processed_images.json"
+        
+        if processed_json.exists():
+            try:
+                with open(processed_json, 'r', encoding='utf-8') as f:
+                    processed_data = json.load(f)
+                
+                processed_images = processed_data.get('images', [])
+                
+                if processed_images:
+                    self.logger.info(f"Loading processed images from {processed_json}")
+                    
+                    # セクションID順にソート
+                    sections = script.get('sections', [])
+                    section_ids = [s.get('section_id', 0) for s in sections]
+                    
+                    # セクションID順に画像を抽出
+                    images = []
+                    for section_id in section_ids:
+                        # 該当セクションの加工済み画像を検索
+                        section_processed = [
+                            img for img in processed_images
+                            if img.get('section_id') == section_id
+                        ]
+                        
+                        if section_processed:
+                            # 最初の1枚を使用（将来的に複数対応可能）
+                            processed_path_str = section_processed[0].get('processed_file_path', '')
+                            processed_path = self._resolve_image_path(processed_path_str)
+                            
+                            if processed_path and processed_path.exists():
+                                images.append(processed_path)
+                                self.logger.debug(
+                                    f"Section {section_id}: Using processed image: {processed_path.name}"
+                                )
+                            else:
+                                self.logger.warning(
+                                    f"Section {section_id}: Processed image not found: {processed_path_str}"
+                                )
+                                # 元画像へのフォールバック
+                                original_path = Path(section_processed[0].get('original_file_path', ''))
+                                if original_path.exists():
+                                    images.append(original_path)
+                                    self.logger.debug(
+                                        f"Section {section_id}: Using original image as fallback: {original_path.name}"
+                                    )
+                    
+                    if images:
+                        self.logger.info(f"✓ Loaded {len(images)} processed images")
+                        # 深度マップ情報も保持（将来の2.5D実装用）
+                        depth_maps = [
+                            Path(img.get('depth_map_path', ''))
+                            for img in processed_images
+                            if img.get('depth_map_path')
+                        ]
+                        if depth_maps:
+                            self.logger.debug(f"  Found {len(depth_maps)} depth maps (for future 2.5D implementation)")
+                        return images
+                    else:
+                        self.logger.warning("No valid processed images found, falling back to generated images")
+            
+            except Exception as e:
+                self.logger.warning(f"Failed to load processed_images.json: {e}, falling back to generated images")
+        
+        # 2. フォールバック: 従来の方式（03_images/generated から読み込む）
+        self.logger.info("Using fallback: loading images from 03_images/generated")
         images_dir = self.working_dir / "03_images" / "generated"
         
         if not images_dir.exists():
@@ -4414,7 +5202,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             section_id = section.get('section_id', 0)
             
             # セクションIDに基づいて画像ファイルを検索
-            # ファイル名パターン: section_XX_*.jpg または section_XX_*.png
             section_images = sorted(
                 list(images_dir.glob(f"section_{section_id:02d}_*.*"))
             )
