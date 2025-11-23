@@ -86,7 +86,8 @@ class VideoSegmentGenerator:
         script: dict,
         audio_timing: dict,
         bgm_data: Optional[dict] = None,
-        output_path: Optional[Path] = None
+        output_path: Optional[Path] = None,
+        ass_path: Optional[Path] = None
     ) -> Path:
         """
         画像セグメントから最終動画を生成
@@ -97,6 +98,7 @@ class VideoSegmentGenerator:
             audio_timing: 音声タイミングデータ
             bgm_data: BGMデータ
             output_path: 出力パス（指定しない場合は phase_dir/final_video.mp4）
+            ass_path: ASS字幕ファイルのパス（指定しない場合は生成されない）
 
         Returns:
             生成された動画のパス
@@ -110,7 +112,8 @@ class VideoSegmentGenerator:
             script=script,
             audio_timing=audio_timing,
             bgm_data=bgm_data,
-            output_path=output_path
+            output_path=output_path,
+            ass_path=ass_path
         )
 
         return video_path
@@ -289,7 +292,8 @@ class VideoSegmentGenerator:
         script: dict,
         audio_timing: dict,
         bgm_data: Optional[dict],
-        output_path: Path
+        output_path: Path,
+        ass_path: Optional[Path] = None
     ) -> Path:
         """
         セグメントごとに動画を作成してから連結
@@ -300,6 +304,7 @@ class VideoSegmentGenerator:
             audio_timing: 音声タイミングデータ
             bgm_data: BGMデータ
             output_path: 出力パス
+            ass_path: ASS字幕ファイルのパス（オプション）
 
         Returns:
             最終動画のパス
@@ -343,14 +348,7 @@ class VideoSegmentGenerator:
             if not image_timings:
                 raise ValueError("No image timings calculated")
 
-            # グラデーション画像を生成（キャッシュ）
-            gradient_path = self.gradient_processor.create_gradient_image(
-                width=1920,
-                height=1080,
-                gradient_ratio=0.35
-            )
-
-            # 各画像をセグメント動画に変換
+            # 各画像をセグメント動画に変換（グラデーションなし）
             self.logger.info(f"Creating {len(image_timings)} video segments...")
             for i, timing in enumerate(image_timings):
                 img_path = timing['path']
@@ -359,21 +357,13 @@ class VideoSegmentGenerator:
                 segment_file = temp_dir / f"segment_{i:04d}.mp4"
                 self.logger.info(f"  [{i+1}/{len(image_timings)}] {img_path.name} ({duration:.2f}s)")
 
-                # ズーム処理でセグメント生成
+                # ズーム処理でセグメント生成（グラデーションなし）
                 self._create_zoompan_segment(
                     img_path=img_path,
-                    gradient_path=gradient_path,
                     duration=duration,
                     output_path=segment_file,
                     seed=i
                 )
-
-                # グラデーション適用
-                if gradient_path:
-                    self.gradient_processor.apply_to_video(
-                        video_path=segment_file,
-                        gradient_path=gradient_path
-                    )
 
                 segment_files.append(segment_file)
 
@@ -385,17 +375,33 @@ class VideoSegmentGenerator:
                 output_path=concat_list
             )
 
-            # ASS字幕を生成（SubtitleProcessorに委譲する必要があるが、ここでは簡易実装）
-            subtitle_timing_path = self.working_dir / "06_subtitles" / "subtitle_timing.json"
-            ass_path = self.phase_dir / "subtitles.ass"
+            # グラデーション画像を生成（最終合成時に使用）
+            gradient_path = self.gradient_processor.create_gradient_image(
+                width=1920,
+                height=1080,
+                gradient_ratio=0.35
+            )
+            self.logger.info(f"🎨 Gradient image ready: {gradient_path.name}")
 
-            # 動画を連結 + 音声 + 字幕 + BGM
+            # ASS字幕ファイルのパス（既に生成されている場合はそれを使用、なければNone）
+            if ass_path is None:
+                # ASSファイルが存在するか確認
+                default_ass_path = self.phase_dir / "subtitles.ass"
+                if default_ass_path.exists():
+                    ass_path = default_ass_path
+                    self.logger.info(f"📝 Using existing ASS file: {ass_path.name}")
+                else:
+                    self.logger.warning("⚠️ ASS file not found, video will be created without subtitles")
+                    ass_path = None
+
+            # 動画を連結 + グラデーション + 音声 + 字幕 + BGM
             cmd = self.ffmpeg_builder.build_ffmpeg_command_optimized(
                 concat_file=concat_list,
                 audio_path=audio_path,
                 ass_path=ass_path,
                 output_path=output_path,
-                bgm_data=bgm_data
+                bgm_data=bgm_data,
+                gradient_path=gradient_path
             )
 
             self.logger.info("🎬 Running final FFmpeg merge...")
@@ -413,7 +419,6 @@ class VideoSegmentGenerator:
     def _create_zoompan_segment(
         self,
         img_path: Path,
-        gradient_path: Optional[Path],
         duration: float,
         output_path: Path,
         seed: int
@@ -423,7 +428,6 @@ class VideoSegmentGenerator:
 
         Args:
             img_path: 画像ファイルのパス
-            gradient_path: グラデーション画像のパス（未使用）
             duration: セグメントの長さ（秒）
             output_path: 出力パス
             seed: ランダムシード

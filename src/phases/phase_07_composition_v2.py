@@ -1,4 +1,4 @@
-"""
+﻿"""
 Phase 7: 動画統合（Video Composition）- リファクタリング版
 Phase 1-6で生成した全ての素材を統合し、完成動画を生成する
 
@@ -291,40 +291,27 @@ class Phase07CompositionV2(PhaseBase):
             self.logger.info("Loading data...")
             data = self.data_loader.load_all_data()
 
-            # 2. 動画セグメント生成（VideoSegmentGeneratorに委譲）
-            self.logger.info("Creating video from segments...")
-            video_no_subtitle = self.video_segment_generator.create_video_from_segments(
-                audio_path=data['audio_path'],
-                script=data['script'],
-                audio_timing=data['audio_timing'],
-                bgm_data=data['bgm'],
-                output_path=self.phase_dir / "video_no_subtitle.mp4"
-            )
-
-            # 3. 字幕適用（SubtitleProcessorに委譲）
-            self.logger.info("Applying subtitles...")
-            final_video_path = self.phase_dir / "final_video.mp4"
-
-            # ASS字幕ファイル生成
+            # 2. ASS字幕ファイル生成（先に生成してVideoSegmentGeneratorに渡す）
+            self.logger.info("Creating ASS subtitles...")
             ass_path = self.subtitle_processor.create_ass_file(
                 subtitles=data['subtitles'],
                 audio_timing=data['audio_timing'],
                 output_path=self.phase_dir / "subtitles.ass"
             )
 
-            # 字幕を動画に焼き込み（FFmpegBuilderを使用）
-            import subprocess
-            cmd = [
-                'ffmpeg', '-y',
-                '-i', str(video_no_subtitle),
-                '-vf', f"ass={ass_path}",
-                '-c:v', 'libx264',
-                '-preset', self.encode_preset,
-                '-crf', '23',
-                '-c:a', 'copy',
-                str(final_video_path)
-            ]
-            subprocess.run(cmd, check=True, capture_output=True, text=True)
+            # 3. 動画セグメント生成（VideoSegmentGeneratorに委譲、字幕も含めて生成）
+            self.logger.info("Creating video from segments...")
+            final_video_path = self.phase_dir / "final_video.mp4"
+            
+            # VideoSegmentGeneratorで既に字幕を適用しているので、そのまま使用
+            self.video_segment_generator.create_video_from_segments(
+                audio_path=data['audio_path'],
+                script=data['script'],
+                audio_timing=data['audio_timing'],
+                bgm_data=data['bgm'],
+                output_path=final_video_path,
+                ass_path=ass_path  # ASSファイルのパスを渡す
+            )
 
             # 4. サムネイル生成
             self.logger.info("Generating thumbnail...")
@@ -670,5 +657,5 @@ class Phase07CompositionV2(PhaseBase):
         """メタデータを保存"""
         metadata_path = self.phase_dir / "metadata.json"
         with open(metadata_path, 'w', encoding='utf-8') as f:
-            json.dump(composition.to_dict(), f, indent=2, ensure_ascii=False)
+            json.dump(composition.model_dump(mode='json'), f, indent=2, ensure_ascii=False)
         self.logger.info(f"✓ Metadata saved: {metadata_path}")
