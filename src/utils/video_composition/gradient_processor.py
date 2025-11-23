@@ -155,13 +155,14 @@ class GradientProcessor:
         # コマンドをログ出力
         self.logger.debug(f"  Running: {' '.join(cmd)}")
 
-        # エラー出力をキャプチャ
+        # デッドロック対策: stdout/stderrをDEVNULLに設定
         try:
             result = subprocess.run(
                 cmd,
                 check=True,
-                capture_output=True,
-                text=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL,
                 timeout=timeout
             )
 

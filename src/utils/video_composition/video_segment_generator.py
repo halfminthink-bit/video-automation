@@ -348,22 +348,84 @@ class VideoSegmentGenerator:
             if not image_timings:
                 raise ValueError("No image timings calculated")
 
-            # 各画像をセグメント動画に変換（グラデーションなし）
+            # グラデーション画像を生成（全セグメントで共有）
+            gradient_path = self.gradient_processor.create_gradient_image(
+                width=1920,
+                height=1080,
+                gradient_ratio=0.35
+            )
+            self.logger.info(f"🎨 Gradient image ready: {gradient_path.name}")
+
+            # 各画像をセグメント動画に変換（グラデーション付き）
             self.logger.info(f"Creating {len(image_timings)} video segments...")
             for i, timing in enumerate(image_timings):
                 img_path = timing['path']
                 duration = timing['duration']
+                depth_map_path = timing.get('depth_map_path')
 
                 segment_file = temp_dir / f"segment_{i:04d}.mp4"
                 self.logger.info(f"  [{i+1}/{len(image_timings)}] {img_path.name} ({duration:.2f}s)")
 
-                # ズーム処理でセグメント生成（グラデーションなし）
-                self._create_zoompan_segment(
-                    img_path=img_path,
-                    duration=duration,
-                    output_path=segment_file,
-                    seed=i
-                )
+                # 2.5D処理 or ズーム処理でセグメント生成（グラデーション付き）
+                depth_map = None
+                if depth_map_path:
+                    depth_map = Path(depth_map_path) if isinstance(depth_map_path, str) else depth_map_path
+                    if not depth_map.exists():
+                        depth_map = None
+                
+                if depth_map:
+                    # 2.5D処理
+                    from .depth_animator import DepthAnimator
+                    depth_animator = DepthAnimator(logger=self.logger)
+                    
+                    temp_2_5d = temp_dir / f"segment_2_5d_{i:04d}.mp4"
+                    self.logger.info(f"  🎬 2.5D animation: {depth_map.name}")
+                    success = depth_animator.create_animation(
+                        image_path=img_path,
+                        depth_path=depth_map,
+                        duration=duration,
+                        output_path=temp_2_5d,
+                        movement_type="dolly_zoom"
+                    )
+                    
+                    if success:
+                        # グラデーション合成＆フォーマット正規化（強制再エンコード）
+                        self.logger.info(f"  🎨 Applying gradient to 2.5D segment...")
+                        if self.gradient_processor.apply_to_video(
+                            video_path=temp_2_5d,
+                            gradient_path=gradient_path
+                        ):
+                            # 正規化されたファイルを最終セグメントとして使用
+                            segment_file = temp_2_5d
+                        else:
+                            # グラデーション適用失敗時は通常のズーム処理にフォールバック
+                            self.logger.warning(f"Gradient application failed, falling back to zoom for {img_path.name}")
+                            self._create_zoompan_segment(
+                                img_path=img_path,
+                                duration=duration,
+                                output_path=segment_file,
+                                seed=i,
+                                gradient_path=gradient_path
+                            )
+                    else:
+                        # 2.5D失敗時は通常のズーム処理にフォールバック
+                        self.logger.warning(f"2.5D failed, falling back to zoom for {img_path.name}")
+                        self._create_zoompan_segment(
+                            img_path=img_path,
+                            duration=duration,
+                            output_path=segment_file,
+                            seed=i,
+                            gradient_path=gradient_path
+                        )
+                else:
+                    # 通常のズーム処理（グラデーション付き）
+                    self._create_zoompan_segment(
+                        img_path=img_path,
+                        duration=duration,
+                        output_path=segment_file,
+                        seed=i,
+                        gradient_path=gradient_path
+                    )
 
                 segment_files.append(segment_file)
 
@@ -374,14 +436,6 @@ class VideoSegmentGenerator:
                 image_timings=image_timings,
                 output_path=concat_list
             )
-
-            # グラデーション画像を生成（最終合成時に使用）
-            gradient_path = self.gradient_processor.create_gradient_image(
-                width=1920,
-                height=1080,
-                gradient_ratio=0.35
-            )
-            self.logger.info(f"🎨 Gradient image ready: {gradient_path.name}")
 
             # ASS字幕ファイルのパス（既に生成されている場合はそれを使用、なければNone）
             if ass_path is None:
@@ -394,14 +448,13 @@ class VideoSegmentGenerator:
                     self.logger.warning("⚠️ ASS file not found, video will be created without subtitles")
                     ass_path = None
 
-            # 動画を連結 + グラデーション + 音声 + 字幕 + BGM
+            # 動画を連結 + 音声 + 字幕 + BGM（グラデーションは各セグメントに既に適用済み）
             cmd = self.ffmpeg_builder.build_ffmpeg_command_optimized(
                 concat_file=concat_list,
                 audio_path=audio_path,
                 ass_path=ass_path,
                 output_path=output_path,
-                bgm_data=bgm_data,
-                gradient_path=gradient_path
+                bgm_data=bgm_data
             )
 
             self.logger.info("🎬 Running final FFmpeg merge...")
@@ -421,16 +474,18 @@ class VideoSegmentGenerator:
         img_path: Path,
         duration: float,
         output_path: Path,
-        seed: int
+        seed: int,
+        gradient_path: Optional[Path] = None
     ):
         """
-        4Kズーム処理（グラデーションなし）
+        4Kズーム処理（グラデーション付き）
 
         Args:
             img_path: 画像ファイルのパス
             duration: セグメントの長さ（秒）
             output_path: 出力パス
             seed: ランダムシード
+            gradient_path: グラデーション画像のパス（オプション）
         """
         random.seed(seed)
         move_type = random.choice(["zoom_in", "zoom_out", "pan_right", "pan_left"])
@@ -457,25 +512,51 @@ class VideoSegmentGenerator:
             z_expr = "z='1.1'"
             pos = f"{x_expr}:y='ih/2-(ih/zoom/2)'"
 
-        filter_complex = (
-            # 背景: 軽量擬似ブラー (1920 -> 192 -> 1920)
-            f"[0:v]scale=192:108,scale=1920:1080:flags=bicubic,eq=brightness=-0.3[bg];"
-            # 前景: 4Kアップスケール -> Zoompan -> 1080pダウンコンバート
-            f"[0:v]{scale_4k},zoompan={z_expr}:d={frames}:{pos}:s=3840x2160:fps={fps},scale=1920:1080[fg];"
-            # 合成
-            "[bg][fg]overlay=(W-w)/2:(H-h)/2,format=yuv420p[out]"
-        )
+        # グラデーションがある場合は合成、ない場合は通常処理
+        if gradient_path and gradient_path.exists():
+            filter_complex = (
+                # 背景: 軽量擬似ブラー (1920 -> 192 -> 1920)
+                f"[0:v]scale=192:108,scale=1920:1080:flags=bicubic,eq=brightness=-0.3[bg];"
+                # 前景: 4Kアップスケール -> Zoompan -> 1080pダウンコンバート
+                f"[0:v]{scale_4k},zoompan={z_expr}:d={frames}:{pos}:s=3840x2160:fps={fps},scale=1920:1080[fg];"
+                # 合成
+                "[bg][fg]overlay=(W-w)/2:(H-h)/2[video_raw];"
+                # グラデーション合成
+                f"[video_raw][1:v]overlay=0:0:format=auto,format=yuv420p[out]"
+            )
 
-        cmd = [
-            'ffmpeg', '-y',
-            '-loop', '1', '-i', str(img_path),
-            '-t', f"{duration:.6f}",
-            '-filter_complex', filter_complex,
-            '-map', '[out]',
-            '-c:v', 'libx264', '-preset', self.encode_preset, '-crf', '18',
-            '-pix_fmt', 'yuv420p', '-r', '30',
-            str(output_path)
-        ]
+            cmd = [
+                'ffmpeg', '-y',
+                '-loop', '1', '-i', str(img_path),       # [0]
+                '-loop', '1', '-i', str(gradient_path),  # [1] グラデーション
+                '-t', f"{duration:.6f}",
+                '-filter_complex', filter_complex,
+                '-map', '[out]',
+                '-c:v', 'libx264', '-preset', self.encode_preset, '-crf', '18',
+                '-pix_fmt', 'yuv420p', '-r', '30',
+                str(output_path)
+            ]
+        else:
+            # グラデーションなし（互換性のため保持）
+            filter_complex = (
+                # 背景: 軽量擬似ブラー (1920 -> 192 -> 1920)
+                f"[0:v]scale=192:108,scale=1920:1080:flags=bicubic,eq=brightness=-0.3[bg];"
+                # 前景: 4Kアップスケール -> Zoompan -> 1080pダウンコンバート
+                f"[0:v]{scale_4k},zoompan={z_expr}:d={frames}:{pos}:s=3840x2160:fps={fps},scale=1920:1080[fg];"
+                # 合成
+                "[bg][fg]overlay=(W-w)/2:(H-h)/2,format=yuv420p[out]"
+            )
+
+            cmd = [
+                'ffmpeg', '-y',
+                '-loop', '1', '-i', str(img_path),
+                '-t', f"{duration:.6f}",
+                '-filter_complex', filter_complex,
+                '-map', '[out]',
+                '-c:v', 'libx264', '-preset', self.encode_preset, '-crf', '18',
+                '-pix_fmt', 'yuv420p', '-r', '30',
+                str(output_path)
+            ]
 
         if not self._run_ffmpeg_safe(cmd, timeout=300):
             raise RuntimeError(f"Failed to create zoom segment: {img_path.name}")
